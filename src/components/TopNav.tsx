@@ -695,6 +695,7 @@ export function TopNav({
                                             </div>
                                           </div>
                                         );
+                                       }
                                       if (item.kind === 'budget_alert') {
                                         const isExceeded = item.status === 'overdue';
                                         return (

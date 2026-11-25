@@ -1,13 +1,30 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { useReducedMotion } from 'motion/react';
+import {
+  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import {
   BarChart3,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Download,
+  LineChart as LineChartIcon,
   Receipt,
   Target,
+  TrendingUp,
   Upload,
-  Wallet,
 } from 'lucide-react';
 import {
   BudgetLimit,
@@ -20,7 +37,10 @@ import {
 import {
   DONUT_COLORS,
   FinancePageTab,
+  MonthlyHealthTooltip,
+  MonthlyPoint,
   calcDeltaPct,
+  formatAxisCompact,
 } from './finance/financeShared';
 import { TransactionsLedgerPage } from './finance/TransactionsLedgerPage';
 import { BudgetsAndBillsPage } from './finance/BudgetsAndBillsPage';
@@ -110,6 +130,33 @@ export function FinanceView({
 }: FinanceViewProps) {
   const currency: Currency = 'AMD';
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prefersReducedMotion = useReducedMotion();
+
+  const [dynamicsRange, setDynamicsRange] = useState<6 | 12>(6);
+  const [dynamicsMode, setDynamicsMode] = useState<'area' | 'bar'>('area');
+  const [showIncomeSeries, setShowIncomeSeries] = useState(true);
+  const [showExpenseSeries, setShowExpenseSeries] = useState(true);
+  const [showNetSeries, setShowNetSeries] = useState(false);
+  const [isDynamicsExpanded, setIsDynamicsExpanded] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('pa_finance_dynamics_open');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleDynamicsExpanded = () => {
+    setIsDynamicsExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('pa_finance_dynamics_open', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // 3 Dedicated Pages State (Default to 'ledger' or stored user preference)
   const [activePage, setActivePage] = useState<FinancePageTab>(() => {
@@ -347,7 +394,7 @@ export function FinanceView({
 
   // 6-Month Trend Data
   const last6Months = getLastNMonthsKeys(selectedMonth, 6);
-  const monthlySeries = last6Months.map((monthKey) => {
+  const monthlySeries: MonthlyPoint[] = last6Months.map((monthKey) => {
     const items = transactions.filter((t) =>
       isDateInCycle(t.date, monthKey, effectivePayday)
     );
@@ -355,7 +402,7 @@ export function FinanceView({
       .filter((t) => t.type === 'income')
       .reduce((s, t) => s + t.amount, 0);
     const exp = items
-      .filter((t) => t.type === 'expense')
+      .filter((t) => t.type === 'expense' && !t.isPending)
       .reduce((s, t) => s + t.amount, 0);
     return {
       monthKey,
@@ -364,6 +411,46 @@ export function FinanceView({
       expense: exp,
     };
   });
+
+  // 6 or 12-Month Dynamics Chart Data
+  const dynamicsSeries = useMemo(() => {
+    const keys = getLastNMonthsKeys(selectedMonth, dynamicsRange);
+    return keys.map((monthKey) => {
+      const items = transactions.filter((t) =>
+        isDateInCycle(t.date, monthKey, effectivePayday)
+      );
+      const inc = items
+        .filter((t) => t.type === 'income')
+        .reduce((s, t) => s + t.amount, 0);
+      const exp = items
+        .filter((t) => t.type === 'expense' && !t.isPending)
+        .reduce((s, t) => s + t.amount, 0);
+      const shortLabel = getCycleShortLabel(monthKey, effectivePayday);
+      const yearSuffix = dynamicsRange === 12 ? ` '${monthKey.slice(2, 4)}` : '';
+      return {
+        monthKey,
+        label: `${shortLabel}${yearSuffix}`,
+        income: inc,
+        expense: exp,
+        net: inc - exp,
+      };
+    });
+  }, [transactions, selectedMonth, dynamicsRange, effectivePayday]);
+
+  const dynamicsStats = useMemo(() => {
+    const totalRangeIncome = dynamicsSeries.reduce((s, p) => s + p.income, 0);
+    const totalRangeExpense = dynamicsSeries.reduce((s, p) => s + p.expense, 0);
+    const activeMonthsCount = Math.max(
+      1,
+      dynamicsSeries.filter((p) => p.income > 0 || p.expense > 0).length
+    );
+    return {
+      avgIncome: Math.round(totalRangeIncome / activeMonthsCount),
+      avgExpense: Math.round(totalRangeExpense / activeMonthsCount),
+      netTotal: totalRangeIncome - totalRangeExpense,
+      hasAnyData: totalRangeIncome > 0 || totalRangeExpense > 0,
+    };
+  }, [dynamicsSeries]);
 
   // 3-Month Comparative Data
   const last3MonthsKeys = getLastNMonthsKeys(selectedMonth, 3);
@@ -597,6 +684,425 @@ export function FinanceView({
           );
         })}
       </div>
+
+      {/* 2.5. Monthly Income & Expense Dynamics Chart (Recharts) */}
+      <section className="surface-card overflow-hidden">
+        <div className="px-5 py-4 sm:px-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
+            <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+              <TrendingUp className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="font-display text-base sm:text-lg font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                Եկամուտների և ծախսերի ամսական դինամիկա
+              </h2>
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                Վերջին {dynamicsRange} հաշվարկային ամիս · սեղմեք ամսվա վրա՝ ցիկլը բացելու համար
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Quick Period Averages */}
+            <div className="hidden xl:flex items-center gap-3 mr-2 pr-3 border-r border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
+              <div>
+                <span className="text-[#94A3B8] dark:text-[#64748B] mr-1">Միջ. եկամուտ՝</span>
+                <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                  +{formatMoney(dynamicsStats.avgIncome, currency)}
+                </span>
+              </div>
+              <div>
+                <span className="text-[#94A3B8] dark:text-[#64748B] mr-1">Միջ. ծախս՝</span>
+                <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
+                  -{formatMoney(dynamicsStats.avgExpense, currency)}
+                </span>
+              </div>
+            </div>
+
+            {isDynamicsExpanded && (
+              <>
+                {/* 6m / 12m Toggle */}
+                <div className="inline-flex items-center p-0.5 rounded-xl surface-subtle text-xs">
+                  {([6, 12] as const).map((months) => (
+                    <button
+                      key={months}
+                      type="button"
+                      onClick={() => setDynamicsRange(months)}
+                      className={`min-h-[30px] px-2.5 rounded-lg font-medium transition-colors cursor-pointer tabular-nums ${
+                        dynamicsRange === months
+                          ? 'bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] shadow-xs'
+                          : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                      }`}
+                    >
+                      {months} ամիս
+                    </button>
+                  ))}
+                </div>
+
+                {/* Area / Bar Chart Mode Toggle */}
+                <div className="inline-flex items-center p-0.5 rounded-xl surface-subtle text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setDynamicsMode('area')}
+                    aria-label="Գծային դինամիկա"
+                    title="Գծային դինամիկա"
+                    className={`min-h-[30px] px-2.5 rounded-lg font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      dynamicsMode === 'area'
+                        ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+                        : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                    }`}
+                  >
+                    <LineChartIcon className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Գծային</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDynamicsMode('bar')}
+                    aria-label="Սյունակային համեմատություն"
+                    title="Սյունակային համեմատություն"
+                    className={`min-h-[30px] px-2.5 rounded-lg font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      dynamicsMode === 'bar'
+                        ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+                        : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Սյուներ</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={toggleDynamicsExpanded}
+              aria-expanded={isDynamicsExpanded}
+              aria-label={isDynamicsExpanded ? 'Թաքցնել գծապատկերը' : 'Ցույց տալ գծապատկերը'}
+              className="min-h-[32px] px-2.5 py-1 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:border-[#CBD5E1] dark:hover:border-[#334155] inline-flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              <span>{isDynamicsExpanded ? 'Թաքցնել' : 'Ցույց տալ'}</span>
+              {isDynamicsExpanded ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {isDynamicsExpanded && (
+          <div className="px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-4">
+            {/* Series Toggles & Summary Strip */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showIncomeSeries && !showExpenseSeries && !showNetSeries) return;
+                    setShowIncomeSeries((v) => !v);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
+                    showIncomeSeries
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                      : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#94A3B8] opacity-60'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500" />
+                  <span>Եկամուտ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showExpenseSeries && !showIncomeSeries && !showNetSeries) return;
+                    setShowExpenseSeries((v) => !v);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
+                    showExpenseSeries
+                      ? 'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                      : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#94A3B8] opacity-60'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-xs bg-rose-500" />
+                  <span>Ծախս</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showNetSeries && !showIncomeSeries && !showExpenseSeries) return;
+                    setShowNetSeries((v) => !v);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1.5 font-medium transition-all cursor-pointer ${
+                    showNetSeries
+                      ? 'border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#2563EB] dark:text-[#60A5FA]'
+                      : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#94A3B8] opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  <span className="w-2.5 h-0.5 rounded-full bg-[#3B82F6]" />
+                  <span>Մնացորդ (Զուտ)</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 text-xs tabular-nums">
+                <span className="xl:hidden text-[#64748B] dark:text-[#94A3B8]">
+                  Միջ. եկամուտ՝{' '}
+                  <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                    +{formatMoney(dynamicsStats.avgIncome, currency)}
+                  </strong>
+                </span>
+                <span className="xl:hidden text-[#64748B] dark:text-[#94A3B8]">
+                  Միջ. ծախս՝{' '}
+                  <strong className="font-mono text-rose-600 dark:text-rose-400">
+                    -{formatMoney(dynamicsStats.avgExpense, currency)}
+                  </strong>
+                </span>
+                <span className="text-[#64748B] dark:text-[#94A3B8]">
+                  Ընդ. զուտ հոսք՝{' '}
+                  <strong
+                    className={`font-mono ${
+                      dynamicsStats.netTotal >= 0
+                        ? 'text-[#0F172A] dark:text-[#F8FAFC]'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {dynamicsStats.netTotal > 0 ? '+' : ''}
+                    {formatMoney(dynamicsStats.netTotal, currency)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+
+            {!dynamicsStats.hasAnyData ? (
+              <div className="h-[220px] flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC]/60 dark:bg-[#0B1120]/40 px-4">
+                <p className="text-sm font-medium text-[#475569] dark:text-[#CBD5E1]">
+                  Այս ժամանակահատվածում գրանցված եկամուտներ կամ ծախսեր չկան
+                </p>
+                <p className="text-xs text-[#94A3B8] dark:text-[#64748B] mt-1">
+                  Ավելացրեք գործարքներ՝ ամսական դինամիկան այստեղ տեսնելու համար։
+                </p>
+              </div>
+            ) : (
+              <div className="h-[235px] w-full">
+                <ResponsiveContainer width="100%" height={235} minWidth={0}>
+                  {dynamicsMode === 'area' ? (
+                    <ComposedChart
+                      data={dynamicsSeries}
+                      margin={{ top: 12, right: 12, left: -8, bottom: 0 }}
+                      onClick={(state) => {
+                        const clickedKey = (
+                          state as { activeLabel?: string } | null
+                        )?.activeLabel;
+                        if (clickedKey && clickedKey !== selectedMonth) {
+                          onChangeMonth(clickedKey);
+                        }
+                      }}
+                    >
+                      <defs>
+                        <linearGradient id="financeIncomeGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.28} />
+                          <stop offset="95%" stopColor="#10B981" stopOpacity={0.02} />
+                        </linearGradient>
+                        <linearGradient id="financeExpenseGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.24} />
+                          <stop offset="95%" stopColor="#F43F5E" stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid
+                        vertical={false}
+                        strokeDasharray="3 3"
+                        stroke="currentColor"
+                        className="text-[#E2E8F0] dark:text-[#1E293B]"
+                      />
+                      <XAxis
+                        dataKey="monthKey"
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(key: string) => {
+                          const found = dynamicsSeries.find((p) => p.monthKey === key);
+                          return found ? found.label : key;
+                        }}
+                        tick={{ fontSize: 11, fill: 'currentColor' }}
+                        className="text-[#64748B] dark:text-[#94A3B8]"
+                        dy={6}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        width={54}
+                        tickFormatter={formatAxisCompact}
+                        tick={{ fontSize: 11, fill: 'currentColor' }}
+                        className="text-[#94A3B8] dark:text-[#64748B] font-mono"
+                      />
+                      <ReferenceLine
+                        x={selectedMonth}
+                        stroke="#3B82F6"
+                        strokeDasharray="4 4"
+                        strokeOpacity={0.65}
+                      />
+                      <Tooltip
+                        cursor={{
+                          stroke: '#3B82F6',
+                          strokeWidth: 1,
+                          strokeDasharray: '4 4',
+                        }}
+                        content={({ active, payload }) => (
+                          <MonthlyHealthTooltip
+                            active={active}
+                            payload={payload}
+                            currency={currency}
+                            payday={effectivePayday}
+                          />
+                        )}
+                      />
+                      {showIncomeSeries && (
+                        <Area
+                          type="monotone"
+                          dataKey="income"
+                          name="Եկամուտ"
+                          stroke="#10B981"
+                          strokeWidth={2.5}
+                          fill="url(#financeIncomeGrad)"
+                          activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
+                          dot={{ r: 3, fill: '#10B981', strokeWidth: 0 }}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={550}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                      {showExpenseSeries && (
+                        <Area
+                          type="monotone"
+                          dataKey="expense"
+                          name="Ծախս"
+                          stroke="#F43F5E"
+                          strokeWidth={2.5}
+                          fill="url(#financeExpenseGrad)"
+                          activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
+                          dot={{ r: 3, fill: '#F43F5E', strokeWidth: 0 }}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={620}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                      {showNetSeries && (
+                        <Line
+                          type="monotone"
+                          dataKey="net"
+                          name="Մնացորդ"
+                          stroke="#3B82F6"
+                          strokeWidth={2}
+                          strokeDasharray="5 4"
+                          dot={{ r: 2.5, fill: '#3B82F6', strokeWidth: 0 }}
+                          activeDot={{ r: 4.5, strokeWidth: 2, stroke: '#FFFFFF' }}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={650}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                    </ComposedChart>
+                  ) : (
+                    <BarChart
+                      data={dynamicsSeries}
+                      barGap={6}
+                      barCategoryGap={dynamicsRange === 12 ? '20%' : '26%'}
+                      margin={{ top: 12, right: 12, left: -8, bottom: 0 }}
+                      onClick={(state) => {
+                        const clickedKey = (
+                          state as { activeLabel?: string } | null
+                        )?.activeLabel;
+                        if (clickedKey && clickedKey !== selectedMonth) {
+                          onChangeMonth(clickedKey);
+                        }
+                      }}
+                    >
+                      <CartesianGrid
+                        vertical={false}
+                        strokeDasharray="3 3"
+                        stroke="currentColor"
+                        className="text-[#E2E8F0] dark:text-[#1E293B]"
+                      />
+                      <XAxis
+                        dataKey="monthKey"
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(key: string) => {
+                          const found = dynamicsSeries.find((p) => p.monthKey === key);
+                          return found ? found.label : key;
+                        }}
+                        tick={{ fontSize: 11, fill: 'currentColor' }}
+                        className="text-[#64748B] dark:text-[#94A3B8]"
+                        dy={6}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        width={54}
+                        tickFormatter={formatAxisCompact}
+                        tick={{ fontSize: 11, fill: 'currentColor' }}
+                        className="text-[#94A3B8] dark:text-[#64748B] font-mono"
+                      />
+                      <ReferenceLine
+                        x={selectedMonth}
+                        stroke="#3B82F6"
+                        strokeDasharray="4 4"
+                        strokeOpacity={0.65}
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'rgba(59, 130, 246, 0.08)', radius: 8 }}
+                        content={({ active, payload }) => (
+                          <MonthlyHealthTooltip
+                            active={active}
+                            payload={payload}
+                            currency={currency}
+                            payday={effectivePayday}
+                          />
+                        )}
+                      />
+                      {showIncomeSeries && (
+                        <Bar
+                          dataKey="income"
+                          name="Եկամուտ"
+                          fill="#10B981"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={dynamicsRange === 12 ? 20 : 30}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={500}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                      {showExpenseSeries && (
+                        <Bar
+                          dataKey="expense"
+                          name="Ծախս"
+                          fill="#F43F5E"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={dynamicsRange === 12 ? 20 : 30}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={550}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                      {showNetSeries && (
+                        <Bar
+                          dataKey="net"
+                          name="Մնացորդ"
+                          fill="#3B82F6"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={dynamicsRange === 12 ? 20 : 30}
+                          isAnimationActive={!prefersReducedMotion}
+                          animationDuration={580}
+                          animationEasing="ease-out"
+                        />
+                      )}
+                    </BarChart>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* 3. Render Active Page */}
       {activePage === 'ledger' && (
