@@ -1,0 +1,6 @@
+{
+  "name": "Անձնական Օգնական",
+  "description": "Անձնական ֆինանսների, ամենօրյա անելիքների և նշումների կառավարման մինիմալիստական հավելված",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

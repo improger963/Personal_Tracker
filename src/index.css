@@ -1,0 +1,55 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: "Plus Jakarta Sans", "Noto Sans Armenian", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: "Outfit", "Noto Sans Armenian", sans-serif;
+    --font-mono: "JetBrains Mono", "Noto Sans Armenian", ui-monospace, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+    overflow-x: clip;
+  }
+
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: clip;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.surface-card {
+  @apply border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] rounded-2xl shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)];
+}
+
+.surface-subtle {
+  @apply border border-[#E2E8F0] dark:border-[#1E293B] bg-[#EEF2F7] dark:bg-[#162033];
+}
+
+.input-field {
+  @apply max-w-full min-w-0 border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#0F172A] dark:text-[#F8FAFC] placeholder:text-[#94A3B8] dark:placeholder:text-[#64748B] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2563EB] dark:focus-visible:ring-[#3B82F6] focus-visible:border-transparent;
+}
+
+.btn-primary {
+  @apply bg-[#2563EB] hover:bg-[#1D4ED8] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] font-semibold active:scale-[0.98] transition-all cursor-pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
