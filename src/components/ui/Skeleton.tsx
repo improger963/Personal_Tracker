@@ -21,6 +21,7 @@ export type PageSkeletonVariant =
   | 'planner'
   | 'notes'
   | 'ledger'
+  | 'cards'
   | 'budgets'
   | 'goals_debts'
   | 'analytics';
@@ -131,6 +132,21 @@ export function PageSkeleton({ variant }: { variant: PageSkeletonVariant }) {
           <Skeleton className="h-6 w-52" />
           <Skeleton className="h-14 w-full" />
           <Skeleton className="h-14 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (variant === 'cards') {
+    return (
+      <div className="space-y-6" aria-busy="true" aria-label="Բեռնվում է...">
+        <div className="surface-card p-6 space-y-4">
+          <Skeleton className="h-7 w-48" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Skeleton className="h-36 rounded-2xl" />
+            <Skeleton className="h-36 rounded-2xl" />
+            <Skeleton className="h-36 rounded-2xl" />
+          </div>
         </div>
       </div>
     );

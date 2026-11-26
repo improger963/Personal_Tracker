@@ -3,7 +3,12 @@ import { Currency } from '../../types';
 import { formatMoney } from '../../data/defaults';
 import { formatCycleLabel } from '../../utils/financialCycle';
 
-export type FinancePageTab = 'ledger' | 'budgets' | 'goals_debts' | 'analytics';
+export type FinancePageTab =
+  | 'ledger'
+  | 'cards'
+  | 'budgets'
+  | 'goals_debts'
+  | 'analytics';
 export type TxSortMode = 'date-desc' | 'amount-desc' | 'amount-asc';
 
 export const DONUT_COLORS = [

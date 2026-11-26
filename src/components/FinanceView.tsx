@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  CreditCard,
   Download,
   LineChart as LineChartIcon,
   PieChart as PieChartIcon,
@@ -292,6 +293,7 @@ export const FinanceView = memo(function FinanceView({
       const saved = localStorage.getItem('pa_finance_active_page');
       if (
         saved === 'ledger' ||
+        saved === 'cards' ||
         saved === 'budgets' ||
         saved === 'goals_debts' ||
         saved === 'analytics'
@@ -862,33 +864,41 @@ export const FinanceView = memo(function FinanceView({
       {
         id: 'ledger' as const,
         label: 'Գործարքներ',
-        subtitle: 'Մատյան և գրանցումներ',
+        subtitle: 'Մատյան և քաղվածք',
         icon: Receipt,
         badge: `${monthTransactions.length}`,
       },
       {
+        id: 'cards' as const,
+        label: 'Քարտեր',
+        subtitle: 'Հաշիվներ և փոխանցում',
+        icon: CreditCard,
+        badge: `${cards.length}`,
+      },
+      {
         id: 'budgets' as const,
         label: 'Բյուջե և Վճարներ',
-        subtitle: 'Կրկնվող ծախսեր և ցիկլ',
+        subtitle: 'Սահմանաչափ և օրացույց',
         icon: Target,
         badge: `${budgets.length + recurringBills.length}`,
       },
       {
         id: 'goals_debts' as const,
         label: 'Նպատակներ / Պարտքեր',
-        subtitle: 'Գանձանակներ և փոխառություններ',
+        subtitle: 'Գանձանակներ և պարտքեր',
         icon: PiggyBank,
         badge: `${activeGoalsCount + activeDebtsCount}`,
       },
       {
         id: 'analytics' as const,
         label: 'Վերլուծություն',
-        subtitle: 'Ամփոփում և գրաֆիկներ',
+        subtitle: 'Գրաֆիկներ և AI հաշվետվություն',
         icon: BarChart3,
         badge: savingsPct !== null ? `${savingsPct}%` : undefined,
       },
     ];
   }, [
+    cards.length,
     savingsGoals,
     debts,
     monthTransactions.length,
@@ -907,6 +917,7 @@ export const FinanceView = memo(function FinanceView({
           </h1>
           <p className="text-sm text-[#64748B] dark:text-[#94A3B8]">
             {activePage === 'ledger' && 'Գործարքների մատյան, որոնում և արագ ավելացում'}
+            {activePage === 'cards' && 'Բանկային քարտեր, կանխիկ հաշիվներ և ներքին փոխանցումներ'}
             {activePage === 'budgets' && 'Կատեգորիաների բյուջեներ, ամենօրյա և ամսական կրկնվող վճարներ'}
             {activePage === 'goals_debts' && 'Խնայողության գանձանակներ, տրված և վերցված պարտքերի վերահսկում'}
             {activePage === 'analytics' && 'Ամսական ամփոփում, 3 և 6 ամիսների համեմատական վերլուծություն'}
@@ -980,8 +991,8 @@ export const FinanceView = memo(function FinanceView({
         </div>
       </div>
 
-      {/* 2. Four Dedicated Pages Switcher */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 p-1.5 rounded-2xl surface-subtle">
+      {/* 2. Five Dedicated Pages Switcher */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 p-1.5 rounded-2xl surface-subtle">
         {pagesConfig.map((page) => {
           const Icon = page.icon;
           const isActive = activePage === page.id;
@@ -1040,94 +1051,6 @@ export const FinanceView = memo(function FinanceView({
         })}
       </div>
 
-      {/* 2.15. Manual Cards & Wallets Section */}
-      <CardsSection
-        cards={cards}
-        transactions={transactions}
-        currency={currency}
-        selectedCardFilter={selectedCardFilter}
-        onSelectCardFilter={(cardId) => {
-          setSelectedCardFilter(cardId);
-          if (cardId !== 'all' && activePage !== 'ledger') {
-            handleSelectPage('ledger');
-          }
-        }}
-        onOpenNewCardModal={onOpenNewCardModal}
-        onEditCard={onEditCard}
-        onDeleteCard={onDeleteCard}
-        onSetDefaultCard={onSetDefaultCard}
-        onQuickCardIncome={(cardId) => onQuickCardTransaction('income', cardId)}
-        onQuickCardExpense={(cardId) => onQuickCardTransaction('expense', cardId)}
-        onOpenTransferModal={(fromCardId) =>
-          setTransferModalState({ fromCardId })
-        }
-      />
-
-      {/* 2.25. Safe-to-Spend Daily Allowance Summary Strip */}
-      <section
-        aria-label="Օրական անվտանգ բյուջե"
-        className="surface-card px-4 py-3.5 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-3"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
-            <ShieldCheck className="w-4 h-4" />
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <h2 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-                Օրական անվտանգ բյուջե
-              </h2>
-              <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
-                · {safeToSpend.remainingDaysInclusive} օր մինչև ցիկլի ավարտը
-              </span>
-            </div>
-            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
-              Ազատ միջոցներ՝{' '}
-              <strong className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
-                {formatMoney(safeToSpend.freeFunds, currency)}
-              </strong>
-              {(safeToSpend.reservedBills > 0 || safeToSpend.reservedPending > 0) && (
-                <>
-                  {' '}
-                  · Պահուստ (վճարներ + նախածախս)՝{' '}
-                  <strong className="font-mono text-amber-600 dark:text-amber-400">
-                    {formatMoney(
-                      safeToSpend.reservedBills + safeToSpend.reservedPending,
-                      currency
-                    )}
-                  </strong>
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 tabular-nums">
-          <div>
-            <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-              Օրական սահմանաչափ
-            </span>
-            <span className="font-mono text-base sm:text-lg font-bold text-[#2563EB] dark:text-[#60A5FA]">
-              {formatMoney(safeToSpend.dailyAllowance, currency)}
-            </span>
-          </div>
-          <div className="pl-4 border-l border-[#E2E8F0] dark:border-[#1E293B]">
-            <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-              Այսօրվա մնացորդ (ծախս՝ {formatMoney(safeToSpend.todaySpent, currency)})
-            </span>
-            <span
-              className={`font-mono text-base sm:text-lg font-bold ${
-                safeToSpend.remainingTodayAllowance >= 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-rose-600 dark:text-rose-400'
-              }`}
-            >
-              {safeToSpend.remainingTodayAllowance >= 0 ? '+' : ''}
-              {formatMoney(safeToSpend.remainingTodayAllowance, currency)}
-            </span>
-          </div>
-        </div>
-      </section>
 
       {/* 2.5. Visual Analytics Row: Monthly Dynamics + Selected Month Category Pie Chart */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -1765,34 +1688,132 @@ export const FinanceView = memo(function FinanceView({
               />
             )}
 
+            {activePage === 'cards' && (
+              <div className="space-y-6">
+                <CardsSection
+                  cards={cards}
+                  transactions={transactions}
+                  currency={currency}
+                  selectedCardFilter={selectedCardFilter}
+                  onSelectCardFilter={(cardId) => {
+                    setSelectedCardFilter(cardId);
+                    if (cardId !== 'all') {
+                      handleSelectPage('ledger');
+                    }
+                  }}
+                  onOpenNewCardModal={onOpenNewCardModal}
+                  onEditCard={onEditCard}
+                  onDeleteCard={onDeleteCard}
+                  onSetDefaultCard={onSetDefaultCard}
+                  onQuickCardIncome={(cardId) =>
+                    onQuickCardTransaction('income', cardId)
+                  }
+                  onQuickCardExpense={(cardId) =>
+                    onQuickCardTransaction('expense', cardId)
+                  }
+                  onOpenTransferModal={(fromCardId) =>
+                    setTransferModalState({ fromCardId })
+                  }
+                />
+              </div>
+            )}
+
             {activePage === 'budgets' && (
-              <BudgetsAndBillsPage
-                selectedMonth={selectedMonth}
-                effectivePayday={effectivePayday}
-                cycleLabel={cycleLabel}
-                currency={currency}
-                primaryIncome={primaryIncome}
-                onSavePrimaryIncome={onSavePrimaryIncome}
-                onDisablePrimaryIncome={onDisablePrimaryIncome}
-                onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
-                hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
-                cycleMetrics={cycleMetrics}
-                budgets={budgets}
-                expenseByCategory={expenseByCategory}
-                onSaveBudget={onSaveBudget}
-                onDeleteBudget={onDeleteBudget}
-                recurringBills={recurringBills}
-                onAddRecurringBill={onAddRecurringBill}
-                onUpdateRecurringBill={onUpdateRecurringBill}
-                onToggleBillActive={onToggleBillActive}
-                onDeleteRecurringBill={onDeleteRecurringBill}
-                onPayAllRecurringBills={onPayAllRecurringBills}
-                onConfirmBillSlot={onConfirmBillSlot}
-                onSkipBillSlot={onSkipBillSlot}
-                currentHHMM={currentHHMM}
-                monthTransactions={monthTransactions}
-                onAddTransaction={onAddTransaction}
-              />
+              <div className="space-y-6">
+                {/* Safe-to-Spend Daily Allowance Summary Strip */}
+                <section
+                  aria-label="Օրական անվտանգ բյուջե"
+                  className="surface-card px-4 py-3.5 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-3"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                      <ShieldCheck className="w-4 h-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <h2 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                          Օրական անվտանգ բյուջե
+                        </h2>
+                        <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                          · {safeToSpend.remainingDaysInclusive} օր մինչև ցիկլի ավարտը
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                        Ազատ միջոցներ՝{' '}
+                        <strong className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                          {formatMoney(safeToSpend.freeFunds, currency)}
+                        </strong>
+                        {(safeToSpend.reservedBills > 0 || safeToSpend.reservedPending > 0) && (
+                          <>
+                            {' '}
+                            · Պահուստ (վճարներ + նախածախս)՝{' '}
+                            <strong className="font-mono text-amber-600 dark:text-amber-400">
+                              {formatMoney(
+                                safeToSpend.reservedBills + safeToSpend.reservedPending,
+                                currency
+                              )}
+                            </strong>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 tabular-nums">
+                    <div>
+                      <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                        Օրական սահմանաչափ
+                      </span>
+                      <span className="font-mono text-base sm:text-lg font-bold text-[#2563EB] dark:text-[#60A5FA]">
+                        {formatMoney(safeToSpend.dailyAllowance, currency)}
+                      </span>
+                    </div>
+                    <div className="pl-4 border-l border-[#E2E8F0] dark:border-[#1E293B]">
+                      <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                        Այսօրվա մնացորդ (ծախս՝ {formatMoney(safeToSpend.todaySpent, currency)})
+                      </span>
+                      <span
+                        className={`font-mono text-base sm:text-lg font-bold ${
+                          safeToSpend.remainingTodayAllowance >= 0
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {safeToSpend.remainingTodayAllowance >= 0 ? '+' : ''}
+                        {formatMoney(safeToSpend.remainingTodayAllowance, currency)}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+
+                <BudgetsAndBillsPage
+                  selectedMonth={selectedMonth}
+                  effectivePayday={effectivePayday}
+                  cycleLabel={cycleLabel}
+                  currency={currency}
+                  primaryIncome={primaryIncome}
+                  onSavePrimaryIncome={onSavePrimaryIncome}
+                  onDisablePrimaryIncome={onDisablePrimaryIncome}
+                  onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
+                  hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
+                  cycleMetrics={cycleMetrics}
+                  budgets={budgets}
+                  expenseByCategory={expenseByCategory}
+                  onSaveBudget={onSaveBudget}
+                  onDeleteBudget={onDeleteBudget}
+                  recurringBills={recurringBills}
+                  onAddRecurringBill={onAddRecurringBill}
+                  onUpdateRecurringBill={onUpdateRecurringBill}
+                  onToggleBillActive={onToggleBillActive}
+                  onDeleteRecurringBill={onDeleteRecurringBill}
+                  onPayAllRecurringBills={onPayAllRecurringBills}
+                  onConfirmBillSlot={onConfirmBillSlot}
+                  onSkipBillSlot={onSkipBillSlot}
+                  currentHHMM={currentHHMM}
+                  monthTransactions={monthTransactions}
+                  onAddTransaction={onAddTransaction}
+                />
+              </div>
             )}
 
             {activePage === 'goals_debts' && (
