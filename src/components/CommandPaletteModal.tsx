@@ -3,6 +3,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BarChart3,
+  Bot,
   CalendarClock,
   CalendarDays,
   CheckSquare,
@@ -14,6 +15,7 @@ import {
   Flame,
   HandCoins,
   LayoutDashboard,
+  Loader2,
   Moon,
   NotebookPen,
   PiggyBank,
@@ -40,9 +42,10 @@ import {
   Transaction,
 } from '../types';
 import { FinancePageTab } from './finance/financeShared';
-import { formatMoney, formatShortDate } from '../data/defaults';
+import { formatMoney, formatShortDate, getTodayISO } from '../data/defaults';
 import { computeCardStats } from '../utils/cardBalances';
 import { SmartParsedAction, parseSmartCommand } from '../utils/smartCommandParser';
+import { AISmartParsedItem, parseCommandWithAI } from '../services/smartAi';
 import { QuickModalMode } from './QuickAddModal';
 
 interface CommandPaletteModalProps {
@@ -73,6 +76,7 @@ interface CommandPaletteModalProps {
     task: Omit<Task, 'id' | 'completed' | 'createdAt'>
   ) => void;
   onExecuteSmartNote: (note: Omit<Note, 'id' | 'updatedAt'>) => void;
+  onOpenAssistant: (initialPrompt?: string) => void;
 }
 
 interface ActionResultItem {
@@ -115,19 +119,99 @@ export function CommandPaletteModal({
   onExecuteSmartTransaction,
   onExecuteSmartTask,
   onExecuteSmartNote,
+  onOpenAssistant,
 }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [aiParsedItems, setAiParsedItems] = useState<AISmartParsedItem[]>([]);
+  const [aiParsing, setAiParsing] = useState(false);
+  const [aiParseError, setAiParseError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const aiAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+    return () => {
+      aiAbortRef.current?.abort();
+    };
   }, []);
 
   const parsedCommand = useMemo<SmartParsedAction | null>(
     () => parseSmartCommand(query, transactions, cards),
     [query, transactions, cards]
   );
+
+  const handleRunAIParse = async () => {
+    const trimmed = query.trim();
+    if (trimmed.length < 3 || aiParsing) return;
+    aiAbortRef.current?.abort();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    setAiParsing(true);
+    setAiParseError('');
+    try {
+      const items = await parseCommandWithAI({
+        text: trimmed,
+        todayISO: getTodayISO(),
+        cardNames: cards.map((c) => c.name),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setAiParsedItems(items);
+      if (items.length === 0) {
+        setAiParseError('Առարկայական գործարք կամ անելիք չգտնվեց։ Կարող եք հարցնել AI օգնականին։');
+      } else {
+        setSelectedIndex(parsedCommand ? 1 : 0);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setAiParseError(
+        err instanceof Error ? err.message : 'Հնարավոր չեղավ վերլուծել AI-ով։'
+      );
+    } finally {
+      if (aiAbortRef.current === controller) {
+        setAiParsing(false);
+        aiAbortRef.current = null;
+      }
+    }
+  };
+
+  const executeAIItem = (item: AISmartParsedItem) => {
+    const today = getTodayISO();
+    if (item.kind === 'transaction' && item.amount && item.amount > 0) {
+      const matchedCard = item.cardHint
+        ? cards.find(
+            (c) =>
+              c.name.toLowerCase().includes(item.cardHint!.toLowerCase()) ||
+              (item.cardHint!.toLowerCase().includes('կանխիկ') && c.cardType === 'cash')
+          )
+        : cards.find((c) => c.isDefault) || cards[0];
+      onExecuteSmartTransaction({
+        type: item.txType === 'income' ? 'income' : 'expense',
+        incomeKind: item.txType === 'income' ? 'extra' : undefined,
+        amount: item.amount,
+        title: item.title,
+        category: item.category || 'Այլ',
+        date: item.date || today,
+        cardId: matchedCard?.id,
+      });
+    } else if (item.kind === 'task') {
+      onExecuteSmartTask({
+        title: item.title,
+        date: item.date || today,
+        dueTime: item.dueTime,
+        priority: item.priority || 'medium',
+        scheduleType: 'one_time',
+      });
+    } else {
+      onExecuteSmartNote({
+        title: item.title,
+        content: item.content || item.title,
+        pinned: false,
+      });
+    }
+    onClose();
+  };
 
   const cardBalanceMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -211,7 +295,64 @@ export function CommandPaletteModal({
       }
     }
 
+    if (aiParsedItems.length > 0) {
+      aiParsedItems.forEach((item, idx) => {
+        if (item.kind === 'transaction' && item.amount) {
+          items.push({
+            id: `ai-parsed-${idx}`,
+            label: `AI · ${item.txType === 'income' ? 'Եկամուտ' : 'Ծախս'}՝ ${item.title}`,
+            subtitle: `${formatMoney(item.amount, currency)} · ${item.category || 'Այլ'}${
+              item.cardHint ? ` · ${item.cardHint}` : ''
+            } · ${formatShortDate(item.date || getTodayISO())}`,
+            badge: 'AI',
+            icon: item.txType === 'income' ? ArrowDownLeft : ArrowUpRight,
+            iconClass:
+              item.txType === 'income'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+            onRun: () => executeAIItem(item),
+          });
+        } else if (item.kind === 'task') {
+          items.push({
+            id: `ai-parsed-${idx}`,
+            label: `AI · Անելիք՝ ${item.title}`,
+            subtitle: `${formatShortDate(item.date || getTodayISO())}${
+              item.dueTime ? `, ${item.dueTime}` : ''
+            } · ${PRIORITY_BADGES[item.priority || 'medium']}`,
+            badge: 'AI',
+            icon: CheckSquare,
+            iconClass: 'bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA]',
+            onRun: () => executeAIItem(item),
+          });
+        } else {
+          items.push({
+            id: `ai-parsed-${idx}`,
+            label: `AI · Նշում՝ ${item.title}`,
+            subtitle: item.content || item.title,
+            badge: 'AI',
+            icon: NotebookPen,
+            iconClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+            onRun: () => executeAIItem(item),
+          });
+        }
+      });
+    }
+
     const staticActions: ActionResultItem[] = [
+      {
+        id: 'act-ai-assistant',
+        label: query.trim()
+          ? `Հարցնել AI օգնականին՝ «${query.trim().slice(0, 40)}»`
+          : 'Բացել խելացի AI օգնականը',
+        subtitle: 'Խորհուրդներ, բյուջեի վերլուծություն և անհատական պլանավորում',
+        badge: 'AI',
+        icon: Bot,
+        iconClass: 'bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA]',
+        onRun: () => {
+          onOpenAssistant(query.trim() || undefined);
+          onClose();
+        },
+      },
       {
         id: 'act-new-tx',
         label: 'Նոր գործարք (եկամուտ / ծախս)',
@@ -568,6 +709,7 @@ export function CommandPaletteModal({
   }, [
     query,
     parsedCommand,
+    aiParsedItems,
     currency,
     cards,
     cardBalanceMap,
@@ -582,17 +724,26 @@ export function CommandPaletteModal({
     onEditNote,
     onEditTask,
     onEditTransaction,
+    onExecuteSmartNote,
+    onExecuteSmartTask,
+    onExecuteSmartTransaction,
     onExportJSON,
     onNavigate,
     onNavigateFinance,
     onNavigatePlanner,
+    onOpenAssistant,
     onOpenNewModal,
     onTogglePrivacy,
     onToggleTheme,
   ]);
 
   useEffect(() => {
+    aiAbortRef.current?.abort();
+    aiAbortRef.current = null;
+    setAiParsing(false);
     setSelectedIndex(0);
+    setAiParsedItems([]);
+    setAiParseError('');
   }, [query]);
 
   useEffect(() => {
@@ -613,6 +764,7 @@ export function CommandPaletteModal({
             : (prev - 1 + results.length) % results.length
         );
       } else if (e.key === 'Enter' && results.length > 0) {
+        if (e.target instanceof HTMLButtonElement) return;
         e.preventDefault();
         const item = results[selectedIndex] ?? results[0];
         item?.onRun();
@@ -661,33 +813,55 @@ export function CommandPaletteModal({
         </div>
 
         {/* Helpful Hint Strip */}
-        <div className="px-4 py-2 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-          <span className="inline-flex items-center gap-1 font-medium text-[#1D4ED8] dark:text-[#60A5FA]">
-            <Zap className="w-3 h-3" />
-            Խելացի մուտք.
-          </span>
-          <button
-            type="button"
-            onClick={() => setQuery('սուրճ 1500')}
-            className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
-          >
-            «սուրճ 1500»
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuery('+բոնուս 50000')}
-            className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
-          >
-            «+բոնուս 50000»
-          </button>
-          <button
-            type="button"
-            onClick={() => setQuery('անելիք զանգել բժշկին 16:30 !')}
-            className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
-          >
-            «անելիք զանգել 16:30 !»
-          </button>
+        <div className="px-4 py-2 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="inline-flex items-center gap-1 font-medium text-[#1D4ED8] dark:text-[#60A5FA]">
+              <Zap className="w-3 h-3" />
+              Խելացի մուտք.
+            </span>
+            <button
+              type="button"
+              onClick={() => setQuery('սուրճ 1500')}
+              className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+            >
+              «սուրճ 1500»
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuery('+բոնուս 50000')}
+              className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+            >
+              «+բոնուս 50000»
+            </button>
+            <button
+              type="button"
+              onClick={() => setQuery('անելիք զանգել բժշկին 16:30 !')}
+              className="hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+            >
+              «անելիք զանգել 16:30 !»
+            </button>
+          </div>
+          {query.trim().length >= 3 && (
+            <button
+              type="button"
+              onClick={() => void handleRunAIParse()}
+              disabled={aiParsing}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold hover:border-[#2563EB] cursor-pointer disabled:opacity-50"
+            >
+              {aiParsing ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Bot className="w-3 h-3" />
+              )}
+              <span>{aiParsing ? 'Վերլուծում է…' : 'Հասկանալ AI-ով'}</span>
+            </button>
+          )}
         </div>
+        {aiParseError && (
+          <div className="px-4 py-2 bg-amber-500/8 border-b border-[#E2E8F0] dark:border-[#1E293B] text-[11px] text-amber-700 dark:text-amber-300">
+            {aiParseError}
+          </div>
+        )}
 
         {/* Results */}
         <div className="max-h-[54vh] overflow-y-auto scroll-container p-2 space-y-1">

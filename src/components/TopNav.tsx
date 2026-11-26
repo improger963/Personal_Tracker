@@ -8,6 +8,7 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  Bot,
   CalendarClock,
   Check,
   CheckSquare,
@@ -110,6 +111,7 @@ interface TopNavProps {
   isPrivacyMode: boolean;
   onTogglePrivacy: () => void;
   onOpenCommandPalette: () => void;
+  onOpenAssistant?: () => void;
   user: User | null;
   syncStatus: CloudSyncStatus;
   isOnline: boolean;
@@ -213,6 +215,7 @@ export const TopNav = memo(function TopNav({
   isPrivacyMode,
   onTogglePrivacy,
   onOpenCommandPalette,
+  onOpenAssistant,
   user,
   syncStatus,
   isOnline,
@@ -635,6 +638,20 @@ export const TopNav = memo(function TopNav({
             </button>
           )}
 
+          {onOpenAssistant && (
+            <button
+              type="button"
+              onClick={onOpenAssistant}
+              aria-label="Բացել խելացի AI օգնականը"
+              className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A]/70 bg-[#EFF6FF]/75 dark:bg-[#172554]/45 text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-between hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/70 transition-colors cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <Bot className="w-4 h-4 shrink-0" />
+                <span className="truncate">AI օգնական</span>
+              </span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenCommandPalette}
@@ -795,6 +812,19 @@ export const TopNav = memo(function TopNav({
                 </div>
               )}
 
+              {onOpenAssistant && (
+                <button
+                  type="button"
+                  onClick={onOpenAssistant}
+                  title="Խելացի AI օգնական"
+                  aria-label="Խելացի AI օգնական"
+                  className="min-h-[38px] min-w-[38px] lg:px-3 flex items-center justify-center gap-1.5 rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A]/70 bg-[#EFF6FF]/80 dark:bg-[#172554]/45 text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+                >
+                  <Bot className="w-4 h-4 shrink-0" />
+                  <span className="hidden xl:inline text-xs font-semibold">AI օգնական</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={onOpenCommandPalette}
@@ -916,6 +946,22 @@ export const TopNav = memo(function TopNav({
                       )}
 
                       <div className="pt-1 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-1">
+                        {onOpenAssistant && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccountMenuOpen(false);
+                              onOpenAssistant();
+                            }}
+                            className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] bg-[#EFF6FF] dark:bg-[#172554]/50 cursor-pointer"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <Bot className="w-3.5 h-3.5" />
+                              <span>Խելացի AI օգնական</span>
+                            </span>
+                          </button>
+                        )}
+
                         <button
                           type="button"
                           onClick={onTogglePrivacy}

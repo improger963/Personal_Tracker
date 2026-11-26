@@ -64,6 +64,12 @@ const CommandPaletteModal = lazy(() =>
     default: m.CommandPaletteModal,
   }))
 );
+const SmartAssistantModal = lazy(() =>
+  import('./components/SmartAssistantModal').then((m) => ({
+    default: m.SmartAssistantModal,
+  }))
+);
+import { buildSmartWorkspaceContext } from './services/smartAi';
 import {
   ARMENIAN_MONTHS,
   formatMoney,
@@ -347,6 +353,10 @@ export default function App() {
     false
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [assistantModalState, setAssistantModalState] = useState<{
+    open: boolean;
+    initialPrompt?: string;
+  }>({ open: false });
   const [modalState, setModalState] = useState<QuickModalState | null>(null);
   const [toast, setToast] = useState<UndoToastState | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -1851,6 +1861,29 @@ export default function App() {
     showToast('Նշումը ավելացվեց անելիքների ցանկում');
   };
 
+  const handleCreateTasksFromNoteAI = useCallback(
+    (
+      noteTitle: string,
+      steps: Array<{ title: string; priority: TaskPriority; dueTime?: string }>
+    ) => {
+      if (steps.length === 0) return;
+      const nowIso = new Date().toISOString();
+      const created: Task[] = steps.map((step) => ({
+        id: createId('task'),
+        title: step.title,
+        priority: step.priority,
+        date: todayKey,
+        dueTime: step.dueTime,
+        scheduleType: 'one_time',
+        completed: false,
+        createdAt: nowIso,
+      }));
+      setTasks((prev) => [...created, ...prev]);
+      showToast(`«${noteTitle}» նշումից ստեղծվեց ${created.length} անելիք`);
+    },
+    [setTasks, showToast, todayKey]
+  );
+
   const handleDeleteNote = (id: string) => {
     const removed = notes.find((n) => n.id === id);
     setNotes((prev) => prev.filter((n) => n.id !== id));
@@ -2365,6 +2398,55 @@ export default function App() {
     [cards, transactions]
   );
   const totalBalance = cycleFin.cycleEndBalance;
+  const defaultCardId = useMemo(
+    () => cards.find((c) => c.isDefault)?.id ?? cards[0]?.id,
+    [cards]
+  );
+
+  const smartWorkspaceContext = useMemo(
+    () =>
+      buildSmartWorkspaceContext({
+        todayISO,
+        selectedMonth,
+        cycleLabel: formatCycleLabel(selectedMonth, effectivePayday),
+        effectivePayday,
+        cycleIncome: cycleFin.cycleIncome,
+        cycleExpense: cycleFin.cycleExpense,
+        openingBalance: cycleFin.openingBalance,
+        realBalance: totalBalance,
+        safeToSpend,
+        transactions,
+        cards,
+        budgets,
+        savingsGoals,
+        debts,
+        tasks,
+        habits,
+        recurringBills,
+      }),
+    [
+      todayISO,
+      selectedMonth,
+      effectivePayday,
+      cycleFin.cycleIncome,
+      cycleFin.cycleExpense,
+      cycleFin.openingBalance,
+      totalBalance,
+      safeToSpend,
+      transactions,
+      cards,
+      budgets,
+      savingsGoals,
+      debts,
+      tasks,
+      habits,
+      recurringBills,
+    ]
+  );
+
+  const handleOpenAssistant = useCallback((initialPrompt?: string) => {
+    setAssistantModalState({ open: true, initialPrompt });
+  }, []);
 
   return (
     <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F5F6F8] dark:bg-[#070B12] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
@@ -2403,6 +2485,7 @@ export default function App() {
         isPrivacyMode={isPrivacyMode}
         onTogglePrivacy={() => setIsPrivacyMode((prev) => !prev)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onOpenAssistant={() => handleOpenAssistant()}
         user={user}
         syncStatus={syncStatus}
         isOnline={isOnline}
@@ -2457,6 +2540,7 @@ export default function App() {
                     tasks={tasks}
                     notes={notes}
                     budgets={budgets}
+                    recurringBills={recurringBills}
                     habits={habits}
                     focusGoal={activeFocusGoal}
                     safeToSpend={safeToSpend}
@@ -2471,6 +2555,7 @@ export default function App() {
                     onNavigateFinance={handleSelectFinancePage}
                     onNavigatePlanner={handleSelectPlannerPage}
                     onOpenNewModal={handleOpenOverviewModal}
+                    onOpenAssistant={handleOpenAssistant}
                     onConfirmPreExpense={handleConfirmPreExpense}
                     onAddTransaction={handleAddTransaction}
                     onOpenTransactionWithPrefill={(prefill) =>
@@ -2588,6 +2673,7 @@ export default function App() {
                     onConvertToTask={handleConvertNoteToTask}
                     onToggleChecklistItem={handleToggleNoteChecklistItem}
                     onLogShoppingExpense={handleLogShoppingExpense}
+                    onCreateTasksFromNoteAI={handleCreateTasksFromNoteAI}
                   />
                 )}
 
@@ -2729,6 +2815,32 @@ export default function App() {
             onExecuteSmartTransaction={handleAddTransaction}
             onExecuteSmartTask={handleAddTask}
             onExecuteSmartNote={handleAddNote}
+            onOpenAssistant={handleOpenAssistant}
+          />
+        )}
+
+        {assistantModalState.open && (
+          <SmartAssistantModal
+            onClose={() => setAssistantModalState({ open: false })}
+            initialPrompt={assistantModalState.initialPrompt}
+            context={smartWorkspaceContext}
+            todayISO={todayISO}
+            defaultCardId={defaultCardId}
+            onAddTransaction={handleAddTransaction}
+            onAddTask={handleAddTask}
+            onAddNote={handleAddNote}
+            onNavigateFinance={(page) => {
+              handleSelectFinancePage(page);
+              setAssistantModalState({ open: false });
+            }}
+            onNavigatePlanner={(page) => {
+              handleSelectPlannerPage(page);
+              setAssistantModalState({ open: false });
+            }}
+            onNavigateNotes={() => {
+              handleSelectTab('notes');
+              setAssistantModalState({ open: false });
+            }}
           />
         )}
       </Suspense>

@@ -39,10 +39,16 @@ import {
   Note,
   PlannerPageTab,
   PrimaryIncomeConfig,
+  RecurringBill,
   SavingsGoal,
   Task,
   Transaction,
 } from '../types';
+import { SmartDailyBriefCard } from './SmartDailyBriefCard';
+import {
+  SmartInsightTarget,
+  generateSmartDailyInsights,
+} from '../utils/smartInsights';
 import {
   INCOME_KIND_LABELS,
   formatMoney,
@@ -79,6 +85,7 @@ interface OverviewViewProps {
   tasks: Task[];
   notes: Note[];
   budgets: BudgetLimit[];
+  recurringBills?: RecurringBill[];
   habits: Habit[];
   focusGoal: FocusGoal | null;
   safeToSpend: SafeToSpendMetrics;
@@ -93,6 +100,7 @@ interface OverviewViewProps {
   onNavigateFinance: (page: FinancePageTab) => void;
   onNavigatePlanner: (page: PlannerPageTab) => void;
   onOpenNewModal: (initialMode: QuickModalMode) => void;
+  onOpenAssistant?: (prompt?: string) => void;
   onConfirmPreExpense?: (txId: string) => void;
   onAddTransaction?: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onOpenTransactionWithPrefill?: (
@@ -117,6 +125,7 @@ export const OverviewView = memo(function OverviewView({
   tasks,
   notes,
   budgets,
+  recurringBills = [],
   habits,
   focusGoal,
   safeToSpend,
@@ -131,6 +140,7 @@ export const OverviewView = memo(function OverviewView({
   onNavigateFinance,
   onNavigatePlanner,
   onOpenNewModal,
+  onOpenAssistant,
   onConfirmPreExpense,
   onAddTransaction,
   onOpenTransactionWithPrefill,
@@ -396,6 +406,46 @@ export const OverviewView = memo(function OverviewView({
       })
       .slice(0, 4);
   }, [transactions]);
+
+  const smartInsights = useMemo(
+    () =>
+      generateSmartDailyInsights({
+        selectedMonth,
+        effectivePayday,
+        todayISO,
+        transactions,
+        budgets,
+        recurringBills,
+        savingsGoals,
+        debts,
+        tasks,
+        habits,
+        safeToSpend,
+      }),
+    [
+      selectedMonth,
+      effectivePayday,
+      todayISO,
+      transactions,
+      budgets,
+      recurringBills,
+      savingsGoals,
+      debts,
+      tasks,
+      habits,
+      safeToSpend,
+    ]
+  );
+
+  const handleInsightTarget = (target: SmartInsightTarget) => {
+    if (target.kind === 'finance') {
+      onNavigateFinance(target.page);
+    } else if (target.kind === 'planner') {
+      onNavigatePlanner(target.page);
+    } else {
+      onOpenAssistant?.(target.prompt);
+    }
+  };
 
   const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
 
@@ -941,6 +991,13 @@ export const OverviewView = memo(function OverviewView({
           )}
         </SectionCard>
       </div>
+
+      {/* Smart Daily Insights Brief */}
+      <SmartDailyBriefCard
+        insights={smartInsights}
+        onRunTarget={handleInsightTarget}
+        onOpenAssistant={(prompt) => onOpenAssistant?.(prompt)}
+      />
 
       {/* Row 2: Recent Transactions | Budget Health | Notes, Goals & Debts */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 items-start">

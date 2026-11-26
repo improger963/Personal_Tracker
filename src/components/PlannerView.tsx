@@ -4,17 +4,20 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Bot,
   CalendarDays,
   Check,
   CheckSquare,
   Clock,
   Flame,
+  Loader2,
   Pencil,
   Plus,
   Repeat,
   Search,
   Timer,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   MetricStrip,
@@ -26,6 +29,7 @@ import {
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { FocusTimerCard } from './FocusTimerCard';
 import { scrollToTopInstant } from '../utils/scroll';
+import { BrokenDownSubtask, breakdownTaskWithAI } from '../services/smartAi';
 import {
   FocusGoal,
   FocusSession,
@@ -166,6 +170,11 @@ export const PlannerView = memo(function PlannerView({
   const [quickTaskPriority, setQuickTaskPriority] =
     useState<TaskPriority>('medium');
   const [quickTaskTime, setQuickTaskTime] = useState('');
+  const [aiBreakdownLoading, setAiBreakdownLoading] = useState(false);
+  const [aiBreakdownError, setAiBreakdownError] = useState('');
+  const [aiSubtasks, setAiSubtasks] = useState<
+    Array<BrokenDownSubtask & { selected: boolean }>
+  >([]);
 
   const handleQuickTaskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -181,6 +190,51 @@ export const PlannerView = memo(function PlannerView({
     });
     setQuickTaskTitle('');
     setQuickTaskTime('');
+    setAiSubtasks([]);
+    setAiBreakdownError('');
+  };
+
+  const handleGenerateAISubtasks = async () => {
+    const trimmed = quickTaskTitle.trim();
+    if (!trimmed || aiBreakdownLoading) return;
+    setAiBreakdownLoading(true);
+    setAiBreakdownError('');
+    try {
+      const steps = await breakdownTaskWithAI({
+        text: trimmed,
+        todayISO: getTodayISO(),
+      });
+      if (steps.length === 0) {
+        setAiBreakdownError('Չհաջողվեց ստեղծել քայլեր։ Փորձեք ավելի հստակ ձևակերպել։');
+      } else {
+        setAiSubtasks(steps.map((s) => ({ ...s, selected: true })));
+      }
+    } catch (err) {
+      setAiBreakdownError(
+        err instanceof Error ? err.message : 'Հնարավոր չեղավ ստանալ քայլերի պլան։'
+      );
+    } finally {
+      setAiBreakdownLoading(false);
+    }
+  };
+
+  const handleCommitAISubtasks = () => {
+    if (!onAddTask) return;
+    const chosen = aiSubtasks.filter((s) => s.selected);
+    if (chosen.length === 0) return;
+    const today = getTodayISO();
+    chosen.forEach((step) => {
+      onAddTask({
+        title: step.title,
+        priority: step.priority,
+        date: today,
+        dueTime: step.dueTime,
+        scheduleType: 'one_time',
+      });
+    });
+    setAiSubtasks([]);
+    setQuickTaskTitle('');
+    setAiBreakdownError('');
   };
 
   // Task filter & sort state
@@ -248,7 +302,7 @@ export const PlannerView = memo(function PlannerView({
     let weekMin = 0;
     for (const s of focusSessions) {
       if (s.mode !== 'focus') continue;
-      const d = s.completedAt.slice(0, 10);
+      const d = s.date || s.completedAt.slice(0, 10);
       if (d === todayISO) todayMin += s.minutes;
       if (weekSet.has(d)) weekMin += s.minutes;
     }
@@ -464,8 +518,89 @@ export const PlannerView = memo(function PlannerView({
                       >
                         Ավելացնել
                       </button>
+                      <button
+                        type="button"
+                        disabled={!quickTaskTitle.trim() || aiBreakdownLoading}
+                        onClick={() => void handleGenerateAISubtasks()}
+                        title="Տրոհել մեծ նպատակը 3-6 կոնկրետ քայլերի AI-ով"
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                      >
+                        {aiBreakdownLoading ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Bot className="w-3.5 h-3.5" />
+                        )}
+                        <span>{aiBreakdownLoading ? 'Մշակում է…' : 'AI քայլեր'}</span>
+                      </button>
                     </div>
                   </form>
+                )}
+
+                {aiBreakdownError && (
+                  <div className="px-4 sm:px-6 py-2.5 bg-rose-500/8 border-b border-[#E2E8F0] dark:border-[#1E293B] text-xs text-rose-700 dark:text-rose-300">
+                    {aiBreakdownError}
+                  </div>
+                )}
+
+                {aiSubtasks.length > 0 && onAddTask && (
+                  <div className="px-4 sm:px-6 py-3.5 bg-[#EFF6FF]/50 dark:bg-[#172554]/25 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] inline-flex items-center gap-1.5">
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>Առաջարկվող քայլեր ({aiSubtasks.filter((s) => s.selected).length}/{aiSubtasks.length})</span>
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleCommitAISubtasks}
+                          disabled={!aiSubtasks.some((s) => s.selected)}
+                          className="min-h-[30px] px-3 py-1 rounded-lg btn-primary text-xs font-semibold disabled:opacity-45 whitespace-nowrap"
+                        >
+                          Ավելացնել ընտրվածները
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAiSubtasks([])}
+                          aria-label="Փակել առաջարկվող քայլերը"
+                          className="min-h-[30px] min-w-[30px] rounded-lg flex items-center justify-center text-[#64748B] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      {aiSubtasks.map((step, idx) => (
+                        <button
+                          key={`${step.title}-${idx}`}
+                          type="button"
+                          onClick={() =>
+                            setAiSubtasks((prev) =>
+                              prev.map((item, i) =>
+                                i === idx ? { ...item, selected: !item.selected } : item
+                              )
+                            )
+                          }
+                          className="px-3 py-2 rounded-xl border border-[#CBD5E1]/80 dark:border-[#26334D] bg-white dark:bg-[#0F172A] flex items-center gap-2 text-left text-xs cursor-pointer"
+                        >
+                          <span
+                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                              step.selected
+                                ? 'bg-[#2563EB] border-[#2563EB] text-white'
+                                : 'border-[#CBD5E1] dark:border-[#334155]'
+                            }`}
+                          >
+                            {step.selected && <Check className="w-2.5 h-2.5" strokeWidth={2.8} />}
+                          </span>
+                          <span className="flex-1 min-w-0 truncate text-[#0F172A] dark:text-[#F8FAFC] font-medium">
+                            {step.title}
+                          </span>
+                          <span className="text-[10px] text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                            {PRIORITY_LABELS[step.priority]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-3">

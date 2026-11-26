@@ -1,7 +1,9 @@
 import { memo, useMemo, useState } from 'react';
 import {
+  Bot,
   Check,
   CheckSquare,
+  Loader2,
   NotebookPen,
   Pencil,
   Pin,
@@ -23,6 +25,8 @@ import {
   getTodayISO,
 } from '../data/defaults';
 import { extractChecklistAmounts } from '../utils/smartCommandParser';
+import { breakdownTaskWithAI } from '../services/smartAi';
+import { TaskPriority } from '../types';
 
 interface NotesViewProps {
   notes: Note[];
@@ -33,6 +37,10 @@ interface NotesViewProps {
   onConvertToTask: (note: Note) => void;
   onToggleChecklistItem: (noteId: string, itemId: string) => void;
   onLogShoppingExpense: (note: Note, estimatedTotal?: number) => void;
+  onCreateTasksFromNoteAI?: (
+    noteTitle: string,
+    tasks: Array<{ title: string; priority: TaskPriority; dueTime?: string }>
+  ) => void;
 }
 
 export const NotesView = memo(function NotesView({
@@ -44,13 +52,48 @@ export const NotesView = memo(function NotesView({
   onConvertToTask,
   onToggleChecklistItem,
   onLogShoppingExpense,
+  onCreateTasksFromNoteAI,
 }: NotesViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | 'pinned' | 'reminders'>(
     'all'
   );
+  const [breakingNoteId, setBreakingNoteId] = useState<string | null>(null);
+  const [aiError, setAiError] = useState('');
 
   const todayISO = getTodayISO();
+
+  const handleBreakdownNote = async (note: Note) => {
+    if (!onCreateTasksFromNoteAI || breakingNoteId) return;
+    const checklistText = (note.checklist ?? [])
+      .filter((c) => !c.done)
+      .map((c) => c.text)
+      .join(', ');
+    const combined = [note.title, note.content, checklistText]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    if (!combined) return;
+    setBreakingNoteId(note.id);
+    setAiError('');
+    try {
+      const steps = await breakdownTaskWithAI({
+        text: combined,
+        todayISO,
+      });
+      if (steps.length > 0) {
+        onCreateTasksFromNoteAI(note.title, steps);
+      } else {
+        setAiError('Նշումից չհաջողվեց առանձնացնել քայլեր։');
+      }
+    } catch (err) {
+      setAiError(
+        err instanceof Error ? err.message : 'Հնարավոր չեղավ տրոհել նշումը AI-ով։'
+      );
+    } finally {
+      setBreakingNoteId(null);
+    }
+  };
 
   const { pinnedCount, remindersCount, checklistNotesCount } = useMemo(() => {
     let pinned = 0;
@@ -176,6 +219,12 @@ export const NotesView = memo(function NotesView({
           />
         </div>
       </div>
+
+      {aiError && (
+        <div className="px-4 py-2.5 rounded-xl border border-rose-500/30 bg-rose-500/8 text-xs text-rose-700 dark:text-rose-300">
+          {aiError}
+        </div>
+      )}
 
       {filteredNotes.length === 0 ? (
         <div className="surface-card p-5 sm:p-6">
@@ -370,6 +419,23 @@ export const NotesView = memo(function NotesView({
                   </span>
 
                   <div className="flex items-center gap-2">
+                    {onCreateTasksFromNoteAI &&
+                      (note.content.trim().length > 10 || checklist.length > 0) && (
+                        <button
+                          type="button"
+                          disabled={breakingNoteId === note.id}
+                          onClick={() => void handleBreakdownNote(note)}
+                          className="min-h-[28px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                          title="Ստեղծել քայլերի անելիքներ AI-ով"
+                        >
+                          {breakingNoteId === note.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Bot className="w-3 h-3" />
+                          )}
+                          <span>AI քայլեր</span>
+                        </button>
+                      )}
                     {checklist.length > 0 && (
                       <button
                         type="button"

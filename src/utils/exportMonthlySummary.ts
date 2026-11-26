@@ -6,6 +6,7 @@ import {
   getTodayISO,
   getTransactionIncomeKind,
 } from '../data/defaults';
+import { INTERNAL_TRANSFER_CATEGORY } from './cardBalances';
 import {
   formatCycleLabel,
   getCycleBounds,
@@ -73,11 +74,16 @@ export function buildMonthlySummaryStats(
 ): MonthlySummaryStats {
   const payday = input.payday ?? 1;
   const bounds = getCycleBounds(input.selectedMonth, payday);
-  const monthTxs = input.transactions.filter((t) =>
-    isDateInCycle(t.date, input.selectedMonth, payday)
+  const monthTxs = input.transactions.filter(
+    (t) =>
+      t.category !== INTERNAL_TRANSFER_CATEGORY &&
+      isDateInCycle(t.date, input.selectedMonth, payday)
   );
   const openingBalance = input.transactions
-    .filter((t) => t.date < bounds.startDate)
+    .filter(
+      (t) =>
+        t.category !== INTERNAL_TRANSFER_CATEGORY && t.date < bounds.startDate
+    )
     .reduce((s, t) => s + (t.type === 'income' ? t.amount : (t.isPending ? 0 : -t.amount)), 0);
 
   const incomeTxs = monthTxs.filter((t) => t.type === 'income');

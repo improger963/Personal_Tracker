@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Check, Plus, Trash2, Wand2, X } from 'lucide-react';
+import { Camera, Check, Loader2, Plus, Trash2, Wand2, X } from 'lucide-react';
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
@@ -11,6 +11,7 @@ import {
 } from '../data/defaults';
 import { QUICK_AMOUNTS_AMD } from './finance/financeShared';
 import { triggerHaptic } from '../utils/haptics';
+import { fileToReceiptPayload, scanReceiptWithAI } from '../services/smartAi';
 import {
   TitleHistorySuggestion,
   getTitleSuggestionsFromHistory,
@@ -286,6 +287,9 @@ export function QuickAddModal({
   const [debtNote, setDebtNote] = useState(editingDebt?.note ?? '');
 
   const [error, setError] = useState('');
+  const [receiptScanning, setReceiptScanning] = useState(false);
+  const [receiptInfo, setReceiptInfo] = useState('');
+  const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const amountRef = useRef<HTMLInputElement>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
@@ -408,6 +412,40 @@ export function QuickAddModal({
   const handleQuickPreset = (val: number) => {
     const current = Number(txAmount) || 0;
     setTxAmount(String(current + val));
+  };
+
+  const handleReceiptFileChange = async (file: File | undefined) => {
+    if (!file || receiptScanning) return;
+    setError('');
+    setReceiptInfo('');
+    setReceiptScanning(true);
+    try {
+      const payload = await fileToReceiptPayload(file);
+      const result = await scanReceiptWithAI({
+        ...payload,
+        todayISO: getTodayISO(),
+      });
+      setTxType('expense');
+      if (result.amount > 0) setTxAmount(String(result.amount));
+      if (result.title) setTxTitle(result.title);
+      if (result.category) {
+        setTxCategory(result.category);
+        setUserSelectedCategory(true);
+      }
+      if (result.date) setTxDate(result.date);
+      setReceiptInfo(
+        result.itemsSummary
+          ? `Կտրոնը կարդացվեց · ${result.itemsSummary}`
+          : 'Կտրոնի տվյալները լրացվեցին'
+      );
+      triggerHaptic('light');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Չհաջողվեց կարդալ կտրոնը։'
+      );
+    } finally {
+      setReceiptScanning(false);
+    }
   };
 
   const handleAddChecklistItem = () => {
@@ -753,6 +791,41 @@ export function QuickAddModal({
                   Եկամուտ
                 </button>
               </div>
+
+              {!isEditing && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120]">
+                  <input
+                    ref={receiptInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      void handleReceiptFileChange(f);
+                      e.target.value = '';
+                    }}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                      {receiptInfo || 'Լրացրեք ավտոմատ կտրոնի կամ չեկի լուսանկարից'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={receiptScanning}
+                    onClick={() => receiptInputRef.current?.click()}
+                    className="shrink-0 min-h-[32px] px-2.5 py-1 rounded-lg border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    {receiptScanning ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Camera className="w-3.5 h-3.5" />
+                    )}
+                    <span>{receiptScanning ? 'Կարդում է…' : 'Սկան կտրոն'}</span>
+                  </button>
+                </div>
+              )}
 
               {txType === 'income' && (
                 <div>
