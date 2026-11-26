@@ -1,32 +1,70 @@
-import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
-import { TopNav } from './components/TopNav';
-import { OverviewView } from './components/OverviewView';
-import { FinanceView } from './components/FinanceView';
-import { PlannerView } from './components/PlannerView';
-import { NotesView } from './components/NotesView';
-import { QuickAddModal } from './components/QuickAddModal';
+import { CloudSyncStatus, TopNav } from './components/TopNav';
+import { QuickAddModal, QuickModalState } from './components/QuickAddModal';
 import { NotificationAlerts } from './components/NotificationAlerts';
 import { ConfirmExpenseModal } from './components/ConfirmExpenseModal';
+import { PWAInstallModal } from './components/PWAInstallModal';
+import {
+  PageSkeleton,
+  ScrollToTopButton,
+  TopRouteProgressBar,
+} from './components/ui/Skeleton';
+import { scrollToTopInstant, scrollToTopSmooth } from './utils/scroll';
 import { useLocalStorage } from './hooks/useLocalStorage';
+import { useOnlineStatus, usePWAInstall } from './hooks/usePWAInstall';
+import { auth, signInWithGoogle, signOutFirebase } from './firebase';
+import {
+  FullWorkspaceSnapshot,
+  WorkspaceSettingsPayload,
+  canonicalSerialize,
+  checkCloudWorkspaceExists,
+  collectionBuilders,
+  ensureUserDocuments,
+  getBudgetDocId,
+  subscribeUserWorkspace,
+  syncCollectionItems,
+  uploadFullWorkspaceToCloud,
+  upsertWorkspaceSettings,
+} from './services/firestoreSync';
+
+const OverviewView = lazy(() =>
+  import('./components/OverviewView').then((m) => ({ default: m.OverviewView }))
+);
+const FinanceView = lazy(() =>
+  import('./components/FinanceView').then((m) => ({ default: m.FinanceView }))
+);
+const PlannerView = lazy(() =>
+  import('./components/PlannerView').then((m) => ({ default: m.PlannerView }))
+);
+const NotesView = lazy(() =>
+  import('./components/NotesView').then((m) => ({ default: m.NotesView }))
+);
 import {
   ARMENIAN_MONTHS,
   formatMoney,
   getInitialBudgets,
+  getInitialDebts,
+  getInitialFocusSessions,
   getInitialHabits,
   getInitialNotes,
   getInitialNotificationSettings,
   getInitialPrimaryIncome,
   getInitialRecurringBills,
+  getInitialSavingsGoals,
   getInitialTasks,
   getInitialTransactions,
   getTodayISO,
   getTransactionIncomeKind,
 } from './data/defaults';
 import {
+  computeCycleFinancials,
+  computeSafeToSpend,
   formatCycleLabel,
   getCycleBounds,
+  getCycleDayMetrics,
   getCycleKeyForDate,
   getDateInCycleForDay,
   getEffectivePayday,
@@ -35,20 +73,30 @@ import {
 import {
   buildAppNotifications,
   canUseBrowserNotifications,
+  getBillFrequency,
   getCurrentHHMM,
   playNotificationChime,
   sendBrowserNotification,
 } from './utils/notifications';
 import {
+  isTaskCompletedOnDate,
+  isTaskDueOnDate,
+  isTaskRepeating,
+} from './utils/taskSchedule';
+import {
   AppNotificationItem,
   BudgetLimit,
+  DebtItem,
   FocusGoal,
+  FocusSession,
   Habit,
+  IncomeKind,
   NavSection,
   Note,
   NotificationSettings,
   PrimaryIncomeConfig,
   RecurringBill,
+  SavingsGoal,
   Task,
   TaskPriority,
   Transaction,
@@ -79,18 +127,34 @@ function getTodayEditorialDate(): string {
   return `${ARMENIAN_WEEKDAYS_FULL[now.getDay()]}, ${now.getDate()} ${ARMENIAN_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 }
 
-function shiftMonth(monthKey: string, delta: number): string {
-  const [y, m] = monthKey.split('-').map(Number);
-  const date = new Date(y, m - 1 + delta, 1);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
-
 export default function App() {
+  const prefersReducedMotion = useReducedMotion();
   const [activeTab, setActiveTab] = useState<NavSection>('overview');
+  const [isRouteTransitioning, setIsRouteTransitioning] = useState(false);
+  const routeTimerRef = useRef<number | null>(null);
   const [todayKey, setTodayKey] = useState<string>(getTodayISO);
   const [currentHHMM, setCurrentHHMM] = useState<string>(() => getCurrentHHMM());
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [isDark, setIsDark] = useLocalStorage<boolean>('pa_theme_dark', true);
+
+  const handleSelectTab = (tab: NavSection) => {
+    if (tab === activeTab) {
+      scrollToTopSmooth();
+      return;
+    }
+    setIsRouteTransitioning(true);
+    if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
+    routeTimerRef.current = window.setTimeout(() => {
+      setIsRouteTransitioning(false);
+    }, 280);
+    setActiveTab(tab);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
+    };
+  }, []);
 
   const [primaryIncome, setPrimaryIncome] = useLocalStorage<PrimaryIncomeConfig>(
     'pa_primary_income',
@@ -126,6 +190,18 @@ export default function App() {
     'pa_habits',
     getInitialHabits
   );
+  const [savingsGoals, setSavingsGoals] = useLocalStorage<SavingsGoal[]>(
+    'pa_savings_goals',
+    getInitialSavingsGoals
+  );
+  const [debts, setDebts] = useLocalStorage<DebtItem[]>(
+    'pa_debts',
+    getInitialDebts
+  );
+  const [focusSessions, setFocusSessions] = useLocalStorage<FocusSession[]>(
+    'pa_focus_sessions',
+    getInitialFocusSessions
+  );
   const [focusGoal, setFocusGoal] = useLocalStorage<FocusGoal | null>(
     'pa_focus_goal',
     null
@@ -146,10 +222,80 @@ export default function App() {
     item?: AppNotificationItem;
   } | null>(null);
 
-  const [modalMode, setModalMode] = useState<'transaction' | 'task' | 'note' | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>('idle');
+  const isOnline = useOnlineStatus();
+  const {
+    canInstall: canInstallPWA,
+    showIOSGuide,
+    setShowIOSGuide,
+    promptInstall,
+  } = usePWAInstall();
+
+  const [modalState, setModalState] = useState<QuickModalState | null>(null);
   const [toast, setToast] = useState<UndoToastState | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const alertedIdsRef = useRef<Set<string>>(new Set());
+
+  const knownMapsRef = useRef<{
+    transactions: Map<string, string>;
+    tasks: Map<string, string>;
+    notes: Map<string, string>;
+    budgets: Map<string, string>;
+    recurringBills: Map<string, string>;
+    habits: Map<string, string>;
+    savingsGoals: Map<string, string>;
+    debts: Map<string, string>;
+    focusSessions: Map<string, string>;
+  }>({
+    transactions: new Map(),
+    tasks: new Map(),
+    notes: new Map(),
+    budgets: new Map(),
+    recurringBills: new Map(),
+    habits: new Map(),
+    savingsGoals: new Map(),
+    debts: new Map(),
+    focusSessions: new Map(),
+  });
+  const settingsExistsRef = useRef(false);
+  const cloudReadyRef = useRef(false);
+  const isApplyingRemoteRef = useRef(false);
+
+  const latestWorkspaceRef = useRef<FullWorkspaceSnapshot>({
+    transactions,
+    tasks,
+    notes,
+    budgets,
+    recurringBills,
+    habits,
+    savingsGoals,
+    debts,
+    focusSessions,
+    settings: {
+      primaryIncome,
+      focusGoal,
+      notificationSettings,
+      isDark,
+    },
+  });
+  latestWorkspaceRef.current = {
+    transactions,
+    tasks,
+    notes,
+    budgets,
+    recurringBills,
+    habits,
+    savingsGoals,
+    debts,
+    focusSessions,
+    settings: {
+      primaryIncome,
+      focusGoal,
+      notificationSettings,
+      isDark,
+    },
+  };
 
   const showToast = (message: string, onUndo?: () => void) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -185,6 +331,415 @@ export default function App() {
       root.classList.remove('dark');
     }
   }, [isDark]);
+
+  // Firebase Auth & Real-Time Firestore Workspace Subscription
+  useEffect(() => {
+    let workspaceUnsub: (() => void) | null = null;
+    let active = true;
+
+    const authUnsub = onAuthStateChanged(auth, async (nextUser) => {
+      if (workspaceUnsub) {
+        workspaceUnsub();
+        workspaceUnsub = null;
+      }
+
+      setUser(nextUser);
+      cloudReadyRef.current = false;
+
+      if (!nextUser) {
+        Object.values(knownMapsRef.current).forEach((m) => m.clear());
+        settingsExistsRef.current = false;
+        setSyncStatus('idle');
+        return;
+      }
+
+      setSyncStatus('syncing');
+      try {
+        await ensureUserDocuments(nextUser);
+        const exists = await checkCloudWorkspaceExists(nextUser.uid);
+        if (!active) return;
+
+        if (!exists) {
+          await uploadFullWorkspaceToCloud(
+            nextUser.uid,
+            latestWorkspaceRef.current
+          );
+        }
+        if (!active) return;
+
+        workspaceUnsub = subscribeUserWorkspace({
+          userId: nextUser.uid,
+          onTransactions: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.transactions = known;
+            setTransactions(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onTasks: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.tasks = known;
+            setTasks(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onNotes: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.notes = known;
+            setNotes(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onBudgets: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.budgets = known;
+            setBudgets(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onRecurringBills: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.recurringBills = known;
+            setRecurringBills(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onHabits: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.habits = known;
+            setHabits(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onSavingsGoals: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.savingsGoals = known;
+            setSavingsGoals(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onDebts: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.debts = known;
+            setDebts(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onFocusSessions: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.focusSessions = known;
+            setFocusSessions(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
+          onSettings: (settings, hasDoc) => {
+            settingsExistsRef.current = hasDoc;
+            if (settings) {
+              isApplyingRemoteRef.current = true;
+              if (settings.primaryIncome) {
+                setPrimaryIncome(settings.primaryIncome);
+              }
+              setFocusGoal(settings.focusGoal ?? null);
+              if (settings.notificationSettings) {
+                setNotificationSettings(settings.notificationSettings);
+              }
+              setIsDark(Boolean(settings.isDark));
+              queueMicrotask(() => {
+                isApplyingRemoteRef.current = false;
+              });
+            }
+          },
+          onSynced: () => {
+            cloudReadyRef.current = true;
+            setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+          },
+        });
+      } catch (err) {
+        console.error('Workspace cloud init failed:', err);
+        setSyncStatus('error');
+      }
+    });
+
+    return () => {
+      active = false;
+      authUnsub();
+      if (workspaceUnsub) workspaceUnsub();
+    };
+  }, [
+    setTransactions,
+    setTasks,
+    setNotes,
+    setBudgets,
+    setRecurringBills,
+    setHabits,
+    setSavingsGoals,
+    setDebts,
+    setFocusSessions,
+    setPrimaryIncome,
+    setFocusGoal,
+    setNotificationSettings,
+    setIsDark,
+  ]);
+
+  // Debounced Local -> Cloud Sync for each collection and workspace settings
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'transactions',
+          items: transactions,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.transactions,
+          buildDoc: collectionBuilders.transactions,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, transactions]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'tasks',
+          items: tasks,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.tasks,
+          buildDoc: collectionBuilders.tasks,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, tasks]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'notes',
+          items: notes,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.notes,
+          buildDoc: collectionBuilders.notes,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, notes]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'budgets',
+          items: budgets,
+          getId: (item) => getBudgetDocId(item.category),
+          knownSerializedMap: knownMapsRef.current.budgets,
+          buildDoc: collectionBuilders.budgets,
+          serializeForDiff: (b) =>
+            canonicalSerialize({ category: b.category, limit: b.limit }),
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, budgets]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'recurringBills',
+          items: recurringBills,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.recurringBills,
+          buildDoc: collectionBuilders.recurringBills,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, recurringBills]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'habits',
+          items: habits,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.habits,
+          buildDoc: collectionBuilders.habits,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, habits]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'savingsGoals',
+          items: savingsGoals,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.savingsGoals,
+          buildDoc: collectionBuilders.savingsGoals,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, savingsGoals]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'debts',
+          items: debts,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.debts,
+          buildDoc: collectionBuilders.debts,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, debts]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'focusSessions',
+          items: focusSessions,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.focusSessions,
+          buildDoc: collectionBuilders.focusSessions,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, focusSessions]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const settingsPayload: WorkspaceSettingsPayload = {
+      primaryIncome,
+      focusGoal,
+      notificationSettings,
+      isDark,
+    };
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await upsertWorkspaceSettings(
+          user.uid,
+          settingsPayload,
+          settingsExistsRef.current
+        );
+        settingsExistsRef.current = true;
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 450);
+    return () => window.clearTimeout(t);
+  }, [user, primaryIncome, focusGoal, notificationSettings, isDark]);
+
+  const handleSignInGoogle = async () => {
+    try {
+      await signInWithGoogle();
+      showToast('Մուտքը Google-ով հաջողվեց · ամպային սինքը միացված է');
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
+      ) {
+        showToast('Google մուտքը չեղարկվեց');
+      } else {
+        showToast('Հնարավոր չեղավ մուտք գործել Google-ով');
+      }
+    }
+  };
+
+  const handleSignOutGoogle = async () => {
+    try {
+      await signOutFirebase();
+      showToast('Դուրս եկաք Google հաշվից');
+    } catch {
+      showToast('Ելքի ժամանակ սխալ առաջացավ');
+    }
+  };
 
   // Automatic payday salary crediting & new cycle rollover when payday arrives
   useEffect(() => {
@@ -373,6 +928,30 @@ export default function App() {
     );
     setSelectedMonth(getCycleKeyForDate(updates.date, effectivePayday));
     showToast('Գործարքը թարմացվեց');
+  };
+
+  const handleAutoCategorizeTransactions = (
+    updates: Array<{ id: string; category: string; incomeKind?: IncomeKind }>
+  ) => {
+    if (updates.length === 0) return;
+    const previousSnapshot = transactions;
+    const updateMap = new Map(updates.map((u) => [u.id, u]));
+    setTransactions((prev) =>
+      prev.map((t) => {
+        const patch = updateMap.get(t.id);
+        if (!patch) return t;
+        return {
+          ...t,
+          category: patch.category,
+          ...(t.type === 'income' && patch.incomeKind
+            ? { incomeKind: patch.incomeKind }
+            : {}),
+        };
+      })
+    );
+    showToast(`${updates.length} գործարք ավտոմատ դասակարգվեց`, () => {
+      setTransactions(previousSnapshot);
+    });
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -695,19 +1274,25 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
     setTasks((prev) => [newTask, ...prev]);
-  };
-
-  const handleQuickAddTask = (title: string) => {
-    handleAddTask({
-      title,
-      priority: 'medium',
-      date: getTodayISO(),
-    });
+    showToast('Անելիքը ավելացվեց');
   };
 
   const handleToggleTask = (id: string) => {
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        if (isTaskRepeating(t)) {
+          const existing = t.completedDates ?? [];
+          const hasToday = existing.includes(todayKey);
+          return {
+            ...t,
+            completedDates: hasToday
+              ? existing.filter((d) => d !== todayKey)
+              : [...existing, todayKey],
+          };
+        }
+        return { ...t, completed: !t.completed };
+      })
     );
   };
 
@@ -738,10 +1323,10 @@ export default function App() {
   };
 
   const handleClearCompletedTasks = () => {
-    const removedList = tasks.filter((t) => t.completed);
-    setTasks((prev) => prev.filter((t) => !t.completed));
+    const removedList = tasks.filter((t) => t.completed && !isTaskRepeating(t));
+    setTasks((prev) => prev.filter((t) => !(t.completed && !isTaskRepeating(t))));
     if (removedList.length > 0) {
-      showToast('Կատարված անելիքները մաքրվեցին', () => {
+      showToast('Կատարված միանգամյա անելիքները մաքրվեցին', () => {
         setTasks((prev) => [...removedList, ...prev]);
       });
     }
@@ -757,6 +1342,7 @@ export default function App() {
         createdAt: new Date().toISOString(),
       },
     ]);
+    showToast('Սովորությունը ավելացվեց');
   };
 
   const handleToggleHabitDate = (habitId: string, date: string) => {
@@ -857,6 +1443,209 @@ export default function App() {
     }
   };
 
+  const handleToggleNoteChecklistItem = (noteId: string, itemId: string) => {
+    setNotes((prev) =>
+      prev.map((n) => {
+        if (n.id !== noteId || !n.checklist) return n;
+        return {
+          ...n,
+          checklist: n.checklist.map((item) =>
+            item.id === itemId ? { ...item, done: !item.done } : item
+          ),
+          updatedAt: new Date().toISOString(),
+        };
+      })
+    );
+  };
+
+  const handleLogShoppingExpense = (note: Note) => {
+    setModalState({
+      mode: 'transaction',
+      prefill: {
+        type: 'expense',
+        title: note.title,
+        category: 'Գնումներ',
+        date: getTodayISO(),
+      },
+    });
+  };
+
+
+
+  // Savings Goals Handlers
+  const handleAddGoal = (goal: Omit<SavingsGoal, 'id' | 'createdAt'>) => {
+    const next: SavingsGoal = {
+      ...goal,
+      id: createId('goal'),
+      createdAt: new Date().toISOString(),
+    };
+    setSavingsGoals((prev) => [next, ...prev]);
+    showToast('Խնայողության նպատակը ստեղծվեց');
+  };
+
+  const handleUpdateGoal = (
+    id: string,
+    updates: Omit<SavingsGoal, 'id' | 'createdAt'>
+  ) => {
+    setSavingsGoals((prev) =>
+      prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
+    );
+    showToast('Նպատակը թարմացվեց');
+  };
+
+  const handleAdjustGoal = (
+    goalId: string,
+    delta: number,
+    recordInLedger: boolean
+  ) => {
+    const target = savingsGoals.find((g) => g.id === goalId);
+    if (!target || delta === 0) return;
+
+    const nextAmount = Math.max(0, target.currentAmount + delta);
+    const appliedDelta = nextAmount - target.currentAmount;
+    if (appliedDelta === 0) return;
+
+    setSavingsGoals((prev) =>
+      prev.map((g) =>
+        g.id === goalId
+          ? {
+              ...g,
+              currentAmount: nextAmount,
+              completed: nextAmount >= g.targetAmount,
+            }
+          : g
+      )
+    );
+
+    if (recordInLedger) {
+      const tx: Transaction = {
+        id: createId('tx'),
+        type: appliedDelta > 0 ? 'expense' : 'income',
+        ...(appliedDelta < 0 ? { incomeKind: 'one_time' as const } : {}),
+        amount: Math.abs(appliedDelta),
+        title:
+          appliedDelta > 0
+            ? `Գանձանակ՝ ${target.title}`
+            : `Գանձանակից՝ ${target.title}`,
+        category: appliedDelta > 0 ? 'Խնայողություն' : 'Այլ',
+        date: getTodayISO(),
+        createdAt: new Date().toISOString(),
+      };
+      setTransactions((prev) => [tx, ...prev]);
+    }
+
+    showToast(
+      appliedDelta > 0
+        ? `Գանձանակը համալրվեց (+${formatMoney(appliedDelta)})`
+        : `Գանձանակից հանվեց (${formatMoney(Math.abs(appliedDelta))})`
+    );
+  };
+
+  const handleDeleteGoal = (goalId: string) => {
+    const removed = savingsGoals.find((g) => g.id === goalId);
+    setSavingsGoals((prev) => prev.filter((g) => g.id !== goalId));
+    if (removed) {
+      showToast('Նպատակը ջնջվեց', () => {
+        setSavingsGoals((prev) => [removed, ...prev]);
+      });
+    }
+  };
+
+  // Debts & IOUs Handlers
+  const handleAddDebt = (debt: Omit<DebtItem, 'id' | 'createdAt'>) => {
+    const next: DebtItem = {
+      ...debt,
+      id: createId('debt'),
+      createdAt: new Date().toISOString(),
+    };
+    setDebts((prev) => [next, ...prev]);
+    showToast('Պարտքի գրառումը ավելացվեց');
+  };
+
+  const handleUpdateDebt = (
+    id: string,
+    updates: Omit<DebtItem, 'id' | 'createdAt'>
+  ) => {
+    setDebts((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, ...updates } : d))
+    );
+    showToast('Պարտքի գրառումը թարմացվեց');
+  };
+
+  const handleRecordDebtPayment = (
+    debtId: string,
+    amount: number,
+    recordInLedger: boolean
+  ) => {
+    const target = debts.find((d) => d.id === debtId);
+    if (!target || amount <= 0) return;
+
+    const remaining = Math.max(0, target.totalAmount - target.paidAmount);
+    const applied = Math.min(remaining, Math.round(amount));
+    if (applied <= 0) return;
+
+    const nextPaid = target.paidAmount + applied;
+    const isNowSettled = nextPaid >= target.totalAmount;
+
+    setDebts((prev) =>
+      prev.map((d) =>
+        d.id === debtId
+          ? {
+              ...d,
+              paidAmount: nextPaid,
+              settled: isNowSettled,
+            }
+          : d
+      )
+    );
+
+    if (recordInLedger) {
+      const tx: Transaction = {
+        id: createId('tx'),
+        type: target.direction === 'lent' ? 'income' : 'expense',
+        ...(target.direction === 'lent' ? { incomeKind: 'one_time' as const } : {}),
+        amount: applied,
+        title:
+          target.direction === 'lent'
+            ? `Վերադարձված պարտք՝ ${target.person}`
+            : `Պարտքի մարում՝ ${target.person}`,
+        category: 'Այլ',
+        date: getTodayISO(),
+        createdAt: new Date().toISOString(),
+      };
+      setTransactions((prev) => [tx, ...prev]);
+    }
+
+    showToast(
+      isNowSettled
+        ? `«${target.person}» պարտքը ամբողջությամբ մարվեց`
+        : `Գրանցվեց մարում՝ ${formatMoney(applied)}`
+    );
+  };
+
+  const handleDeleteDebt = (debtId: string) => {
+    const removed = debts.find((d) => d.id === debtId);
+    setDebts((prev) => prev.filter((d) => d.id !== debtId));
+    if (removed) {
+      showToast('Պարտքի գրառումը ջնջվեց', () => {
+        setDebts((prev) => [removed, ...prev]);
+      });
+    }
+  };
+
+  // Focus Sessions Handler
+  const handleCompleteFocusSession = (
+    session: Omit<FocusSession, 'id' | 'completedAt'>
+  ) => {
+    const next: FocusSession = {
+      ...session,
+      id: createId('focus'),
+      completedAt: new Date().toISOString(),
+    };
+    setFocusSessions((prev) => [next, ...prev]);
+    showToast(`Ֆոկուս սեսիան գրանցվեց (${session.minutes} րոպե)`);
+  };
+
   const handleSaveFocusGoal = (title: string) => {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -898,6 +1687,9 @@ export default function App() {
       budgets,
       recurringBills,
       habits,
+      savingsGoals,
+      debts,
+      focusSessions,
       focusGoal,
       notificationSettings,
     };
@@ -925,6 +1717,11 @@ export default function App() {
         if (Array.isArray(parsed.recurringBills))
           setRecurringBills(parsed.recurringBills);
         if (Array.isArray(parsed.habits)) setHabits(parsed.habits);
+        if (Array.isArray(parsed.savingsGoals))
+          setSavingsGoals(parsed.savingsGoals);
+        if (Array.isArray(parsed.debts)) setDebts(parsed.debts);
+        if (Array.isArray(parsed.focusSessions))
+          setFocusSessions(parsed.focusSessions);
         if (
           parsed.primaryIncome &&
           typeof parsed.primaryIncome.payday === 'number'
@@ -962,7 +1759,7 @@ export default function App() {
     low: 2,
   };
   const todayPendingTasks = [...tasks]
-    .filter((t) => !t.completed && t.date === todayISO)
+    .filter((t) => isTaskDueOnDate(t, todayISO) && !isTaskCompletedOnDate(t, todayISO))
     .sort((a, b) => {
       const pDiff =
         priorityRank[a.priority ?? 'medium'] -
@@ -975,12 +1772,49 @@ export default function App() {
     .filter((n) => Boolean(n.reminderDate) && n.reminderDate!.slice(0, 10) <= todayISO)
     .sort((a, b) => (a.reminderDate ?? '').localeCompare(b.reminderDate ?? ''));
 
+  const safeToSpend = useMemo(() => {
+    const cycleDayMetrics = getCycleDayMetrics(
+      selectedMonth,
+      effectivePayday,
+      todayISO
+    );
+    const cycleFin = computeCycleFinancials(
+      transactions,
+      selectedMonth,
+      effectivePayday,
+      todayISO
+    );
+    const unpaidBillsTotal = recurringBills
+      .filter(
+        (bill) =>
+          getBillFrequency(bill) === 'monthly' &&
+          !cycleFin.cycleTransactions.some(
+            (tx) =>
+              tx.type === 'expense' &&
+              tx.title.toLowerCase() === bill.title.toLowerCase()
+          )
+      )
+      .reduce((sum, b) => sum + b.amount, 0);
+
+    return computeSafeToSpend({
+      availableBalance: cycleDayMetrics.isCurrentCycle
+        ? cycleFin.liveRealBalance
+        : cycleFin.cycleEndBalance,
+      unpaidBillsTotal,
+      pendingExpensesTotal: cycleFin.cyclePendingExpense,
+      cycleMetrics: cycleDayMetrics,
+      transactions,
+      todayISO,
+    });
+  }, [transactions, recurringBills, selectedMonth, effectivePayday, todayISO]);
+
   const allNotifications = buildAppNotifications({
     bills: recurringBills,
     transactions,
     tasks,
     notes,
     budgets,
+    debts,
     selectedMonth,
     todayISO,
     currentHHMM,
@@ -1026,10 +1860,12 @@ export default function App() {
 
   return (
     <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F4F6FA] dark:bg-[#080C14] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
+      <TopRouteProgressBar active={isRouteTransitioning} />
+
       <TopNav
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        onOpenNewModal={() => setModalMode(defaultModalMode)}
+        onSelectTab={handleSelectTab}
+        onOpenNewModal={() => setModalState({ mode: defaultModalMode })}
         todayTasks={todayPendingTasks}
         onToggleTask={handleToggleTask}
         dueNotes={dueNoteReminders}
@@ -1050,6 +1886,13 @@ export default function App() {
         onShiftMonth={(delta) => setSelectedMonth(shiftMonthKey(selectedMonth, delta))}
         isDark={isDark}
         onToggleTheme={() => setIsDark((prev) => !prev)}
+        user={user}
+        syncStatus={syncStatus}
+        isOnline={isOnline}
+        onSignInGoogle={handleSignInGoogle}
+        onSignOutGoogle={handleSignOutGoogle}
+        canInstallPWA={canInstallPWA}
+        onInstallPWA={promptInstall}
       >
         <main className="flex-1 w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 min-w-0">
           {/* Mobile & Tablet Preferences Strip (< lg) */}
@@ -1082,97 +1925,159 @@ export default function App() {
             )}
           </div>
 
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {activeTab === 'overview' && (
-              <OverviewView
-                selectedMonth={selectedMonth}
-                primaryIncome={primaryIncome}
-                transactions={transactions}
-                tasks={tasks}
-                notes={notes}
-                budgets={budgets}
-                habits={habits}
-                focusGoal={
-                  focusGoal && focusGoal.date === todayISO ? focusGoal : null
-                }
-                onSaveFocusGoal={handleSaveFocusGoal}
-                onToggleFocusGoal={handleToggleFocusGoal}
-                onClearFocusGoal={handleClearFocusGoal}
-                onToggleTask={handleToggleTask}
-                onQuickAddTask={handleQuickAddTask}
-                onToggleHabitDate={handleToggleHabitDate}
-                onNavigate={setActiveTab}
-                onOpenNewModal={(mode) => setModalMode(mode)}
-                onConfirmPreExpense={handleConfirmPreExpense}
-              />
-            )}
+          <AnimatePresence mode="wait" onExitComplete={scrollToTopInstant}>
+            <motion.div
+              key={activeTab}
+              initial={
+                prefersReducedMotion
+                  ? false
+                  : { opacity: 0, y: 12, scale: 0.996 }
+              }
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={
+                prefersReducedMotion
+                  ? { opacity: 0 }
+                  : { opacity: 0, y: -8, scale: 0.996 }
+              }
+              transition={{
+                duration: prefersReducedMotion ? 0.04 : 0.2,
+                ease: [0.22, 1, 0.36, 1],
+              }}
+              style={{ willChange: 'transform, opacity' }}
+            >
+              <Suspense fallback={<PageSkeleton variant={activeTab} />}>
+                {activeTab === 'overview' && (
+                  <OverviewView
+                    selectedMonth={selectedMonth}
+                    primaryIncome={primaryIncome}
+                    transactions={transactions}
+                    tasks={tasks}
+                    notes={notes}
+                    budgets={budgets}
+                    habits={habits}
+                    focusGoal={
+                      focusGoal && focusGoal.date === todayISO ? focusGoal : null
+                    }
+                    safeToSpend={safeToSpend}
+                    savingsGoals={savingsGoals}
+                    debts={debts}
+                    focusSessions={focusSessions}
+                    soundEnabled={notificationSettings.soundEnabled}
+                    browserNotifications={notificationSettings.browserNotifications}
+                    onCompleteFocusSession={handleCompleteFocusSession}
+                    onSaveFocusGoal={handleSaveFocusGoal}
+                    onToggleFocusGoal={handleToggleFocusGoal}
+                    onClearFocusGoal={handleClearFocusGoal}
+                    onToggleTask={handleToggleTask}
+                    onToggleHabitDate={handleToggleHabitDate}
+                    onNavigate={handleSelectTab}
+                    onOpenNewModal={(mode) => setModalState({ mode })}
+                    onConfirmPreExpense={handleConfirmPreExpense}
+                  />
+                )}
 
-            {activeTab === 'finance' && (
-              <FinanceView
-                selectedMonth={selectedMonth}
-                onChangeMonth={setSelectedMonth}
-                primaryIncome={primaryIncome}
-                onSavePrimaryIncome={handleSavePrimaryIncome}
-                onDisablePrimaryIncome={handleDisablePrimaryIncome}
-                onManualCreditPrimaryIncome={handleManualCreditPrimaryIncome}
-                transactions={transactions}
-                onAddTransaction={handleAddTransaction}
-                onUpdateTransaction={handleUpdateTransaction}
-                onDeleteTransaction={handleDeleteTransaction}
-                onRepeatMonthlyIncomes={handleRepeatMonthlyIncomes}
-                onNotify={showToast}
-                budgets={budgets}
-                onSaveBudget={handleSaveBudget}
-                onDeleteBudget={handleDeleteBudget}
-                recurringBills={recurringBills}
-                onAddRecurringBill={handleAddRecurringBill}
-                onUpdateRecurringBill={handleUpdateRecurringBill}
-                onDeleteRecurringBill={handleDeleteRecurringBill}
-                onPayAllRecurringBills={handlePayAllRecurringBills}
-                onConfirmBillSlot={handleConfirmBillSlot}
-                onSkipBillSlot={handleSkipBillSlot}
-                onConfirmPreExpense={handleConfirmPreExpense}
-                currentHHMM={currentHHMM}
-                onExportJSON={handleExportJSON}
-                onImportJSON={handleImportJSON}
-              />
-            )}
+                {activeTab === 'finance' && (
+                  <FinanceView
+                    selectedMonth={selectedMonth}
+                    onChangeMonth={setSelectedMonth}
+                    primaryIncome={primaryIncome}
+                    onSavePrimaryIncome={handleSavePrimaryIncome}
+                    onDisablePrimaryIncome={handleDisablePrimaryIncome}
+                    onManualCreditPrimaryIncome={handleManualCreditPrimaryIncome}
+                    transactions={transactions}
+                    onAddTransaction={handleAddTransaction}
+                    onOpenNewTransactionModal={() =>
+                      setModalState({ mode: 'transaction' })
+                    }
+                    onEditTransaction={(tx) =>
+                      setModalState({ mode: 'transaction', editing: tx })
+                    }
+                    onAutoCategorizeTransactions={handleAutoCategorizeTransactions}
+                    onDeleteTransaction={handleDeleteTransaction}
+                    onRepeatMonthlyIncomes={handleRepeatMonthlyIncomes}
+                    onNotify={showToast}
+                    budgets={budgets}
+                    onSaveBudget={handleSaveBudget}
+                    onDeleteBudget={handleDeleteBudget}
+                    recurringBills={recurringBills}
+                    onAddRecurringBill={handleAddRecurringBill}
+                    onUpdateRecurringBill={handleUpdateRecurringBill}
+                    onDeleteRecurringBill={handleDeleteRecurringBill}
+                    onPayAllRecurringBills={handlePayAllRecurringBills}
+                    onConfirmBillSlot={handleConfirmBillSlot}
+                    onSkipBillSlot={handleSkipBillSlot}
+                    onConfirmPreExpense={handleConfirmPreExpense}
+                    currentHHMM={currentHHMM}
+                    safeToSpend={safeToSpend}
+                    savingsGoals={savingsGoals}
+                    onOpenNewGoalModal={() => setModalState({ mode: 'goal' })}
+                    onEditGoal={(goal) =>
+                      setModalState({ mode: 'goal', editing: goal })
+                    }
+                    onAdjustGoal={handleAdjustGoal}
+                    onDeleteGoal={handleDeleteGoal}
+                    debts={debts}
+                    onOpenNewDebtModal={() => setModalState({ mode: 'debt' })}
+                    onEditDebt={(debt) =>
+                      setModalState({ mode: 'debt', editing: debt })
+                    }
+                    onRecordDebtPayment={handleRecordDebtPayment}
+                    onDeleteDebt={handleDeleteDebt}
+                    onExportJSON={handleExportJSON}
+                    onImportJSON={handleImportJSON}
+                  />
+                )}
 
-            {activeTab === 'planner' && (
-              <PlannerView
-                tasks={tasks}
-                onAddTask={handleAddTask}
-                onToggleTask={handleToggleTask}
-                onUpdateTask={handleUpdateTask}
-                onUpdateTaskPriority={handleUpdateTaskPriority}
-                onDeleteTask={handleDeleteTask}
-                onClearCompleted={handleClearCompletedTasks}
-                habits={habits}
-                onAddHabit={handleAddHabit}
-                onUpdateHabit={handleUpdateHabit}
-                onToggleHabitDate={handleToggleHabitDate}
-                onDeleteHabit={handleDeleteHabit}
-              />
-            )}
+                {activeTab === 'planner' && (
+                  <PlannerView
+                    tasks={tasks}
+                    onOpenNewTaskModal={() => setModalState({ mode: 'task' })}
+                    onEditTask={(task) =>
+                      setModalState({ mode: 'task', editing: task })
+                    }
+                    onToggleTask={handleToggleTask}
+                    onUpdateTaskPriority={handleUpdateTaskPriority}
+                    onDeleteTask={handleDeleteTask}
+                    onClearCompleted={handleClearCompletedTasks}
+                    habits={habits}
+                    onOpenNewHabitModal={() => setModalState({ mode: 'habit' })}
+                    onEditHabit={(habit) =>
+                      setModalState({ mode: 'habit', editing: habit })
+                    }
+                    onToggleHabitDate={handleToggleHabitDate}
+                    onDeleteHabit={handleDeleteHabit}
+                    focusGoal={
+                      focusGoal && focusGoal.date === todayISO ? focusGoal : null
+                    }
+                    focusSessions={focusSessions}
+                    soundEnabled={notificationSettings.soundEnabled}
+                    browserNotifications={notificationSettings.browserNotifications}
+                    onCompleteFocusSession={handleCompleteFocusSession}
+                  />
+                )}
 
-            {activeTab === 'notes' && (
-              <NotesView
-                notes={notes}
-                onAddNote={handleAddNote}
-                onUpdateNote={handleUpdateNote}
-                onTogglePin={handleTogglePinNote}
-                onDeleteNote={handleDeleteNote}
-                onConvertToTask={handleConvertNoteToTask}
-              />
-            )}
-          </motion.div>
+                {activeTab === 'notes' && (
+                  <NotesView
+                    notes={notes}
+                    onOpenNewNoteModal={() => setModalState({ mode: 'note' })}
+                    onEditNote={(note) =>
+                      setModalState({ mode: 'note', editing: note })
+                    }
+                    onTogglePin={handleTogglePinNote}
+                    onDeleteNote={handleDeleteNote}
+                    onConvertToTask={handleConvertNoteToTask}
+                    onToggleChecklistItem={handleToggleNoteChecklistItem}
+                    onLogShoppingExpense={handleLogShoppingExpense}
+                  />
+                )}
+
+              </Suspense>
+            </motion.div>
+          </AnimatePresence>
         </main>
       </TopNav>
+
+      <ScrollToTopButton />
 
       {/* Non-intrusive Undo / Feedback Toast */}
       <AnimatePresence>
@@ -1183,7 +2088,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.16 }}
-            className="fixed bottom-[4.75rem] md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 border border-[#CBD5E1] dark:border-[#334155] bg-[#0F172A] dark:bg-[#F8FAFC] text-[#F8FAFC] dark:text-[#0F172A] px-4 py-2.5 rounded-xl shadow-xl flex items-center justify-between sm:justify-start gap-3 text-xs sm:text-sm"
+            className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 left-3.5 right-3.5 sm:left-auto sm:right-6 sm:max-w-md z-50 border border-[#CBD5E1] dark:border-[#334155] bg-[#0F172A] dark:bg-[#F8FAFC] text-[#F8FAFC] dark:text-[#0F172A] px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between sm:justify-start gap-3 text-xs sm:text-sm"
             role="status"
           >
             <span className="font-medium">{toast.message}</span>
@@ -1248,14 +2153,28 @@ export default function App() {
         />
       )}
 
-      {modalMode && (
+      {modalState && (
         <QuickAddModal
-          initialMode={modalMode}
-          onClose={() => setModalMode(null)}
+          modalState={modalState}
+          transactions={transactions}
+          onClose={() => setModalState(null)}
           onAddTransaction={handleAddTransaction}
+          onUpdateTransaction={handleUpdateTransaction}
           onAddTask={handleAddTask}
+          onUpdateTask={handleUpdateTask}
+          onAddHabit={handleAddHabit}
+          onUpdateHabit={handleUpdateHabit}
           onAddNote={handleAddNote}
+          onUpdateNote={handleUpdateNote}
+          onAddGoal={handleAddGoal}
+          onUpdateGoal={handleUpdateGoal}
+          onAddDebt={handleAddDebt}
+          onUpdateDebt={handleUpdateDebt}
         />
+      )}
+
+      {showIOSGuide && (
+        <PWAInstallModal onClose={() => setShowIOSGuide(false)} />
       )}
     </div>
   );

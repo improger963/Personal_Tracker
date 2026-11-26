@@ -34,7 +34,7 @@ export function NotificationAlerts({
     <div
       aria-live="polite"
       aria-label="Ակտիվ ծախսերի և բյուջեի հիշեցումներ"
-      className="fixed bottom-[4.75rem] md:bottom-6 right-3.5 left-3.5 sm:left-auto sm:right-6 sm:w-[23.5rem] z-40 flex flex-col gap-2.5 pointer-events-none"
+      className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 right-3.5 left-3.5 sm:left-auto sm:right-6 sm:w-[23.5rem] z-40 flex flex-col gap-2.5 pointer-events-none"
     >
       <AnimatePresence mode="popLayout">
         {visible.map((item) => {

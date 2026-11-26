@@ -15,9 +15,12 @@ import {
 import {
   FileDown,
   FileText,
+  PieChart as PieChartIcon,
   Repeat,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
+import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import {
   BudgetLimit,
   Currency,
@@ -720,9 +723,12 @@ export function AnalyticsAndReportsPage({
           </div>
 
           {donutSegments.length === 0 ? (
-            <p className="text-sm text-[#64748B] dark:text-[#94A3B8] py-8 text-center">
-              Այս ամսում գրանցված ծախսեր չկան։
-            </p>
+            <EmptyStatePlaceholder
+              compact
+              icon={PieChartIcon}
+              title="Այս ամսում գրանցված ծախսեր չկան"
+              description="Ծախսեր ավելացնելուց հետո կտեսնեք կատեգորիաների բաշխումը։"
+            />
           ) : (
             <>
               <motion.div
@@ -845,9 +851,11 @@ export function AnalyticsAndReportsPage({
               </span>
             </div>
             {totalIncome === 0 ? (
-              <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
-                Այս ամսում գրանցված եկամուտներ չկան։
-              </p>
+              <EmptyStatePlaceholder
+                compact
+                icon={Wallet}
+                title="Այս ամսում գրանցված եկամուտներ չկան"
+              />
             ) : (
               <div className="space-y-2.5">
                 {incomeKindSummary.map((item) => {

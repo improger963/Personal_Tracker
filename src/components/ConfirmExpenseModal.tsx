@@ -38,15 +38,18 @@ export function ConfirmExpenseModal({
       role="dialog"
       aria-modal="true"
       aria-label="Ծախսի հաստատման պատուհան"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs"
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
         transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-md rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden"
+        className="w-full max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-0"
       >
+        {/* iOS Native Bottom Sheet Grabber */}
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 sm:hidden shrink-0" aria-hidden="true" />
+
         <div className="px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-9 h-9 rounded-xl bg-[#2563EB]/12 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">

@@ -260,3 +260,57 @@ export function computeCycleFinancials(
     liveRealBalance,
   };
 }
+
+export interface SafeToSpendMetrics {
+  availableBalance: number;
+  reservedBills: number;
+  reservedPending: number;
+  freeFunds: number;
+  remainingDaysInclusive: number;
+  dailyAllowance: number;
+  todaySpent: number;
+  remainingTodayAllowance: number;
+}
+
+export function computeSafeToSpend(params: {
+  availableBalance: number;
+  unpaidBillsTotal: number;
+  pendingExpensesTotal: number;
+  cycleMetrics: CycleDayMetrics;
+  transactions: Transaction[];
+  todayISO: string;
+}): SafeToSpendMetrics {
+  const {
+    availableBalance,
+    unpaidBillsTotal,
+    pendingExpensesTotal,
+    cycleMetrics,
+    transactions,
+    todayISO,
+  } = params;
+
+  const reservedBills = cycleMetrics.isPastCycle ? 0 : Math.max(0, unpaidBillsTotal);
+  const reservedPending = cycleMetrics.isPastCycle ? 0 : Math.max(0, pendingExpensesTotal);
+  const freeFunds = availableBalance - reservedBills - reservedPending;
+
+  const remainingDaysInclusive = cycleMetrics.isCurrentCycle
+    ? Math.max(1, cycleMetrics.remainingDays + 1)
+    : Math.max(1, cycleMetrics.totalDays);
+
+  const dailyAllowance = Math.max(0, Math.floor(freeFunds / remainingDaysInclusive));
+
+  const todaySpent = transactions
+    .filter((t) => t.type === 'expense' && !t.isPending && t.date === todayISO)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  return {
+    availableBalance,
+    reservedBills,
+    reservedPending,
+    freeFunds,
+    remainingDaysInclusive,
+    dailyAllowance,
+    todaySpent,
+    remainingTodayAllowance: dailyAllowance - todaySpent,
+  };
+}

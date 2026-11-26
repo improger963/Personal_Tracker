@@ -1,10 +1,14 @@
 import {
+  BankCard,
   Currency,
+  DebtItem,
+  FocusSession,
   IncomeKind,
   Note,
   NotificationSettings,
   PrimaryIncomeConfig,
   RecurringBill,
+  SavingsGoal,
   Task,
   Transaction,
 } from '../types';
@@ -63,6 +67,16 @@ export const EXPENSE_CATEGORIES = [
   'Առողջություն',
   'Գնումներ',
   'Ժամանց',
+  'Կրթություն',
+  'Այլ',
+] as const;
+
+export const SAVINGS_GOAL_CATEGORIES = [
+  'Անվտանգության պահուստ',
+  'Ճամփորդություն',
+  'Տեխնիկա',
+  'Ավտոմեքենա',
+  'Բնակարան',
   'Կրթություն',
   'Այլ',
 ] as const;
@@ -247,8 +261,14 @@ export function getInitialNotes(): Note[] {
     },
     {
       id: 'note-3',
-      title: 'Կարդալու գրքերի ցանկ',
-      content: '1. Atomic Habits\n2. Deep Work\n3. Psychology of Money',
+      title: 'Շաբաթական սուպերմարկետի գնումներ',
+      content: 'Գնումների արագ ցանկ տան համար․',
+      checklist: [
+        { id: 'chk-1', text: 'Թարմ մրգեր և բանջարեղեն', done: true },
+        { id: 'chk-2', text: 'Կաթնամթերք և պանիր', done: false },
+        { id: 'chk-3', text: 'Հավի կրծքամիս և ձու', done: false },
+        { id: 'chk-4', text: 'Աղացած սուրճ', done: false },
+      ],
       pinned: false,
       updatedAt: new Date().toISOString(),
     },
@@ -353,4 +373,55 @@ export function getInitialHabits(): {
     },
   ];
 }
+
+export function getInitialSavingsGoals(): SavingsGoal[] {
+  return [
+    {
+      id: 'goal-1',
+      title: 'Անվտանգության պահուստ',
+      targetAmount: 500000,
+      currentAmount: 125000,
+      category: 'Անվտանգության պահուստ',
+      completed: false,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
+export function getInitialDebts(): DebtItem[] {
+  return [];
+}
+
+export function getInitialFocusSessions(): FocusSession[] {
+  return [];
+}
+
+export function getInitialCards(): BankCard[] {
+  return [
+    {
+      id: 'card-1',
+      name: 'Ամերիաբանկ Visa',
+      last4: '4589',
+      cardType: 'visa',
+      color: 'blue',
+      initialBalance: 150000,
+      currency: 'AMD',
+      isDefault: true,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'card-2',
+      name: 'Կանխիկ դրամապանակ',
+      last4: '',
+      cardType: 'cash',
+      color: 'emerald',
+      initialBalance: 25000,
+      currency: 'AMD',
+      isDefault: false,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+
+
 

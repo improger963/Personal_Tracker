@@ -1,12 +1,15 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { useReducedMotion } from 'motion/react';
+import React, { Suspense, lazy, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Area,
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -21,7 +24,10 @@ import {
   ChevronUp,
   Download,
   LineChart as LineChartIcon,
+  PieChart as PieChartIcon,
+  PiggyBank,
   Receipt,
+  ShieldCheck,
   Target,
   TrendingUp,
   Upload,
@@ -29,12 +35,16 @@ import {
 import {
   BudgetLimit,
   Currency,
+  DebtItem,
   IncomeKind,
   PrimaryIncomeConfig,
   RecurringBill,
+  SavingsGoal,
   Transaction,
 } from '../types';
 import {
+  CategoryDonutPoint,
+  CategoryDonutTooltip,
   DONUT_COLORS,
   FinancePageTab,
   MonthlyHealthTooltip,
@@ -42,9 +52,30 @@ import {
   calcDeltaPct,
   formatAxisCompact,
 } from './finance/financeShared';
-import { TransactionsLedgerPage } from './finance/TransactionsLedgerPage';
-import { BudgetsAndBillsPage } from './finance/BudgetsAndBillsPage';
-import { AnalyticsAndReportsPage } from './finance/AnalyticsAndReportsPage';
+import { MonthlySavingsAdviceCard } from './finance/MonthlySavingsAdviceCard';
+import { EmptyStatePlaceholder, PageSkeleton } from './ui/Skeleton';
+import { scrollToTopInstant, scrollToTopSmooth } from '../utils/scroll';
+
+const TransactionsLedgerPage = lazy(() =>
+  import('./finance/TransactionsLedgerPage').then((m) => ({
+    default: m.TransactionsLedgerPage,
+  }))
+);
+const BudgetsAndBillsPage = lazy(() =>
+  import('./finance/BudgetsAndBillsPage').then((m) => ({
+    default: m.BudgetsAndBillsPage,
+  }))
+);
+const AnalyticsAndReportsPage = lazy(() =>
+  import('./finance/AnalyticsAndReportsPage').then((m) => ({
+    default: m.AnalyticsAndReportsPage,
+  }))
+);
+const GoalsAndDebtsPage = lazy(() =>
+  import('./finance/GoalsAndDebtsPage').then((m) => ({
+    default: m.GoalsAndDebtsPage,
+  }))
+);
 import {
   formatMoney,
   getLastNMonthsKeys,
@@ -53,6 +84,7 @@ import {
   INCOME_KIND_LABELS,
 } from '../data/defaults';
 import {
+  SafeToSpendMetrics,
   computeCycleFinancials,
   formatCycleLabel,
   getCycleDayMetrics,
@@ -74,9 +106,10 @@ interface FinanceViewProps {
   onManualCreditPrimaryIncome: () => void;
   transactions: Transaction[];
   onAddTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
-  onUpdateTransaction: (
-    id: string,
-    updates: Omit<Transaction, 'id' | 'createdAt'>
+  onOpenNewTransactionModal: () => void;
+  onEditTransaction: (tx: Transaction) => void;
+  onAutoCategorizeTransactions?: (
+    updates: Array<{ id: string; category: string; incomeKind?: IncomeKind }>
   ) => void;
   onDeleteTransaction: (id: string) => void;
   onRepeatMonthlyIncomes: (sourceIncomes: Transaction[], monthKey: string) => void;
@@ -96,6 +129,21 @@ interface FinanceViewProps {
   onSkipBillSlot: (billId: string, slotKey: string) => void;
   onConfirmPreExpense: (txId: string) => void;
   currentHHMM?: string;
+  safeToSpend: SafeToSpendMetrics;
+  savingsGoals: SavingsGoal[];
+  onOpenNewGoalModal: () => void;
+  onEditGoal: (goal: SavingsGoal) => void;
+  onAdjustGoal: (goalId: string, delta: number, recordInLedger: boolean) => void;
+  onDeleteGoal: (goalId: string) => void;
+  debts: DebtItem[];
+  onOpenNewDebtModal: () => void;
+  onEditDebt: (debt: DebtItem) => void;
+  onRecordDebtPayment: (
+    debtId: string,
+    amount: number,
+    recordInLedger: boolean
+  ) => void;
+  onDeleteDebt: (debtId: string) => void;
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
 }
@@ -109,7 +157,9 @@ export function FinanceView({
   onManualCreditPrimaryIncome,
   transactions,
   onAddTransaction,
-  onUpdateTransaction,
+  onOpenNewTransactionModal,
+  onEditTransaction,
+  onAutoCategorizeTransactions,
   onDeleteTransaction,
   onRepeatMonthlyIncomes,
   onNotify,
@@ -125,6 +175,17 @@ export function FinanceView({
   onSkipBillSlot,
   onConfirmPreExpense,
   currentHHMM,
+  safeToSpend,
+  savingsGoals,
+  onOpenNewGoalModal,
+  onEditGoal,
+  onAdjustGoal,
+  onDeleteGoal,
+  debts,
+  onOpenNewDebtModal,
+  onEditDebt,
+  onRecordDebtPayment,
+  onDeleteDebt,
   onExportJSON,
   onImportJSON,
 }: FinanceViewProps) {
@@ -146,6 +207,16 @@ export function FinanceView({
     }
   });
 
+  const [hoveredPieCategory, setHoveredPieCategory] = useState<string | null>(null);
+  const [isPieExpanded, setIsPieExpanded] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('pa_finance_pie_open');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+
   const toggleDynamicsExpanded = () => {
     setIsDynamicsExpanded((prev) => {
       const next = !prev;
@@ -158,11 +229,28 @@ export function FinanceView({
     });
   };
 
-  // 3 Dedicated Pages State (Default to 'ledger' or stored user preference)
+  const togglePieExpanded = () => {
+    setIsPieExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('pa_finance_pie_open', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  // 4 Dedicated Pages State (Default to 'ledger' or stored user preference)
   const [activePage, setActivePage] = useState<FinancePageTab>(() => {
     try {
       const saved = localStorage.getItem('pa_finance_active_page');
-      if (saved === 'ledger' || saved === 'budgets' || saved === 'analytics') {
+      if (
+        saved === 'ledger' ||
+        saved === 'budgets' ||
+        saved === 'goals_debts' ||
+        saved === 'analytics'
+      ) {
         return saved;
       }
     } catch {
@@ -172,6 +260,10 @@ export function FinanceView({
   });
 
   const handleSelectPage = (page: FinancePageTab) => {
+    if (page === activePage) {
+      scrollToTopSmooth();
+      return;
+    }
     setActivePage(page);
     try {
       localStorage.setItem('pa_finance_active_page', page);
@@ -497,6 +589,45 @@ export function FinanceView({
     };
   });
 
+  const pieExpenseSegments: CategoryDonutPoint[] = useMemo(() => {
+    const confirmedByCat = monthTransactions
+      .filter((t) => t.type === 'expense' && !t.isPending)
+      .reduce<Record<string, number>>((acc, t) => {
+        acc[t.category] = (acc[t.category] ?? 0) + t.amount;
+        return acc;
+      }, {});
+    const entries = Object.entries(confirmedByCat).sort((a, b) => b[1] - a[1]);
+    const confirmedSum = entries.reduce((sum, [, val]) => sum + val, 0);
+    return entries.map(([cat, val], idx) => {
+      const budget = budgets.find((b) => b.category === cat);
+      return {
+        category: cat,
+        amount: val,
+        pct: confirmedSum > 0 ? Math.round((val / confirmedSum) * 100) : 0,
+        color: DONUT_COLORS[idx % DONUT_COLORS.length],
+        budgetLimit: budget?.limit,
+      };
+    });
+  }, [monthTransactions, budgets]);
+
+  const activeHoveredSegment = hoveredPieCategory
+    ? pieExpenseSegments.find((s) => s.category === hoveredPieCategory) ?? null
+    : null;
+
+  const topExpensesForAdvice = useMemo(
+    () =>
+      [...expenseTransactions]
+        .filter((t) => !t.isPending && t.amount > 0)
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 6)
+        .map((t) => ({
+          title: t.title,
+          category: t.category,
+          amount: t.amount,
+        })),
+    [expenseTransactions]
+  );
+
   const handleExportCSV = () => {
     const headers = ['Ամսաթիվ', 'Տեսակ', 'Կատեգորիա', 'Աղբյուր / Նպատակ', 'Գումար'];
     const rows = [...transactions]
@@ -521,6 +652,11 @@ export function FinanceView({
     URL.revokeObjectURL(url);
   };
 
+  const activeGoalsCount = savingsGoals.filter(
+    (g) => g.currentAmount < g.targetAmount
+  ).length;
+  const activeDebtsCount = debts.filter((d) => !d.settled).length;
+
   const pagesConfig = [
     {
       id: 'ledger' as const,
@@ -535,6 +671,13 @@ export function FinanceView({
       subtitle: 'Կրկնվող ծախսեր և ցիկլ',
       icon: Target,
       badge: `${budgets.length + recurringBills.length}`,
+    },
+    {
+      id: 'goals_debts' as const,
+      label: 'Նպատակներ / Պարտքեր',
+      subtitle: 'Գանձանակներ և փոխառություններ',
+      icon: PiggyBank,
+      badge: `${activeGoalsCount + activeDebtsCount}`,
     },
     {
       id: 'analytics' as const,
@@ -556,6 +699,7 @@ export function FinanceView({
           <p className="text-sm text-[#64748B] dark:text-[#94A3B8]">
             {activePage === 'ledger' && 'Գործարքների մատյան, որոնում և արագ ավելացում'}
             {activePage === 'budgets' && 'Կատեգորիաների բյուջեներ, ամենօրյա և ամսական կրկնվող վճարներ'}
+            {activePage === 'goals_debts' && 'Խնայողության գանձանակներ, տրված և վերցված պարտքերի վերահսկում'}
             {activePage === 'analytics' && 'Ամսական ամփոփում, 3 և 6 ամիսների համեմատական վերլուծություն'}
           </p>
         </div>
@@ -627,8 +771,8 @@ export function FinanceView({
         </div>
       </div>
 
-      {/* 2. Three Dedicated Pages Switcher */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-1.5 rounded-2xl surface-subtle">
+      {/* 2. Four Dedicated Pages Switcher */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 p-1.5 rounded-2xl surface-subtle">
         {pagesConfig.map((page) => {
           const Icon = page.icon;
           const isActive = activePage === page.id;
@@ -685,8 +829,75 @@ export function FinanceView({
         })}
       </div>
 
-      {/* 2.5. Monthly Income & Expense Dynamics Chart (Recharts) */}
-      <section className="surface-card overflow-hidden">
+      {/* 2.25. Safe-to-Spend Daily Allowance Summary Strip */}
+      <section
+        aria-label="Օրական անվտանգ բյուջե"
+        className="surface-card px-4 py-3.5 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-3"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-4 h-4" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <h2 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                Օրական անվտանգ բյուջե
+              </h2>
+              <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                · {safeToSpend.remainingDaysInclusive} օր մինչև ցիկլի ավարտը
+              </span>
+            </div>
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+              Ազատ միջոցներ՝{' '}
+              <strong className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                {formatMoney(safeToSpend.freeFunds, currency)}
+              </strong>
+              {(safeToSpend.reservedBills > 0 || safeToSpend.reservedPending > 0) && (
+                <>
+                  {' '}
+                  · Պահուստ (վճարներ + նախածախս)՝{' '}
+                  <strong className="font-mono text-amber-600 dark:text-amber-400">
+                    {formatMoney(
+                      safeToSpend.reservedBills + safeToSpend.reservedPending,
+                      currency
+                    )}
+                  </strong>
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 tabular-nums">
+          <div>
+            <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+              Օրական սահմանաչափ
+            </span>
+            <span className="font-mono text-base sm:text-lg font-bold text-[#2563EB] dark:text-[#60A5FA]">
+              {formatMoney(safeToSpend.dailyAllowance, currency)}
+            </span>
+          </div>
+          <div className="pl-4 border-l border-[#E2E8F0] dark:border-[#1E293B]">
+            <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+              Այսօրվա մնացորդ (ծախս՝ {formatMoney(safeToSpend.todaySpent, currency)})
+            </span>
+            <span
+              className={`font-mono text-base sm:text-lg font-bold ${
+                safeToSpend.remainingTodayAllowance >= 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-rose-600 dark:text-rose-400'
+              }`}
+            >
+              {safeToSpend.remainingTodayAllowance >= 0 ? '+' : ''}
+              {formatMoney(safeToSpend.remainingTodayAllowance, currency)}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* 2.5. Visual Analytics Row: Monthly Dynamics + Selected Month Category Pie Chart */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+      <section className="xl:col-span-7 min-w-0 surface-card overflow-hidden">
         <div className="px-5 py-4 sm:px-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="flex items-start sm:items-center gap-3 min-w-0">
             <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
@@ -704,7 +915,7 @@ export function FinanceView({
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Quick Period Averages */}
-            <div className="hidden xl:flex items-center gap-3 mr-2 pr-3 border-r border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
+            <div className="hidden 2xl:flex items-center gap-3 mr-2 pr-3 border-r border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
               <div>
                 <span className="text-[#94A3B8] dark:text-[#64748B] mr-1">Միջ. եկամուտ՝</span>
                 <span className="font-mono font-semibold text-emerald-600 dark:text-emerald-400">
@@ -845,13 +1056,13 @@ export function FinanceView({
               </div>
 
               <div className="flex flex-wrap items-center gap-4 text-xs tabular-nums">
-                <span className="xl:hidden text-[#64748B] dark:text-[#94A3B8]">
+                <span className="2xl:hidden text-[#64748B] dark:text-[#94A3B8]">
                   Միջ. եկամուտ՝{' '}
                   <strong className="font-mono text-emerald-600 dark:text-emerald-400">
                     +{formatMoney(dynamicsStats.avgIncome, currency)}
                   </strong>
                 </span>
-                <span className="xl:hidden text-[#64748B] dark:text-[#94A3B8]">
+                <span className="2xl:hidden text-[#64748B] dark:text-[#94A3B8]">
                   Միջ. ծախս՝{' '}
                   <strong className="font-mono text-rose-600 dark:text-rose-400">
                     -{formatMoney(dynamicsStats.avgExpense, currency)}
@@ -874,14 +1085,13 @@ export function FinanceView({
             </div>
 
             {!dynamicsStats.hasAnyData ? (
-              <div className="h-[220px] flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC]/60 dark:bg-[#0B1120]/40 px-4">
-                <p className="text-sm font-medium text-[#475569] dark:text-[#CBD5E1]">
-                  Այս ժամանակահատվածում գրանցված եկամուտներ կամ ծախսեր չկան
-                </p>
-                <p className="text-xs text-[#94A3B8] dark:text-[#64748B] mt-1">
-                  Ավելացրեք գործարքներ՝ ամսական դինամիկան այստեղ տեսնելու համար։
-                </p>
-              </div>
+              <EmptyStatePlaceholder
+                compact
+                icon={TrendingUp}
+                title="Այս ժամանակահատվածում գրանցված եկամուտներ կամ ծախսեր չկան"
+                description="Ավելացրեք գործարքներ՝ ամսական դինամիկան այստեղ տեսնելու համար։"
+                className="h-[220px]"
+              />
             ) : (
               <div className="h-[235px] w-full">
                 <ResponsiveContainer width="100%" height={235} minWidth={0}>
@@ -1104,108 +1314,312 @@ export function FinanceView({
         )}
       </section>
 
-      {/* 3. Render Active Page */}
-      {activePage === 'ledger' && (
-        <TransactionsLedgerPage
-          selectedMonth={selectedMonth}
-          effectivePayday={effectivePayday}
-          currency={currency}
-          monthTransactions={monthTransactions}
-          allTransactions={transactions}
-          onAddTransaction={onAddTransaction}
-          onUpdateTransaction={onUpdateTransaction}
-          onDeleteTransaction={onDeleteTransaction}
-          realBalance={realBalance}
-          totalIncome={totalIncome}
-          totalExpense={totalExpense}
-          pendingExpense={cyclePendingExpense}
-          openingBalance={openingBalance}
-          incomeDeltaPct={incomeDeltaPct}
-          expenseDeltaPct={expenseDeltaPct}
-          hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
-          isCurrentCycle={cycleMetrics.isCurrentCycle}
-          primaryIncome={primaryIncome}
-          onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
-          onConfirmPreExpense={onConfirmPreExpense}
-        />
-      )}
+        {/* Category Expense Pie Chart (Selected Month) */}
+        <section className="xl:col-span-5 min-w-0 surface-card overflow-hidden">
+          <div className="px-5 py-4 sm:px-6 flex items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center gap-3 min-w-0">
+              <span className="w-9 h-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <PieChartIcon className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-display text-base sm:text-lg font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                  Ծախսերն ըստ կատեգորիայի
+                </h2>
+                <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums truncate">
+                  {cycleLabel} · {pieExpenseSegments.length} կատեգորիա
+                </p>
+              </div>
+            </div>
 
-      {activePage === 'budgets' && (
-        <BudgetsAndBillsPage
-          selectedMonth={selectedMonth}
-          effectivePayday={effectivePayday}
-          cycleLabel={cycleLabel}
-          currency={currency}
-          primaryIncome={primaryIncome}
-          onSavePrimaryIncome={onSavePrimaryIncome}
-          onDisablePrimaryIncome={onDisablePrimaryIncome}
-          onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
-          hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
-          cycleMetrics={cycleMetrics}
-          budgets={budgets}
-          expenseByCategory={expenseByCategory}
-          onSaveBudget={onSaveBudget}
-          onDeleteBudget={onDeleteBudget}
-          recurringBills={recurringBills}
-          onAddRecurringBill={onAddRecurringBill}
-          onUpdateRecurringBill={onUpdateRecurringBill}
-          onDeleteRecurringBill={onDeleteRecurringBill}
-          onPayAllRecurringBills={onPayAllRecurringBills}
-          onConfirmBillSlot={onConfirmBillSlot}
-          onSkipBillSlot={onSkipBillSlot}
-          currentHHMM={currentHHMM}
-          monthTransactions={monthTransactions}
-          onAddTransaction={onAddTransaction}
-        />
-      )}
+            <button
+              type="button"
+              onClick={togglePieExpanded}
+              aria-expanded={isPieExpanded}
+              aria-label={isPieExpanded ? 'Թաքցնել շրջանաձև գծապատկերը' : 'Ցույց տալ շրջանաձև գծապատկերը'}
+              className="min-h-[32px] px-2.5 py-1 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:border-[#CBD5E1] dark:hover:border-[#334155] inline-flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+            >
+              <span>{isPieExpanded ? 'Թաքցնել' : 'Ցույց տալ'}</span>
+              {isPieExpanded ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
 
-      {activePage === 'analytics' && (
-        <AnalyticsAndReportsPage
-          selectedMonth={selectedMonth}
-          onChangeMonth={onChangeMonth}
-          effectivePayday={effectivePayday}
-          cycleLabel={cycleLabel}
-          currency={currency}
-          transactions={transactions}
-          monthTransactions={monthTransactions}
-          incomeTransactions={incomeTransactions}
-          expenseTransactions={expenseTransactions}
-          budgets={budgets}
-          cycleMetrics={cycleMetrics}
-          openingBalance={openingBalance}
-          totalIncome={totalIncome}
-          totalExpense={totalExpense}
-          netSavings={netSavings}
-          realBalance={realBalance}
-          monthlyIncomeTotal={monthlyIncomeTotal}
-          extraIncomeTotal={extraIncomeTotal}
-          oneTimeIncomeTotal={oneTimeIncomeTotal}
-          savingsPct={savingsPct}
-          incomeDeltaPct={incomeDeltaPct}
-          expenseDeltaPct={expenseDeltaPct}
-          repeatableMonthlyIncomes={repeatableMonthlyIncomes}
-          onRepeatMonthlyIncomes={onRepeatMonthlyIncomes}
-          dailyBurnRate={dailyBurnRate}
-          projectedMonthlyExpense={projectedMonthlyExpense}
-          projectedRemainingExpense={projectedRemainingExpense}
-          unpaidBillsTotal={unpaidBillsTotal}
-          actualPacePct={actualPacePct}
-          projectedTotalBarPct={projectedTotalBarPct}
-          projectedAddBarPct={projectedAddBarPct}
-          projectionStatusText={projectionStatusText}
-          projectionStatusClass={projectionStatusClass}
-          donutSegments={donutSegments}
-          categoryComparisonData={categoryComparisonData}
-          monthlySeries={monthlySeries}
-          last3MonthsSeries={last3MonthsSeries}
-          incomeKindSummary={incomeKindSummary}
-          expenseByCategory={expenseByCategory}
-          onNotify={onNotify}
-          onSelectCategoryFilter={() => {
-            handleSelectPage('ledger');
+          {isPieExpanded && (
+            <div className="px-5 pb-5 sm:px-6 sm:pb-6 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B]">
+              {pieExpenseSegments.length === 0 ? (
+                <EmptyStatePlaceholder
+                  compact
+                  icon={PieChartIcon}
+                  title="Այս ամսում գրանցված ծախսեր չկան"
+                  description="Ավելացրեք ծախսեր՝ կատեգորիաների բաշխումը տեսնելու համար։"
+                  className="h-[235px]"
+                />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                  {/* Recharts Pie Chart */}
+                  <div className="sm:col-span-6 relative h-[215px] w-full">
+                    <ResponsiveContainer width="100%" height={215} minWidth={0}>
+                      <PieChart>
+                        <Pie
+                          data={pieExpenseSegments}
+                          dataKey="amount"
+                          nameKey="category"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={52}
+                          outerRadius={82}
+                          paddingAngle={3}
+                          stroke="none"
+                          isAnimationActive={!prefersReducedMotion}
+                          animationBegin={40}
+                          animationDuration={550}
+                          animationEasing="ease-out"
+                          onMouseLeave={() => setHoveredPieCategory(null)}
+                        >
+                          {pieExpenseSegments.map((seg) => {
+                            const isDimmed =
+                              hoveredPieCategory !== null &&
+                              hoveredPieCategory !== seg.category;
+                            return (
+                              <Cell
+                                key={seg.category}
+                                fill={seg.color}
+                                fillOpacity={isDimmed ? 0.32 : 1}
+                                onMouseEnter={() => setHoveredPieCategory(seg.category)}
+                                className="cursor-pointer transition-opacity duration-150"
+                              />
+                            );
+                          })}
+                        </Pie>
+                        <Tooltip
+                          content={({ active, payload }) => (
+                            <CategoryDonutTooltip
+                              active={active}
+                              payload={payload}
+                              currency={currency}
+                            />
+                          )}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+
+                    {/* Center Total / Hovered Category Overlay */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
+                      <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate max-w-[96px]">
+                        {activeHoveredSegment ? activeHoveredSegment.category : 'Ընդհանուր'}
+                      </span>
+                      <span className="text-sm font-bold font-mono tabular-nums text-[#0F172A] dark:text-[#F8FAFC] mt-0.5 truncate max-w-[100px]">
+                        {formatMoney(
+                          activeHoveredSegment ? activeHoveredSegment.amount : totalExpense,
+                          currency
+                        )}
+                      </span>
+                      {activeHoveredSegment && (
+                        <span className="text-[10px] font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums">
+                          {activeHoveredSegment.pct}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Interactive Category Breakdown Legend */}
+                  <div className="sm:col-span-6 max-h-[215px] overflow-y-auto scroll-container pr-1 divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                    {pieExpenseSegments.map((seg) => {
+                      const isDimmed =
+                        hoveredPieCategory !== null &&
+                        hoveredPieCategory !== seg.category;
+                      return (
+                        <div
+                          key={seg.category}
+                          onMouseEnter={() => setHoveredPieCategory(seg.category)}
+                          onMouseLeave={() => setHoveredPieCategory(null)}
+                          className={`py-2 flex items-center justify-between gap-2 text-xs transition-opacity cursor-default ${
+                            isDimmed ? 'opacity-45' : 'opacity-100'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: seg.color }}
+                            />
+                            <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                              {seg.category}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 font-mono tabular-nums shrink-0">
+                            <span className="text-[#334155] dark:text-[#CBD5E1] font-semibold">
+                              {formatMoney(seg.amount, currency)}
+                            </span>
+                            <span className="text-[11px] text-[#94A3B8] w-8 text-right">
+                              {seg.pct}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* 2.75. Monthly Savings Advice (Google Search Grounded) */}
+      <MonthlySavingsAdviceCard
+        selectedMonth={selectedMonth}
+        cycleLabel={cycleLabel}
+        currency={currency}
+        totalIncome={totalIncome}
+        totalExpense={totalExpense}
+        projectedMonthlyExpense={projectedMonthlyExpense}
+        savingsPct={savingsPct}
+        categories={pieExpenseSegments}
+        topExpenses={topExpensesForAdvice}
+      />
+
+      {/* 3. Render Active Page with Smooth Transition & Scroll-to-Top */}
+      <AnimatePresence mode="wait" onExitComplete={scrollToTopInstant}>
+        <motion.div
+          key={activePage}
+          initial={
+            prefersReducedMotion ? false : { opacity: 0, y: 12, scale: 0.996 }
+          }
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={
+            prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.996 }
+          }
+          transition={{
+            duration: prefersReducedMotion ? 0.04 : 0.2,
+            ease: [0.22, 1, 0.36, 1],
           }}
-        />
-      )}
+          style={{ willChange: 'transform, opacity' }}
+        >
+          <Suspense fallback={<PageSkeleton variant={activePage} />}>
+            {activePage === 'ledger' && (
+              <TransactionsLedgerPage
+                selectedMonth={selectedMonth}
+                effectivePayday={effectivePayday}
+                currency={currency}
+                monthTransactions={monthTransactions}
+                allTransactions={transactions}
+                onOpenNewTransactionModal={onOpenNewTransactionModal}
+                onEditTransaction={onEditTransaction}
+                onAutoCategorizeTransactions={onAutoCategorizeTransactions}
+                onDeleteTransaction={onDeleteTransaction}
+                realBalance={realBalance}
+                totalIncome={totalIncome}
+                totalExpense={totalExpense}
+                pendingExpense={cyclePendingExpense}
+                openingBalance={openingBalance}
+                incomeDeltaPct={incomeDeltaPct}
+                expenseDeltaPct={expenseDeltaPct}
+                hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
+                isCurrentCycle={cycleMetrics.isCurrentCycle}
+                primaryIncome={primaryIncome}
+                onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
+                onConfirmPreExpense={onConfirmPreExpense}
+              />
+            )}
+
+            {activePage === 'budgets' && (
+              <BudgetsAndBillsPage
+                selectedMonth={selectedMonth}
+                effectivePayday={effectivePayday}
+                cycleLabel={cycleLabel}
+                currency={currency}
+                primaryIncome={primaryIncome}
+                onSavePrimaryIncome={onSavePrimaryIncome}
+                onDisablePrimaryIncome={onDisablePrimaryIncome}
+                onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
+                hasCurrentPrimaryCredited={hasCurrentPrimaryCredited}
+                cycleMetrics={cycleMetrics}
+                budgets={budgets}
+                expenseByCategory={expenseByCategory}
+                onSaveBudget={onSaveBudget}
+                onDeleteBudget={onDeleteBudget}
+                recurringBills={recurringBills}
+                onAddRecurringBill={onAddRecurringBill}
+                onUpdateRecurringBill={onUpdateRecurringBill}
+                onDeleteRecurringBill={onDeleteRecurringBill}
+                onPayAllRecurringBills={onPayAllRecurringBills}
+                onConfirmBillSlot={onConfirmBillSlot}
+                onSkipBillSlot={onSkipBillSlot}
+                currentHHMM={currentHHMM}
+                monthTransactions={monthTransactions}
+                onAddTransaction={onAddTransaction}
+              />
+            )}
+
+            {activePage === 'goals_debts' && (
+              <GoalsAndDebtsPage
+                currency={currency}
+                savingsGoals={savingsGoals}
+                onOpenNewGoalModal={onOpenNewGoalModal}
+                onEditGoal={onEditGoal}
+                onAdjustGoal={onAdjustGoal}
+                onDeleteGoal={onDeleteGoal}
+                debts={debts}
+                onOpenNewDebtModal={onOpenNewDebtModal}
+                onEditDebt={onEditDebt}
+                onRecordDebtPayment={onRecordDebtPayment}
+                onDeleteDebt={onDeleteDebt}
+              />
+            )}
+
+            {activePage === 'analytics' && (
+              <AnalyticsAndReportsPage
+                selectedMonth={selectedMonth}
+                onChangeMonth={onChangeMonth}
+                effectivePayday={effectivePayday}
+                cycleLabel={cycleLabel}
+                currency={currency}
+                transactions={transactions}
+                monthTransactions={monthTransactions}
+                incomeTransactions={incomeTransactions}
+                expenseTransactions={expenseTransactions}
+                budgets={budgets}
+                cycleMetrics={cycleMetrics}
+                openingBalance={openingBalance}
+                totalIncome={totalIncome}
+                totalExpense={totalExpense}
+                netSavings={netSavings}
+                realBalance={realBalance}
+                monthlyIncomeTotal={monthlyIncomeTotal}
+                extraIncomeTotal={extraIncomeTotal}
+                oneTimeIncomeTotal={oneTimeIncomeTotal}
+                savingsPct={savingsPct}
+                incomeDeltaPct={incomeDeltaPct}
+                expenseDeltaPct={expenseDeltaPct}
+                repeatableMonthlyIncomes={repeatableMonthlyIncomes}
+                onRepeatMonthlyIncomes={onRepeatMonthlyIncomes}
+                dailyBurnRate={dailyBurnRate}
+                projectedMonthlyExpense={projectedMonthlyExpense}
+                projectedRemainingExpense={projectedRemainingExpense}
+                unpaidBillsTotal={unpaidBillsTotal}
+                actualPacePct={actualPacePct}
+                projectedTotalBarPct={projectedTotalBarPct}
+                projectedAddBarPct={projectedAddBarPct}
+                projectionStatusText={projectionStatusText}
+                projectionStatusClass={projectionStatusClass}
+                donutSegments={donutSegments}
+                categoryComparisonData={categoryComparisonData}
+                monthlySeries={monthlySeries}
+                last3MonthsSeries={last3MonthsSeries}
+                incomeKindSummary={incomeKindSummary}
+                expenseByCategory={expenseByCategory}
+                onNotify={onNotify}
+                onSelectCategoryFilter={() => {
+                  handleSelectPage('ledger');
+                }}
+              />
+            )}
+          </Suspense>
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }

@@ -1,0 +1,392 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated workspace owner record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Isolated private PII profile document",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "minLength": 0, "maxLength": 200 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "updatedAt"]
+    },
+    "WorkspaceSettings": {
+      "title": "WorkspaceSettings",
+      "description": "Synced workspace preferences and payday config",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "primaryIncome": { "type": "object" },
+        "focusGoal": { "type": "object" },
+        "notificationSettings": { "type": "object" },
+        "isDark": { "type": "boolean" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "primaryIncome",
+        "notificationSettings",
+        "isDark",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Income or expense ledger entry",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "incomeKind": { "type": "string", "enum": ["monthly", "extra", "one_time"] },
+        "amount": { "type": "number" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "primaryCycleKey": { "type": "string", "maxLength": 20 },
+        "isPending": { "type": "boolean" },
+        "cardId": { "type": "string", "maxLength": 128 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "type",
+        "amount",
+        "title",
+        "category",
+        "date",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "BankCard": {
+      "title": "BankCard",
+      "description": "User bank card or manual cash wallet",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "last4": { "type": "string", "maxLength": 10 },
+        "cardType": { "type": "string", "enum": ["arca", "visa", "mastercard", "other", "cash"] },
+        "color": { "type": "string", "enum": ["blue", "purple", "emerald", "amber", "rose", "slate"] },
+        "initialBalance": { "type": "number" },
+        "currency": { "type": "string", "enum": ["AMD"] },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "name",
+        "cardType",
+        "color",
+        "initialBalance",
+        "currency",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "One-time or recurring task",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "completed": { "type": "boolean" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+        "dueTime": { "type": "string", "maxLength": 10 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "scheduleType": { "type": "string", "enum": ["one_time", "daily", "recurring", "weekdays"] },
+        "repeatInterval": { "type": "string", "enum": ["weekly", "biweekly", "monthly", "every_n_days"] },
+        "repeatEveryDays": { "type": "number" },
+        "selectedWeekdays": { "type": "array" },
+        "completedDates": { "type": "array" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "title",
+        "completed",
+        "priority",
+        "date",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Personal note with optional interactive checklist and reminder",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "content": { "type": "string", "minLength": 0, "maxLength": 8000 },
+        "checklist": { "type": "array" },
+        "reminderDate": { "type": "string", "maxLength": 30 },
+        "pinned": { "type": "boolean" },
+        "updatedAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "title",
+        "content",
+        "pinned",
+        "updatedAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "BudgetLimit": {
+      "title": "BudgetLimit",
+      "description": "Monthly spending cap per category",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "limit": { "type": "number" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "category",
+        "limit",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "RecurringBill": {
+      "title": "RecurringBill",
+      "description": "Recurring or planned expense reminder",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "amount": { "type": "number" },
+        "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "frequency": { "type": "string", "enum": ["monthly", "daily", "planned"] },
+        "dayOfMonth": { "type": "number" },
+        "reminderTime": { "type": "string", "maxLength": 10 },
+        "dailyTimes": { "type": "array" },
+        "scheduledDate": { "type": "string", "maxLength": 20 },
+        "scheduledTime": { "type": "string", "maxLength": 10 },
+        "isVariableAmount": { "type": "boolean" },
+        "confirmedSlots": { "type": "array" },
+        "skippedSlots": { "type": "array" },
+        "active": { "type": "boolean" },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "title",
+        "amount",
+        "category",
+        "dayOfMonth",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "Habit": {
+      "title": "Habit",
+      "description": "Daily tracked habit",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "completedDates": { "type": "array" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "title",
+        "completedDates",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Savings jar / target goal",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "targetAmount": { "type": "number" },
+        "currentAmount": { "type": "number" },
+        "deadline": { "type": "string", "maxLength": 20 },
+        "category": { "type": "string", "maxLength": 80 },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "title",
+        "targetAmount",
+        "currentAmount",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "DebtItem": {
+      "title": "DebtItem",
+      "description": "Lent or borrowed money record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "person": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "direction": { "type": "string", "enum": ["lent", "borrowed"] },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "note": { "type": "string", "maxLength": 500 },
+        "settled": { "type": "boolean" },
+        "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "person",
+        "direction",
+        "totalAmount",
+        "paidAmount",
+        "settled",
+        "createdAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    },
+    "FocusSession": {
+      "title": "FocusSession",
+      "description": "Completed Pomodoro focus session",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "minutes": { "type": "number" },
+        "mode": { "type": "string", "enum": ["focus", "break"] },
+        "label": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "taskId": { "type": "string", "maxLength": 128 },
+        "completedAt": { "type": "string", "minLength": 1, "maxLength": 50 },
+        "serverCreatedAt": { "type": "string", "format": "date-time" },
+        "serverUpdatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "id",
+        "date",
+        "minutes",
+        "mode",
+        "label",
+        "completedAt",
+        "serverCreatedAt",
+        "serverUpdatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Owner root document"
+    },
+    "/users/{userId}/private/{profileDocId}": {
+      "schema": { "$ref": "#/entities/UserPrivateProfile" },
+      "description": "Isolated user PII profile"
+    },
+    "/users/{userId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/WorkspaceSettings" },
+      "description": "User workspace preferences and payday cycle config"
+    },
+    "/users/{userId}/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "User financial ledger transactions"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "User tasks and schedules"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/Note" },
+      "description": "User notes and checklists"
+    },
+    "/users/{userId}/budgets/{budgetId}": {
+      "schema": { "$ref": "#/entities/BudgetLimit" },
+      "description": "User category budget limits"
+    },
+    "/users/{userId}/recurringBills/{billId}": {
+      "schema": { "$ref": "#/entities/RecurringBill" },
+      "description": "User recurring and planned bills"
+    },
+    "/users/{userId}/habits/{habitId}": {
+      "schema": { "$ref": "#/entities/Habit" },
+      "description": "User daily habits"
+    },
+    "/users/{userId}/savingsGoals/{goalId}": {
+      "schema": { "$ref": "#/entities/SavingsGoal" },
+      "description": "User savings goals / jars"
+    },
+    "/users/{userId}/debts/{debtId}": {
+      "schema": { "$ref": "#/entities/DebtItem" },
+      "description": "User debts and IOUs"
+    },
+    "/users/{userId}/focusSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/FocusSession" },
+      "description": "User completed Pomodoro focus sessions"
+    },
+    "/users/{userId}/cards/{cardId}": {
+      "schema": { "$ref": "#/entities/BankCard" },
+      "description": "User bank cards and manual wallets"
+    }
+  }
+}

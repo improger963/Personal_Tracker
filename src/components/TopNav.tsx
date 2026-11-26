@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { User } from 'firebase/auth';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -11,10 +12,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Cloud,
+  CloudOff,
+  Download,
+  HandCoins,
   LayoutDashboard,
+  LogOut,
   Moon,
   NotebookPen,
   Plus,
+  RefreshCw,
   Repeat,
   RotateCcw,
   SkipForward,
@@ -34,6 +41,9 @@ import {
 } from '../types';
 import { formatMoney } from '../data/defaults';
 import { formatCycleLabel } from '../utils/financialCycle';
+import { triggerHaptic } from '../utils/haptics';
+
+export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 
 interface TopNavProps {
   activeTab: NavSection;
@@ -59,6 +69,13 @@ interface TopNavProps {
   onShiftMonth: (delta: number) => void;
   isDark: boolean;
   onToggleTheme: () => void;
+  user: User | null;
+  syncStatus: CloudSyncStatus;
+  isOnline: boolean;
+  onSignInGoogle: () => void;
+  onSignOutGoogle: () => void;
+  canInstallPWA: boolean;
+  onInstallPWA: () => void;
   children: React.ReactNode;
 }
 
@@ -120,11 +137,21 @@ export function TopNav({
   onShiftMonth,
   isDark,
   onToggleTheme,
+  user,
+  syncStatus,
+  isOnline,
+  onSignInGoogle,
+  onSignOutGoogle,
+  canInstallPWA,
+  onInstallPWA,
   children,
 }: TopNavProps) {
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState<NotifFilter>('all');
   const popoverRef = useRef<HTMLDivElement>(null);
+  const accountPopoverRef = useRef<HTMLDivElement>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   const todayCount = todayTasks.length;
   const totalBellCount = notifications.length;
@@ -136,7 +163,8 @@ export function TopNav({
       n.kind === 'daily_expense' ||
       n.kind === 'planned_expense' ||
       n.kind === 'monthly_bill' ||
-      n.kind === 'budget_alert'
+      n.kind === 'budget_alert' ||
+      n.kind === 'debt'
   ).length;
   const scheduleCount = notifications.filter(
     (n) => n.kind === 'task' || n.kind === 'note'
@@ -148,7 +176,8 @@ export function TopNav({
         n.kind === 'daily_expense' ||
         n.kind === 'planned_expense' ||
         n.kind === 'monthly_bill' ||
-        n.kind === 'budget_alert'
+        n.kind === 'budget_alert' ||
+        n.kind === 'debt'
       );
     }
     if (notifFilter === 'schedule') {
@@ -168,17 +197,28 @@ export function TopNav({
     NAV_ITEMS.find((n) => n.id === activeTab) ?? NAV_ITEMS[0];
 
   useEffect(() => {
-    if (!remindersOpen) return;
+    if (!remindersOpen && !accountMenuOpen) return;
     const handleOutside = (e: MouseEvent) => {
       if (
+        remindersOpen &&
         popoverRef.current &&
         !popoverRef.current.contains(e.target as Node)
       ) {
         setRemindersOpen(false);
       }
+      if (
+        accountMenuOpen &&
+        accountPopoverRef.current &&
+        !accountPopoverRef.current.contains(e.target as Node)
+      ) {
+        setAccountMenuOpen(false);
+      }
     };
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setRemindersOpen(false);
+      if (e.key === 'Escape') {
+        setRemindersOpen(false);
+        setAccountMenuOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleOutside);
     window.addEventListener('keydown', handleEscape);
@@ -186,7 +226,42 @@ export function TopNav({
       document.removeEventListener('mousedown', handleOutside);
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [remindersOpen]);
+  }, [remindersOpen, accountMenuOpen]);
+
+  const syncStatusMeta: Record<
+    CloudSyncStatus,
+    { label: string; dotClass: string }
+  > = {
+    idle: {
+      label: 'Անցանց պահոց',
+      dotClass: 'bg-slate-400',
+    },
+    syncing: {
+      label: 'Համաժամեցում...',
+      dotClass: 'bg-[#2563EB] dark:bg-[#60A5FA] animate-pulse',
+    },
+    synced: {
+      label: 'Համաժամեցված',
+      dotClass: 'bg-emerald-500',
+    },
+    offline: {
+      label: 'Օֆլայն ռեժիմ',
+      dotClass: 'bg-amber-500',
+    },
+    error: {
+      label: 'Սինքի սխալ',
+      dotClass: 'bg-rose-500',
+    },
+  };
+  const effectiveSyncStatus: CloudSyncStatus = !isOnline
+    ? 'offline'
+    : syncStatus;
+  const currentSyncMeta = syncStatusMeta[effectiveSyncStatus];
+  const userInitial = (
+    user?.displayName?.trim()?.[0] ||
+    user?.email?.trim()?.[0] ||
+    'Օ'
+  ).toUpperCase();
 
   return (
     <>
@@ -231,11 +306,23 @@ export function TopNav({
                   }
                   className={`relative w-full min-h-[46px] px-3 py-2.5 rounded-xl flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer ${
                     isActive
-                      ? 'bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#1D4ED8] dark:text-[#60A5FA]'
+                      ? 'text-[#1D4ED8] dark:text-[#60A5FA]'
                       : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                   }`}
                 >
-                  <span className="flex items-center gap-3 min-w-0">
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-sidebar-active"
+                      transition={
+                        prefersReducedMotion
+                          ? { duration: 0.01 }
+                          : { type: 'spring', stiffness: 420, damping: 34 }
+                      }
+                      className="absolute inset-0 rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/65 border border-[#BFDBFE]/60 dark:border-[#1E3A8A]/60"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-3 min-w-0">
                     <Icon
                       className="w-[18px] h-[18px] shrink-0"
                       strokeWidth={isActive ? 2.2 : 1.85}
@@ -251,7 +338,7 @@ export function TopNav({
                     </span>
                   </span>
                   {showBadge && (
-                    <span className="min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none shrink-0">
+                    <span className="relative z-10 min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none shrink-0">
                       {todayCount > 99 ? '99+' : todayCount}
                     </span>
                   )}
@@ -262,7 +349,84 @@ export function TopNav({
         </div>
 
         {/* Sidebar Bottom Controls */}
-        <div className="space-y-3 pt-4 border-t border-[#E2E8F0] dark:border-[#1E293B]">
+        <div className="space-y-2.5 pt-4 border-t border-[#E2E8F0] dark:border-[#1E293B]">
+          {user ? (
+            <div className="p-2.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {user.photoURL ? (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName || 'Օգտատեր'}
+                      className="w-8 h-8 rounded-full object-cover shrink-0 border border-[#CBD5E1] dark:border-[#334155]"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span className="w-8 h-8 rounded-full bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA] text-xs font-bold flex items-center justify-center shrink-0">
+                      {userInitial}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                      {user.displayName || user.email || 'Google հաշիվ'}
+                    </p>
+                    <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 truncate">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${currentSyncMeta.dotClass}`}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate">{currentSyncMeta.label}</span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onSignOutGoogle}
+                  title="Դուրս գալ"
+                  aria-label="Դուրս գալ Google հաշվից"
+                  className="min-h-[32px] min-w-[32px] rounded-lg flex items-center justify-center text-[#64748B] dark:text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={onSignInGoogle}
+                className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] flex items-center justify-between hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <Cloud className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
+                  <span className="truncate">Մուտք Google-ով</span>
+                </span>
+                <span className="text-[11px] text-[#2563EB] dark:text-[#60A5FA] shrink-0">
+                  Սինք
+                </span>
+              </button>
+              {!isOnline && (
+                <p className="px-1 text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <CloudOff className="w-3.5 h-3.5 shrink-0" />
+                  <span>Օֆլայն · տվյալները պահվում են տեղում</span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {canInstallPWA && (
+            <button
+              type="button"
+              onClick={onInstallPWA}
+              className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A]/70 bg-[#EFF6FF]/70 dark:bg-[#172554]/45 text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-between hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/70 transition-colors cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <Download className="w-4 h-4 shrink-0" />
+                <span className="truncate">Տեղադրել հավելվածը</span>
+              </span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onToggleTheme}
@@ -332,15 +496,27 @@ export function TopNav({
                         ? `${item.label} (${todayCount} այսօրվա անելիք)`
                         : item.label
                     }
-                    className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`relative min-h-[36px] px-3 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                       isActive
-                        ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] shadow-xs font-semibold'
+                        ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
                         : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                     }`}
                   >
-                    <span>{item.label}</span>
+                    {isActive && (
+                      <motion.span
+                        layoutId="nav-tablet-active"
+                        transition={
+                          prefersReducedMotion
+                            ? { duration: 0.01 }
+                            : { type: 'spring', stiffness: 420, damping: 34 }
+                        }
+                        className="absolute inset-0 rounded-lg bg-white dark:bg-[#0F172A] shadow-xs"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span className="relative z-10">{item.label}</span>
                     {showBadge && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[10px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none">
+                      <span className="relative z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[10px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none">
                         {todayCount > 99 ? '99+' : todayCount}
                       </span>
                     )}
@@ -374,6 +550,116 @@ export function TopNav({
                   </button>
                 </div>
               )}
+
+              {!isOnline && (
+                <span
+                  title="Օֆլայն ռեժիմ"
+                  aria-label="Օֆլայն ռեժիմ"
+                  className="lg:hidden min-h-[40px] min-w-[36px] px-2 flex items-center justify-center rounded-xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                >
+                  <CloudOff className="w-4 h-4" />
+                </span>
+              )}
+
+              {canInstallPWA && (
+                <button
+                  type="button"
+                  onClick={onInstallPWA}
+                  title="Տեղադրել հավելվածը"
+                  aria-label="Տեղադրել հավելվածը"
+                  className="lg:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A] bg-[#EFF6FF] dark:bg-[#172554]/50 text-[#2563EB] dark:text-[#60A5FA] transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+              )}
+
+              <div className="relative lg:hidden" ref={accountPopoverRef}>
+                {user ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setAccountMenuOpen((prev) => !prev)}
+                      aria-expanded={accountMenuOpen}
+                      aria-label="Ամպային հաշիվ և համաժամեցում"
+                      className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+                    >
+                      {user.photoURL ? (
+                        <img
+                          src={user.photoURL}
+                          alt={user.displayName || 'Օգտատեր'}
+                          className="w-6 h-6 rounded-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <span className="w-6 h-6 rounded-full bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA] text-[11px] font-bold flex items-center justify-center">
+                          {userInitial}
+                        </span>
+                      )}
+                      <span
+                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-[#0C1220] ${currentSyncMeta.dotClass}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+
+                    <AnimatePresence>
+                      {accountMenuOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                          transition={{ duration: 0.14 }}
+                          role="dialog"
+                          aria-label="Google հաշիվ"
+                          className="absolute right-0 mt-2 w-60 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 p-3 space-y-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                              {user.displayName || 'Google հաշիվ'}
+                            </p>
+                            {user.email && (
+                              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
+                                {user.email}
+                              </p>
+                            )}
+                            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5">
+                              {effectiveSyncStatus === 'syncing' ? (
+                                <RefreshCw className="w-3 h-3 animate-spin text-[#2563EB] dark:text-[#60A5FA]" />
+                              ) : (
+                                <span
+                                  className={`w-2 h-2 rounded-full ${currentSyncMeta.dotClass}`}
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <span>{currentSyncMeta.label}</span>
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccountMenuOpen(false);
+                              onSignOutGoogle();
+                            }}
+                            className="w-full min-h-[34px] px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-500/30 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Դուրս գալ հաշվից</span>
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onSignInGoogle}
+                    title="Մուտք Google-ով"
+                    aria-label="Մուտք Google-ով՝ տվյալների սինքի համար"
+                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#2563EB] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+                  >
+                    <Cloud className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -431,7 +717,7 @@ export function TopNav({
                       transition={{ duration: 0.14 }}
                       role="dialog"
                       aria-label="Պրո ծանուցումների կենտրոն"
-                      className="fixed inset-x-3.5 top-[4.25rem] sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[26rem] rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 overflow-hidden"
+                      className="fixed inset-x-3.5 top-[4.25rem] max-h-[calc(100dvh-5.5rem)] sm:max-h-none sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[26rem] rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 overflow-hidden flex flex-col"
                     >
                       {/* Header + Sound / Browser Notification Toggles */}
                       <div className="px-4 py-3 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-2">
@@ -541,7 +827,7 @@ export function TopNav({
                           </p>
                         </div>
                       ) : (
-                        <div className="max-h-[22rem] overflow-y-auto">
+                        <div className="max-h-[22rem] overflow-y-auto scroll-container">
                           {[
                             {
                               title: 'Պահանջում է հաստատում',
@@ -783,6 +1069,66 @@ export function TopNav({
                                         );
                                       }
 
+                                      if (item.kind === 'debt') {
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            className={`px-4 py-3 space-y-2 transition-colors border-l-2 ${
+                                              isOverdue
+                                                ? 'bg-rose-500/[0.06] border-rose-500 dark:bg-rose-950/20'
+                                                : 'bg-[#EFF6FF]/50 border-[#2563EB] dark:bg-[#172554]/25'
+                                            }`}
+                                          >
+                                            <div className="flex items-start justify-between gap-2.5">
+                                              <div className="flex items-start gap-2.5 min-w-0">
+                                                <span
+                                                  className={`mt-0.5 w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                                    isOverdue
+                                                      ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                                                      : 'bg-[#2563EB]/12 text-[#2563EB] dark:text-[#60A5FA]'
+                                                  }`}
+                                                >
+                                                  <HandCoins className="w-3.5 h-3.5" />
+                                                </span>
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                                                    {item.title}
+                                                  </p>
+                                                  <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                                                    {item.subtitle}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                              {item.amount !== undefined && (
+                                                <span className="text-xs font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
+                                                  {formatMoney(item.amount)}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex items-center justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  try {
+                                                    localStorage.setItem(
+                                                      'pa_finance_active_page',
+                                                      'goals_debts'
+                                                    );
+                                                  } catch {
+                                                    // ignore
+                                                  }
+                                                  setRemindersOpen(false);
+                                                  onSelectTab('finance');
+                                                }}
+                                                className="min-h-[26px] px-2.5 py-1 rounded-lg bg-[#2563EB]/12 hover:bg-[#2563EB]/20 text-[#2563EB] dark:text-[#60A5FA] text-[11px] font-semibold cursor-pointer transition-colors"
+                                              >
+                                                Դիտել պարտքերը
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+
                                       return (
                                         <div
                                           key={item.id}
@@ -881,12 +1227,14 @@ export function TopNav({
 
               <button
                 type="button"
-                onClick={onOpenNewModal}
-                className="min-h-[40px] px-3 sm:px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onOpenNewModal();
+                }}
+                className="hidden md:inline-flex min-h-[40px] px-3 sm:px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4 shrink-0" />
-                <span className="hidden min-[400px]:inline">Նոր գրառում</span>
-                <span className="min-[400px]:hidden">Նոր</span>
+                <span>Նոր գրառում</span>
               </button>
             </div>
           </div>
@@ -897,42 +1245,149 @@ export function TopNav({
         {/* Mobile Fixed Bottom Dock (< md) */}
         <nav
           aria-label="Բջջային նավիգացիա"
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(3.5rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-md border-t border-[#E2E8F0] dark:border-[#1E293B] grid grid-cols-4 items-center"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(3.85rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-xl border-t border-[#E2E8F0]/90 dark:border-[#1E293B]/90 grid grid-cols-5 items-center px-1 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.35)] select-none"
         >
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            const showBadge = item.id === 'planner' && todayCount > 0;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectTab(item.id)}
-                aria-label={
-                  showBadge
-                    ? `${item.label} (${todayCount} այսօրվա անելիք)`
-                    : item.label
+          {/* Tab 1: Overview */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              onSelectTab('overview');
+            }}
+            aria-label="Ընդհանուր ամփոփ պատկեր"
+            className={`relative h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer active:scale-95 ${
+              activeTab === 'overview'
+                ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+            }`}
+          >
+            {activeTab === 'overview' && (
+              <motion.span
+                layoutId="nav-mobile-indicator"
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0.01 }
+                    : { type: 'spring', stiffness: 450, damping: 34 }
                 }
-                className={`h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer ${
-                  isActive
-                    ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
-                    : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                }`}
-              >
-                <span className="relative inline-flex items-center justify-center">
-                  <Icon className="w-5 h-5" strokeWidth={isActive ? 2.2 : 1.75} />
-                  {showBadge && (
-                    <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-[16px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[9px] font-mono font-bold tabular-nums flex items-center justify-center leading-none">
-                      {todayCount > 99 ? '99+' : todayCount}
-                    </span>
-                  )}
+                className="absolute top-0 w-8 h-0.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6]"
+                aria-hidden="true"
+              />
+            )}
+            <LayoutDashboard className="w-5 h-5" strokeWidth={activeTab === 'overview' ? 2.2 : 1.75} />
+            <span className="text-[10px] leading-none whitespace-nowrap">Ընդհանուր</span>
+          </button>
+
+          {/* Tab 2: Finance */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              onSelectTab('finance');
+            }}
+            aria-label="Ֆինանսներ և բյուջե"
+            className={`relative h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer active:scale-95 ${
+              activeTab === 'finance'
+                ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+            }`}
+          >
+            {activeTab === 'finance' && (
+              <motion.span
+                layoutId="nav-mobile-indicator"
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0.01 }
+                    : { type: 'spring', stiffness: 450, damping: 34 }
+                }
+                className="absolute top-0 w-8 h-0.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6]"
+                aria-hidden="true"
+              />
+            )}
+            <Wallet className="w-5 h-5" strokeWidth={activeTab === 'finance' ? 2.2 : 1.75} />
+            <span className="text-[10px] leading-none whitespace-nowrap">Ֆինանսներ</span>
+          </button>
+
+          {/* Center: Raised Floating Quick Action (+) Button */}
+          <div className="flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('medium');
+                onOpenNewModal();
+              }}
+              aria-label="Նոր գրառում (արագ ավելացում)"
+              className="w-12 h-12 -mt-4 rounded-full bg-gradient-to-tr from-[#2563EB] to-[#38BDF8] dark:from-[#3B82F6] dark:to-[#60A5FA] text-white flex items-center justify-center shadow-lg shadow-blue-500/35 border-[2.5px] border-white dark:border-[#0C1220] active:scale-90 transition-transform cursor-pointer shrink-0"
+            >
+              <Plus className="w-6 h-6" strokeWidth={2.6} />
+            </button>
+          </div>
+
+          {/* Tab 3: Planner */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              onSelectTab('planner');
+            }}
+            aria-label={`Անելիքներ (${todayCount} այսօր)`}
+            className={`relative h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer active:scale-95 ${
+              activeTab === 'planner'
+                ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+            }`}
+          >
+            {activeTab === 'planner' && (
+              <motion.span
+                layoutId="nav-mobile-indicator"
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0.01 }
+                    : { type: 'spring', stiffness: 450, damping: 34 }
+                }
+                className="absolute top-0 w-8 h-0.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6]"
+                aria-hidden="true"
+              />
+            )}
+            <span className="relative inline-flex items-center justify-center">
+              <CheckSquare className="w-5 h-5" strokeWidth={activeTab === 'planner' ? 2.2 : 1.75} />
+              {todayCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 min-w-[16px] h-[16px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[9px] font-mono font-bold tabular-nums flex items-center justify-center leading-none shadow-xs">
+                  {todayCount > 99 ? '99+' : todayCount}
                 </span>
-                <span className="text-[11px] leading-none whitespace-nowrap">
-                  {item.label}
-                </span>
-              </button>
-            );
-          })}
+              )}
+            </span>
+            <span className="text-[10px] leading-none whitespace-nowrap">Անելիքներ</span>
+          </button>
+
+          {/* Tab 4: Notes */}
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic('light');
+              onSelectTab('notes');
+            }}
+            aria-label="Նշումներ և մտքեր"
+            className={`relative h-full min-h-[44px] flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer active:scale-95 ${
+              activeTab === 'notes'
+                ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+            }`}
+          >
+            {activeTab === 'notes' && (
+              <motion.span
+                layoutId="nav-mobile-indicator"
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0.01 }
+                    : { type: 'spring', stiffness: 450, damping: 34 }
+                }
+                className="absolute top-0 w-8 h-0.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6]"
+                aria-hidden="true"
+              />
+            )}
+            <NotebookPen className="w-5 h-5" strokeWidth={activeTab === 'notes' ? 2.2 : 1.75} />
+            <span className="text-[10px] leading-none whitespace-nowrap">Նշումներ</span>
+          </button>
         </nav>
       </div>
     </>

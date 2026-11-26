@@ -8,6 +8,10 @@ export type NavSection = 'overview' | 'finance' | 'planner' | 'notes';
 
 export type TaskPriority = 'low' | 'medium' | 'high';
 
+export type TaskScheduleType = 'one_time' | 'daily' | 'recurring' | 'weekdays';
+
+export type TaskRepeatInterval = 'weekly' | 'biweekly' | 'monthly' | 'every_n_days';
+
 export interface Transaction {
   id: string;
   type: TransactionType;
@@ -19,6 +23,7 @@ export interface Transaction {
   createdAt: string;
   primaryCycleKey?: string;
   isPending?: boolean; // When true, marked as pre-expense (նախածախս) and not deducted from balance until confirmed
+  cardId?: string; // Optional card link (e.g. card-1)
 }
 
 export interface PrimaryIncomeConfig {
@@ -36,14 +41,26 @@ export interface Task {
   completed: boolean;
   priority: TaskPriority;
   dueTime?: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (target date for one_time, start date for repeating)
   createdAt: string;
+  scheduleType?: TaskScheduleType; // defaults to 'one_time'
+  repeatInterval?: TaskRepeatInterval; // used when scheduleType === 'recurring'
+  repeatEveryDays?: number; // used when repeatInterval === 'every_n_days'
+  selectedWeekdays?: number[]; // 0..6 (Sun..Sat), used when scheduleType === 'weekdays'
+  completedDates?: string[]; // YYYY-MM-DD[] for daily, recurring, and weekdays tasks
+}
+
+export interface NoteChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
 }
 
 export interface Note {
   id: string;
   title: string;
   content: string;
+  checklist?: NoteChecklistItem[];
   reminderDate?: string; // YYYY-MM-DDTHH:mm or YYYY-MM-DD
   pinned: boolean;
   updatedAt: string;
@@ -73,6 +90,41 @@ export interface RecurringBill {
   active?: boolean; // defaults to true
 }
 
+export interface SavingsGoal {
+  id: string;
+  title: string;
+  targetAmount: number;
+  currentAmount: number;
+  deadline?: string; // YYYY-MM-DD
+  category?: string;
+  completed?: boolean;
+  createdAt: string;
+}
+
+export type DebtDirection = 'lent' | 'borrowed';
+
+export interface DebtItem {
+  id: string;
+  person: string;
+  direction: DebtDirection; // 'lent' = Ինձ են պարտք, 'borrowed' = Պարտք եմ
+  totalAmount: number;
+  paidAmount: number;
+  dueDate?: string; // YYYY-MM-DD
+  note?: string;
+  settled: boolean;
+  createdAt: string;
+}
+
+export interface FocusSession {
+  id: string;
+  date: string; // YYYY-MM-DD
+  minutes: number;
+  mode: 'focus' | 'break';
+  label: string;
+  taskId?: string;
+  completedAt: string;
+}
+
 export interface NotificationSettings {
   soundEnabled: boolean;
   browserNotifications: boolean;
@@ -83,6 +135,7 @@ export type AppNotificationKind =
   | 'planned_expense'
   | 'monthly_bill'
   | 'budget_alert'
+  | 'debt'
   | 'task'
   | 'note';
 
@@ -105,6 +158,7 @@ export interface AppNotificationItem {
   taskId?: string;
   noteId?: string;
   txId?: string;
+  debtId?: string;
 }
 
 export interface Habit {
@@ -119,3 +173,21 @@ export interface FocusGoal {
   completed: boolean;
   date: string; // YYYY-MM-DD
 }
+
+export type CardType = 'arca' | 'visa' | 'mastercard' | 'other' | 'cash';
+export type CardColor = 'blue' | 'purple' | 'emerald' | 'amber' | 'rose' | 'slate';
+
+export interface BankCard {
+  id: string;
+  name: string; // e.g. "Ameriabank Visa", "Idram Card", "Կանխիկ դրամապանակ"
+  last4: string; // e.g. "4589" or empty
+  cardType: CardType;
+  color: CardColor;
+  initialBalance: number;
+  currency: 'AMD';
+  isDefault?: boolean;
+  createdAt: string;
+}
+
+
+

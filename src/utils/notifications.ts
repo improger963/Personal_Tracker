@@ -1,6 +1,7 @@
 import {
   AppNotificationItem,
   BudgetLimit,
+  DebtItem,
   Note,
   RecurringBill,
   Task,
@@ -9,10 +10,17 @@ import {
 import { formatMoney, formatShortDate } from '../data/defaults';
 import {
   daysBetweenISO,
+  getCycleDayMetrics,
   getCycleKeyForDate,
   getDateInCycleForDay,
   isDateInCycle,
 } from './financialCycle';
+import {
+  getTaskScheduleLabel,
+  isTaskCompletedOnDate,
+  isTaskDueOnDate,
+  isTaskRepeating,
+} from './taskSchedule';
 
 export function getCurrentHHMM(date = new Date()): string {
   const h = String(date.getHours()).padStart(2, '0');
@@ -40,6 +48,7 @@ export function buildAppNotifications(params: {
   tasks: Task[];
   notes: Note[];
   budgets?: BudgetLimit[];
+  debts?: DebtItem[];
   selectedMonth?: string;
   todayISO: string;
   currentHHMM: string;
@@ -51,6 +60,7 @@ export function buildAppNotifications(params: {
     tasks,
     notes,
     budgets = [],
+    debts = [],
     selectedMonth,
     todayISO,
     effectivePayday,
@@ -60,7 +70,7 @@ export function buildAppNotifications(params: {
   const targetCycleForBudget = selectedMonth || activeCycleKey;
   const items: AppNotificationItem[] = [];
 
-  // Evaluate budget alerts (80%+ or exceeded)
+  // Evaluate budget alerts (80%+ or exceeded) & proactive spending trends
   if (budgets.length > 0) {
     const cycleKeys = Array.from(new Set([activeCycleKey, targetCycleForBudget]));
 
@@ -80,30 +90,57 @@ export function buildAppNotifications(params: {
         {}
       );
 
+      const cycleMetrics = getCycleDayMetrics(cKey, effectivePayday, todayISO);
+
       for (const b of budgets) {
         const spent = spentByCategory[b.category] ?? 0;
-        if (b.limit > 0 && spent >= 0.8 * b.limit) {
-          const ratio = Math.round((spent / b.limit) * 100);
-          const isExceeded = spent >= b.limit;
-          const stage = isExceeded ? 'exceeded' : 'warning80';
-          const cycleSuffix = isLiveCycle ? '' : ` (${cKey})`;
+        if (b.limit > 0) {
+          if (spent >= 0.8 * b.limit) {
+            const ratio = Math.round((spent / b.limit) * 100);
+            const isExceeded = spent >= b.limit;
+            const stage = isExceeded ? 'exceeded' : 'warning80';
+            const cycleSuffix = isLiveCycle ? '' : ` (${cKey})`;
 
-          items.push({
-            id: `budget:${b.category}:${cKey}:${stage}`,
-            kind: 'budget_alert',
-            title: isExceeded
-              ? `Բյուջեն գերազանցված է · ${b.category}${cycleSuffix}`
-              : `Բյուջեի 80% շեմի զգուշացում · ${b.category}${cycleSuffix}`,
-            subtitle: isExceeded
-              ? `Բյուջեն գերազանցված է (${ratio}%): ${formatMoney(spent)} / ${formatMoney(b.limit)}`
-              : `Ծախսվել է բյուջեի ${ratio}%-ը (${formatMoney(spent)} / ${formatMoney(b.limit)}, մնաց՝ ${formatMoney(b.limit - spent)})`,
-            amount: spent,
-            budgetLimit: b.limit,
-            ratio,
-            category: b.category,
-            dueDate: todayISO,
-            status: isExceeded ? 'overdue' : 'due_now',
-          });
+            items.push({
+              id: `budget:${b.category}:${cKey}:${stage}`,
+              kind: 'budget_alert',
+              title: isExceeded
+                ? `Բյուջեն գերազանցված է · ${b.category}${cycleSuffix}`
+                : `Բյուջեի 80% շեմի զգուշացում · ${b.category}${cycleSuffix}`,
+              subtitle: isExceeded
+                ? `Բյուջեն գերազանցված է (${ratio}%): ${formatMoney(spent)} / ${formatMoney(b.limit)}`
+                : `Ծախսվել է բյուջեի ${ratio}%-ը (${formatMoney(spent)} / ${formatMoney(b.limit)}, մնաց՝ ${formatMoney(b.limit - spent)})`,
+              amount: spent,
+              budgetLimit: b.limit,
+              ratio,
+              category: b.category,
+              dueDate: todayISO,
+              status: isExceeded ? 'overdue' : 'due_now',
+            });
+          } else if (
+            isLiveCycle &&
+            cycleMetrics.elapsedDays >= 3 &&
+            cycleMetrics.totalDays > 0
+          ) {
+            const projectedSpend = Math.round(
+              (spent / cycleMetrics.elapsedDays) * cycleMetrics.totalDays
+            );
+            if (projectedSpend > b.limit) {
+              const projRatio = Math.round((projectedSpend / b.limit) * 100);
+              items.push({
+                id: `budget_trend:${b.category}:${cKey}:pacing`,
+                kind: 'budget_alert',
+                title: `Բյուջեի գերազանցման կանխատեսում · ${b.category}`,
+                subtitle: `Ընթացիկ տեմպով ամսվա վերջին կծախսեք ${formatMoney(projectedSpend)} (կանխատեսվող՝ ${projRatio}%, սահմանաչափ՝ ${formatMoney(b.limit)})`,
+                amount: projectedSpend,
+                budgetLimit: b.limit,
+                ratio: projRatio,
+                category: b.category,
+                dueDate: todayISO,
+                status: 'due_now',
+              });
+            }
+          }
         }
       }
     }
@@ -214,13 +251,18 @@ export function buildAppNotifications(params: {
   }
 
   for (const task of tasks) {
-    if (task.completed || task.date !== todayISO) continue;
+    if (!isTaskDueOnDate(task, todayISO) || isTaskCompletedOnDate(task, todayISO)) {
+      continue;
+    }
+    const prefix = isTaskRepeating(task) ? getTaskScheduleLabel(task) : 'Անելիք';
     items.push({
-      id: `task:${task.id}`,
+      id: `task:${task.id}:${todayISO}`,
       kind: 'task',
       title: task.title,
-      subtitle: task.dueTime ? `Անելիք · Այսօր ${task.dueTime}` : 'Այսօրվա անելիք',
-      dueDate: task.date,
+      subtitle: task.dueTime
+        ? `${prefix} · Այսօր ${task.dueTime}`
+        : `${prefix} · Այսօր`,
+      dueDate: todayISO,
       dueTime: task.dueTime,
       status: 'due_now',
       taskId: task.id,
@@ -262,6 +304,37 @@ export function buildAppNotifications(params: {
     });
   }
 
+  // Debt due-date reminders
+  for (const debt of debts) {
+    if (debt.settled || !debt.dueDate) continue;
+    const remaining = Math.max(0, debt.totalAmount - debt.paidAmount);
+    if (remaining <= 0) continue;
+    const diffDays = daysBetweenISO(todayISO, debt.dueDate);
+    if (diffDays > 3) continue;
+    const status =
+      debt.dueDate < todayISO
+        ? 'overdue'
+        : debt.dueDate === todayISO
+          ? 'due_now'
+          : 'upcoming';
+    items.push({
+      id: `debt:${debt.id}`,
+      kind: 'debt',
+      title:
+        debt.direction === 'lent'
+          ? `Վերադարձի ժամկետ · ${debt.person}`
+          : `Պարտքի վճարման ժամկետ · ${debt.person}`,
+      subtitle:
+        status === 'overdue'
+          ? `Ուշացած (${formatShortDate(debt.dueDate)}) · ${debt.direction === 'lent' ? 'Պետք է վերադարձնի' : 'Վերադարձնել'}`
+          : `${debt.dueDate === todayISO ? 'Այսօր' : formatShortDate(debt.dueDate)} · Մնացորդ՝ ${formatMoney(remaining)}`,
+      amount: remaining,
+      dueDate: debt.dueDate,
+      status,
+      debtId: debt.id,
+    });
+  }
+
   const statusRank: Record<AppNotificationItem['status'], number> = {
     overdue: 0,
     due_now: 1,
@@ -272,8 +345,9 @@ export function buildAppNotifications(params: {
     daily_expense: 1,
     planned_expense: 2,
     monthly_bill: 3,
-    note: 4,
-    task: 5,
+    debt: 4,
+    note: 5,
+    task: 6,
   };
 
   return items.sort((a, b) => {

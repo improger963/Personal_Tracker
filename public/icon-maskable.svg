@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgMask" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#1E40AF" />
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background for maskable icon with ~15% safe zone margin -->
+  <rect width="512" height="512" fill="url(#bgMask)" />
+  <g transform="translate(88 88) scale(0.65625)">
+    <rect x="116" y="144" width="280" height="224" rx="44" fill="#FFFFFF" fill-opacity="0.14" stroke="#FFFFFF" stroke-width="22" />
+    <path d="M116 218H396" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" />
+    <rect x="284" y="256" width="112" height="64" rx="20" fill="#FFFFFF" />
+    <circle cx="322" cy="288" r="13" fill="#2563EB" />
+    <path d="M168 302L196 330L248 274" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>

@@ -10,9 +10,11 @@ import {
   Plus,
   Repeat,
   SkipForward,
+  Target,
   Trash2,
   X,
 } from 'lucide-react';
+import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import {
   BillFrequency,
   BudgetLimit,
@@ -600,9 +602,12 @@ export function BudgetsAndBillsPage({
           )}
 
           {budgets.length === 0 ? (
-            <p className="text-sm text-[#64748B] dark:text-[#94A3B8] py-4">
-              Սահմանաչափեր դեռ չկան։ Ավելացրեք վերևի դաշտից։
-            </p>
+            <EmptyStatePlaceholder
+              compact
+              icon={Target}
+              title="Բյուջեի սահմանաչափեր դեռ չկան"
+              description="Ընտրեք կատեգորիա և սահմանեք ամսական սահմանաչափ վերևի դաշտից։"
+            />
           ) : (
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
               {budgets.map((b) => {
@@ -1012,9 +1017,12 @@ export function BudgetsAndBillsPage({
           )}
 
           {filteredRecurringBills.length === 0 ? (
-            <p className="text-sm text-[#64748B] dark:text-[#94A3B8] py-4">
-              Այս բաժնում կրկնվող կամ պլանավորված ծախսեր դեռ ավելացված չեն։
-            </p>
+            <EmptyStatePlaceholder
+              compact
+              icon={CalendarClock}
+              title="Այս բաժնում կրկնվող կամ պլանավորված ծախսեր չկան"
+              description="Ավելացրեք ամսական, ամենօրյա կամ պլանավորված ծախս վերևից։"
+            />
           ) : (
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
               {filteredRecurringBills.map((bill) => {

@@ -2,9 +2,16 @@
 <html lang="hy" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Անձնական Օգնական — Ֆինանսներ և Օրակարգ</title>
     <meta name="description" content="Անձնական ֆինանսների, ամենօրյա անելիքների և նշումների կառավարման ժամանակակից հարթակ" />
+    <meta name="theme-color" content="#080C14" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Օգնական" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta property="og:title" content="Անձնական Օգնական — Ֆինանսներ և Օրակարգ" />
     <meta property="og:description" content="Անձնական ֆինանսների, ամենօրյա անելիքների և նշումների կառավարման ժամանակակից հարթակ" />
     <meta property="og:type" content="website" />
@@ -15,9 +22,108 @@
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Sans+Armenian:wght@400;500;600;700&family=Outfit:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        // Suppress benign Vite HMR WebSocket connection errors in dev preview environment
+        window.addEventListener(
+          'error',
+          function (event) {
+            if (
+              event.message &&
+              (event.message.includes('WebSocket') ||
+                event.message.includes('@vite/client'))
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+        window.addEventListener(
+          'unhandledrejection',
+          function (event) {
+            var msg =
+              event.reason && (event.reason.message || String(event.reason));
+            if (
+              msg &&
+              (msg.includes('WebSocket') || msg.includes('@vite/client'))
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+
+        try {
+          var saved = localStorage.getItem('pa_theme_dark');
+          if (saved === 'false') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      #pa-boot-loader {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #F4F6FA;
+        color: #0F172A;
+        font-family: "Plus Jakarta Sans", "Noto Sans Armenian", -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      html.dark #pa-boot-loader {
+        background: #080C14;
+        color: #F8FAFC;
+      }
+      .pa-boot-spinner {
+        width: 34px;
+        height: 34px;
+        border-radius: 9999px;
+        border: 2.5px solid rgba(37, 99, 235, 0.18);
+        border-top-color: #2563EB;
+        animation: pa-boot-spin 0.75s linear infinite;
+      }
+      html.dark .pa-boot-spinner {
+        border-color: rgba(96, 165, 250, 0.18);
+        border-top-color: #3B82F6;
+      }
+      .pa-boot-title {
+        font-family: "Outfit", "Noto Sans Armenian", sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .pa-boot-sub {
+        font-size: 12px;
+        color: #64748B;
+      }
+      html.dark .pa-boot-sub {
+        color: #94A3B8;
+      }
+      @keyframes pa-boot-spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .pa-boot-spinner { animation: none; }
+      }
+    </style>
   </head>
   <body class="bg-[#F4F6FA] text-[#0F172A] dark:bg-[#080C14] dark:text-[#F8FAFC] antialiased selection:bg-[#2563EB]/20 selection:text-[#1D4ED8] dark:selection:bg-[#3B82F6]/25 dark:selection:text-[#93C5FD]">
-    <div id="root"></div>
+    <div id="root">
+      <div id="pa-boot-loader" role="status" aria-live="polite">
+        <div class="pa-boot-spinner" aria-hidden="true"></div>
+        <div style="text-align:center">
+          <div class="pa-boot-title">Անձնական Օգնական</div>
+          <div class="pa-boot-sub" style="margin-top:4px">Բեռնվում է աշխատանքային միջավայրը…</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

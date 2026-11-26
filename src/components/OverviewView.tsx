@@ -6,22 +6,31 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  HandCoins,
   NotebookPen,
   Pencil,
   PiggyBank,
   Plus,
+  Receipt,
+  ShieldCheck,
   Target,
   TrendingDown,
   TrendingUp,
   X,
 } from 'lucide-react';
+import { EmptyStatePlaceholder } from './ui/Skeleton';
+import { FocusTimerCard } from './FocusTimerCard';
+import { QuickModalMode } from './QuickAddModal';
 import {
   BudgetLimit,
+  DebtItem,
   FocusGoal,
+  FocusSession,
   Habit,
   NavSection,
   Note,
   PrimaryIncomeConfig,
+  SavingsGoal,
   Task,
   Transaction,
 } from '../types';
@@ -34,11 +43,18 @@ import {
   getTransactionIncomeKind,
 } from '../data/defaults';
 import {
+  SafeToSpendMetrics,
   computeCycleFinancials,
   formatCycleLabel,
   getCycleDayMetrics,
   getEffectivePayday,
 } from '../utils/financialCycle';
+import {
+  getTaskScheduleLabel,
+  isTaskCompletedOnDate,
+  isTaskDueOnDate,
+  isTaskRepeating,
+} from '../utils/taskSchedule';
 
 interface OverviewViewProps {
   selectedMonth: string;
@@ -49,14 +65,20 @@ interface OverviewViewProps {
   budgets: BudgetLimit[];
   habits: Habit[];
   focusGoal: FocusGoal | null;
+  safeToSpend: SafeToSpendMetrics;
+  savingsGoals: SavingsGoal[];
+  debts: DebtItem[];
+  focusSessions: FocusSession[];
+  soundEnabled: boolean;
+  browserNotifications: boolean;
+  onCompleteFocusSession: (session: Omit<FocusSession, 'id' | 'completedAt'>) => void;
   onSaveFocusGoal: (title: string) => void;
   onToggleFocusGoal: () => void;
   onClearFocusGoal: () => void;
   onToggleTask: (id: string) => void;
-  onQuickAddTask: (title: string) => void;
   onToggleHabitDate: (habitId: string, date: string) => void;
   onNavigate: (tab: NavSection) => void;
-  onOpenNewModal: (initialMode: 'transaction' | 'task' | 'note') => void;
+  onOpenNewModal: (initialMode: QuickModalMode) => void;
   onConfirmPreExpense?: (txId: string) => void;
 }
 
@@ -77,18 +99,23 @@ export function OverviewView({
   budgets,
   habits,
   focusGoal,
+  safeToSpend,
+  savingsGoals,
+  debts,
+  focusSessions,
+  soundEnabled,
+  browserNotifications,
+  onCompleteFocusSession,
   onSaveFocusGoal,
   onToggleFocusGoal,
   onClearFocusGoal,
   onToggleTask,
-  onQuickAddTask,
   onToggleHabitDate,
   onNavigate,
   onOpenNewModal,
   onConfirmPreExpense,
 }: OverviewViewProps) {
   const currency = 'AMD' as const;
-  const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [focusInput, setFocusInput] = useState('');
   const [isEditingFocus, setIsEditingFocus] = useState(false);
   const [hoveredSparkIndex, setHoveredSparkIndex] = useState<number | null>(null);
@@ -175,9 +202,21 @@ export function OverviewView({
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
 
-  const completedTasksCount = tasks.filter((t) => t.completed).length;
-  const visibleTasks = [...tasks]
-    .sort((a, b) => Number(a.completed) - Number(b.completed))
+  const dueOrOverdueTasks = tasks.filter(
+    (t) =>
+      isTaskDueOnDate(t, todayISO) ||
+      (!isTaskRepeating(t) && !t.completed && t.date < todayISO)
+  );
+  const overviewTaskPool = dueOrOverdueTasks.length > 0 ? dueOrOverdueTasks : tasks;
+  const completedTasksCount = overviewTaskPool.filter((t) =>
+    isTaskCompletedOnDate(t, todayISO)
+  ).length;
+  const visibleTasks = [...overviewTaskPool]
+    .sort(
+      (a, b) =>
+        Number(isTaskCompletedOnDate(a, todayISO)) -
+        Number(isTaskCompletedOnDate(b, todayISO))
+    )
     .slice(0, 5);
 
   const highlightedNotes = [...notes]
@@ -187,14 +226,6 @@ export function OverviewView({
   const habitsDoneToday = habits.filter((h) =>
     h.completedDates.includes(todayISO)
   ).length;
-
-  const handleTaskSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = quickTaskTitle.trim();
-    if (!trimmed) return;
-    onQuickAddTask(trimmed);
-    setQuickTaskTitle('');
-  };
 
   const handleFocusSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -209,6 +240,27 @@ export function OverviewView({
     setFocusInput(focusGoal?.title ?? '');
     setIsEditingFocus(true);
   };
+
+  const openGoalsAndDebtsPage = () => {
+    try {
+      localStorage.setItem('pa_finance_active_page', 'goals_debts');
+    } catch {
+      // ignore
+    }
+    onNavigate('finance');
+  };
+
+  const activeGoals = savingsGoals.filter((g) => g.currentAmount < g.targetAmount);
+  const totalSavedGoals = savingsGoals.reduce((s, g) => s + g.currentAmount, 0);
+  const totalTargetGoals = savingsGoals.reduce((s, g) => s + g.targetAmount, 0);
+  const activeDebts = debts.filter((d) => !d.settled);
+  const activeLentTotal = activeDebts
+    .filter((d) => d.direction === 'lent')
+    .reduce((s, d) => s + Math.max(0, d.totalAmount - d.paidAmount), 0);
+  const activeBorrowedTotal = activeDebts
+    .filter((d) => d.direction === 'borrowed')
+    .reduce((s, d) => s + Math.max(0, d.totalAmount - d.paidAmount), 0);
+  const reservedTotal = safeToSpend.reservedBills + safeToSpend.reservedPending;
 
   return (
     <div className="space-y-6">
@@ -342,6 +394,17 @@ export function OverviewView({
           </div>
         )}
       </section>
+
+      {/* Compact Focus Pomodoro Strip */}
+      <FocusTimerCard
+        compact
+        tasks={tasks}
+        focusGoal={focusGoal}
+        focusSessions={focusSessions}
+        soundEnabled={soundEnabled}
+        browserNotifications={browserNotifications}
+        onCompleteSession={onCompleteFocusSession}
+      />
 
       {/* Row 1: Hero Financial Bento + Today's Rhythm */}
       <section
@@ -508,6 +571,37 @@ export function OverviewView({
             </div>
           )}
 
+          {/* Safe-to-Spend Daily Allowance Highlight */}
+          <div className="rounded-xl border border-[#BFDBFE]/75 dark:border-[#1E3A8A]/70 bg-[#EFF6FF]/60 dark:bg-[#172554]/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-8 h-8 rounded-lg bg-[#2563EB]/12 dark:bg-[#3B82F6]/20 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  Օրական անվտանգ բյուջե
+                </p>
+                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums truncate">
+                  {safeToSpend.remainingDaysInclusive} օր ·{' '}
+                  {safeToSpend.remainingTodayAllowance >= 0
+                    ? `այսօր մնաց ${formatMoney(safeToSpend.remainingTodayAllowance, currency)}`
+                    : `այսօր գերազանցված ${formatMoney(Math.abs(safeToSpend.remainingTodayAllowance), currency)}-ով`}
+                  {reservedTotal > 0
+                    ? ` · պահուստ՝ ${formatMoney(reservedTotal, currency)}`
+                    : ''}
+                </p>
+              </div>
+            </div>
+            <div className="sm:text-right shrink-0">
+              <span className="font-mono text-base sm:text-lg font-bold tabular-nums text-[#1D4ED8] dark:text-[#60A5FA]">
+                {formatMoney(safeToSpend.dailyAllowance, currency)}
+              </span>
+              <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] ml-1">
+                / օր
+              </span>
+            </div>
+          </div>
+
           {/* Split KPI Footer */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 pt-4 sm:pt-5 border-t border-[#E2E8F0] dark:border-[#1E293B]">
             <div className="min-w-0 flex items-start gap-2.5">
@@ -564,7 +658,7 @@ export function OverviewView({
                   Կատարված գործեր
                 </p>
                 <p className="mt-0.5 text-sm sm:text-base lg:text-lg font-bold font-mono tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
-                  {completedTasksCount}/{tasks.length}
+                  {completedTasksCount}/{overviewTaskPool.length}
                 </p>
               </div>
             </div>
@@ -574,86 +668,92 @@ export function OverviewView({
         {/* Right Stage: Unified Today's Rhythm */}
         <div className="lg:col-span-5 min-w-0 surface-card flex flex-col justify-between overflow-hidden">
           <div>
-            <div className="px-4 sm:px-6 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-4">
-              <div>
+            <div className="px-4 sm:px-6 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h2 className="font-display text-lg font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                   Օրվա ռիթմ
                 </h2>
-                <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
-                  {completedTasksCount}/{tasks.length} անելիք · {habitsDoneToday}/
+                <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums truncate">
+                  {completedTasksCount}/{overviewTaskPool.length} անելիք · {habitsDoneToday}/
                   {habits.length} սովորություն
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => onNavigate('planner')}
-                className="min-h-[34px] px-2.5 rounded-lg text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <span>Պլանավորող</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onOpenNewModal('task')}
+                  className="min-h-[34px] px-3 py-1 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Անելիք</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('planner')}
+                  className="min-h-[34px] px-2.5 rounded-lg text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <span>Պլանավորող</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
-            <form
-              onSubmit={handleTaskSubmit}
-              className="px-4 sm:px-6 py-3 border-b border-[#F1F5F9] dark:border-[#1E293B] flex items-center gap-2"
-            >
-              <input
-                type="text"
-                value={quickTaskTitle}
-                onChange={(e) => setQuickTaskTitle(e.target.value)}
-                placeholder="Արագ ավելացնել անելիք..."
-                className="flex-1 min-w-0 min-h-[40px] px-3.5 py-1.5 text-sm rounded-xl input-field"
-              />
-              <button
-                type="submit"
-                aria-label="Ավելացնել անելիք"
-                className="min-h-[40px] min-w-[40px] rounded-xl btn-primary flex items-center justify-center shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </form>
-
             {visibleTasks.length === 0 ? (
-              <div className="p-6 text-center text-sm text-[#64748B] dark:text-[#94A3B8]">
-                Անելիքների ցանկը դատարկ է։
+              <div className="p-4 sm:p-5">
+                <EmptyStatePlaceholder
+                  compact
+                  icon={CheckCircle2}
+                  title="Անելիքների ցանկը դատարկ է"
+                  description="Ավելացրեք այսօրվա առաջնահերթ գործը մեկ հպումով։"
+                  actionLabel="+ Ավելացնել անելիք"
+                  onAction={() => onOpenNewModal('task')}
+                />
               </div>
             ) : (
               <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
-                {visibleTasks.map((task) => (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => onToggleTask(task.id)}
-                    className="w-full min-h-[46px] px-4 sm:px-6 py-2.5 flex items-center gap-3 text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162033] active:scale-[0.995] transition-all cursor-pointer"
-                  >
-                    <span
-                      className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
-                        task.completed
-                          ? 'bg-[#2563EB] border-[#2563EB] dark:bg-[#3B82F6] dark:border-[#3B82F6] text-white dark:text-[#060B16]'
-                          : 'border-[#CBD5E1] dark:border-[#334155]'
-                      }`}
+                {visibleTasks.map((task) => {
+                  const doneToday = isTaskCompletedOnDate(task, todayISO);
+                  const repeating = isTaskRepeating(task);
+                  return (
+                    <button
+                      key={task.id}
+                      type="button"
+                      onClick={() => onToggleTask(task.id)}
+                      className="w-full min-h-[46px] px-4 sm:px-6 py-2.5 flex items-center gap-3 text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162033] active:scale-[0.995] transition-all cursor-pointer"
                     >
-                      {task.completed && (
-                        <Check className="w-3 h-3" strokeWidth={2.7} />
-                      )}
-                    </span>
-                    <span
-                      className={`text-sm flex-1 truncate ${
-                        task.completed
-                          ? 'line-through text-[#94A3B8] dark:text-[#64748B]'
-                          : 'text-[#0F172A] dark:text-[#F8FAFC] font-medium'
-                      }`}
-                    >
-                      {task.title}
-                    </span>
-                    {task.dueTime && (
-                      <span className="text-xs font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] shrink-0">
-                        {task.dueTime}
+                      <span
+                        className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                          doneToday
+                            ? 'bg-[#2563EB] border-[#2563EB] dark:bg-[#3B82F6] dark:border-[#3B82F6] text-white dark:text-[#060B16]'
+                            : 'border-[#CBD5E1] dark:border-[#334155]'
+                        }`}
+                      >
+                        {doneToday && (
+                          <Check className="w-3 h-3" strokeWidth={2.7} />
+                        )}
                       </span>
-                    )}
-                  </button>
-                ))}
+                      <span
+                        className={`text-sm flex-1 truncate ${
+                          doneToday
+                            ? 'line-through text-[#94A3B8] dark:text-[#64748B]'
+                            : 'text-[#0F172A] dark:text-[#F8FAFC] font-medium'
+                        }`}
+                      >
+                        {task.title}
+                      </span>
+                      {repeating && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] shrink-0">
+                          {getTaskScheduleLabel(task)}
+                        </span>
+                      )}
+                      {task.dueTime && (
+                        <span className="text-xs font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                          {task.dueTime}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -708,8 +808,15 @@ export function OverviewView({
             </button>
           </div>
           {recentTransactions.length === 0 ? (
-            <div className="p-6 text-center text-sm text-[#64748B] dark:text-[#94A3B8]">
-              Գրանցված գործարքներ չկան։
+            <div className="p-5">
+              <EmptyStatePlaceholder
+                compact
+                icon={Receipt}
+                title="Գրանցված գործարքներ չկան"
+                description="Ավելացրեք եկամուտ կամ ծախս՝ շարժը վերահսկելու համար։"
+                actionLabel="+ Ավելացնել գործարք"
+                onAction={() => onOpenNewModal('transaction')}
+              />
             </div>
           ) : (
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
@@ -812,9 +919,14 @@ export function OverviewView({
             </button>
           </div>
           {topCategories.length === 0 ? (
-            <p className="text-sm text-[#64748B] dark:text-[#94A3B8] py-4">
-              Ծախսեր ավելացնելուց հետո այստեղ կտեսնեք բյուջեի վիճակը։
-            </p>
+            <EmptyStatePlaceholder
+              compact
+              icon={PiggyBank}
+              title="Տվյալներ դեռ չկան"
+              description="Ծախսեր ավելացնելուց հետո այստեղ կտեսնեք բյուջեի վիճակը։"
+              actionLabel="Կարգավորել բյուջեն"
+              onAction={() => onNavigate('finance')}
+            />
           ) : (
             <div className="space-y-4">
               {topCategories.map(([category, amount]) => {
@@ -886,42 +998,241 @@ export function OverviewView({
             </button>
           </div>
           {highlightedNotes.length === 0 ? (
-            <div className="p-6 text-center">
-              <p className="text-sm text-[#64748B] dark:text-[#94A3B8]">
-                Պահպանված նշումներ դեռ չկան։
-              </p>
-              <button
-                type="button"
-                onClick={() => onOpenNewModal('note')}
-                className="mt-2 text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
-              >
-                Գրել առաջին նշումը
-              </button>
+            <div className="p-5">
+              <EmptyStatePlaceholder
+                compact
+                icon={NotebookPen}
+                title="Պահպանված նշումներ դեռ չկան"
+                description="Գրի առեք կարևոր մտքերն ու հիշեցումները մեկ տեղում։"
+                actionLabel="Գրել առաջին նշումը"
+                onAction={() => onOpenNewModal('note')}
+              />
             </div>
           ) : (
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
-              {highlightedNotes.map((note) => (
-                <div key={note.id} className="px-5 py-4 space-y-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <h4 className="font-display text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
-                      {note.title}
-                    </h4>
-                    {note.pinned && (
-                      <span className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] shrink-0">
-                        Ամրացված
-                      </span>
+              {highlightedNotes.map((note) => {
+                const checklistItems = note.checklist ?? [];
+                const checklistDone = checklistItems.filter((c) => c.done).length;
+                return (
+                  <div key={note.id} className="px-5 py-4 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h4 className="font-display text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                        {note.title}
+                      </h4>
+                      {note.pinned && (
+                        <span className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] shrink-0">
+                          Ամրացված
+                        </span>
+                      )}
+                    </div>
+                    {note.content && (
+                      <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#94A3B8] line-clamp-2 whitespace-pre-line">
+                        {note.content}
+                      </p>
+                    )}
+                    {checklistItems.length > 0 && (
+                      <div className="space-y-1 pt-0.5">
+                        <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                          <span>Ստուգացանկ</span>
+                          <span className="font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA]">
+                            {checklistDone}/{checklistItems.length}
+                          </span>
+                        </div>
+                        <div className="h-1 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all"
+                            style={{
+                              width: `${Math.round((checklistDone / checklistItems.length) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {note.reminderDate && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 tabular-nums pt-0.5">
+                        Հիշեցում · {formatReminderLabel(note.reminderDate)}
+                      </p>
                     )}
                   </div>
-                  <p className="text-xs sm:text-sm text-[#64748B] dark:text-[#94A3B8] line-clamp-2 whitespace-pre-line">
-                    {note.content}
-                  </p>
-                  {note.reminderDate && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 tabular-nums pt-0.5">
-                      Հիշեցում · {formatReminderLabel(note.reminderDate)}
-                    </p>
-                  )}
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Row 3: Savings Goals & Debts Summary Strip */}
+      <section
+        aria-label="Խնայողության նպատակներ և պարտքեր"
+        className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6"
+      >
+        <div className="surface-card p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <PiggyBank className="w-4 h-4" />
+              </span>
+              <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                Խնայողության նպատակներ
+              </h3>
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenNewModal('goal')}
+                className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:text-[#2563EB] dark:hover:text-[#60A5FA] cursor-pointer"
+              >
+                + Նպատակ
+              </button>
+              <button
+                type="button"
+                onClick={openGoalsAndDebtsPage}
+                className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+              >
+                Բոլորը
+              </button>
+            </div>
+          </div>
+
+          {savingsGoals.length === 0 ? (
+            <EmptyStatePlaceholder
+              compact
+              icon={PiggyBank}
+              title="Գանձանակներ դեռ չկան"
+              description="Սահմանեք նպատակ և հետևեք խնայողության աճին։"
+              actionLabel="+ Ավելացնել նպատակ"
+              onAction={() => onOpenNewModal('goal')}
+            />
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-baseline justify-between text-xs tabular-nums">
+                <span className="text-[#64748B] dark:text-[#94A3B8]">
+                  {activeGoals.length} ընթացիկ նպատակ
+                </span>
+                <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  {formatMoney(totalSavedGoals, currency)} /{' '}
+                  {formatMoney(totalTargetGoals, currency)}
+                </span>
+              </div>
+              <div className="space-y-2.5">
+                {savingsGoals.slice(0, 2).map((g) => {
+                  const pct =
+                    g.targetAmount > 0
+                      ? Math.min(100, Math.round((g.currentAmount / g.targetAmount) * 100))
+                      : 0;
+                  return (
+                    <div key={g.id} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs gap-2">
+                        <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                          {g.title}
+                        </span>
+                        <span className="font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                          {pct}% · {formatMoney(g.currentAmount, currency)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            pct >= 100 ? 'bg-emerald-500' : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                          }`}
+                          style={{ width: `${Math.max(pct, 3)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="surface-card p-5 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2">
+              <span className="w-7 h-7 rounded-lg bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center">
+                <HandCoins className="w-4 h-4" />
+              </span>
+              <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                Պարտքեր և փոխառություններ
+              </h3>
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenNewModal('debt')}
+                className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:text-[#2563EB] dark:hover:text-[#60A5FA] cursor-pointer"
+              >
+                + Պարտք
+              </button>
+              <button
+                type="button"
+                onClick={openGoalsAndDebtsPage}
+                className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+              >
+                Կառավարել
+              </button>
+            </div>
+          </div>
+
+          {activeDebts.length === 0 ? (
+            <EmptyStatePlaceholder
+              compact
+              icon={HandCoins}
+              title="Ակտիվ պարտքեր չկան"
+              description="Գրանցեք տված կամ վերցված փոխառությունները՝ ժամկետները չմոռանալու համար։"
+              actionLabel="+ Գրանցել պարտք"
+              onAction={() => onOpenNewModal('debt')}
+            />
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-xs tabular-nums">
+                <div className="p-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/20">
+                  <span className="text-[#64748B] dark:text-[#94A3B8] block">
+                    Ինձ պարտք են
+                  </span>
+                  <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                    +{formatMoney(activeLentTotal, currency)}
+                  </span>
                 </div>
-              ))}
+                <div className="p-2.5 rounded-xl bg-rose-500/8 border border-rose-500/20">
+                  <span className="text-[#64748B] dark:text-[#94A3B8] block">
+                    Ես պարտք եմ
+                  </span>
+                  <span className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
+                    -{formatMoney(activeBorrowedTotal, currency)}
+                  </span>
+                </div>
+              </div>
+              <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                {activeDebts.slice(0, 2).map((d) => {
+                  const remaining = Math.max(0, d.totalAmount - d.paidAmount);
+                  return (
+                    <div
+                      key={d.id}
+                      className="py-2 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                          {d.person}
+                        </p>
+                        <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                          {d.direction === 'lent' ? 'Տրված է' : 'Վերցված է'}
+                          {d.dueDate ? ` · ${formatShortDate(d.dueDate)}` : ''}
+                        </p>
+                      </div>
+                      <span
+                        className={`font-mono font-semibold tabular-nums shrink-0 ${
+                          d.direction === 'lent'
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-rose-600 dark:text-rose-400'
+                        }`}
+                      >
+                        {formatMoney(remaining, currency)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
