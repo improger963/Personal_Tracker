@@ -3,9 +3,11 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Banknote,
   Check,
   CheckCircle2,
   Clock,
+  CreditCard,
   HandCoins,
   NotebookPen,
   Pencil,
@@ -16,12 +18,14 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Wallet,
   X,
 } from 'lucide-react';
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { FocusTimerCard } from './FocusTimerCard';
 import { QuickModalMode } from './QuickAddModal';
 import {
+  BankCard,
   BudgetLimit,
   DebtItem,
   FocusGoal,
@@ -29,6 +33,7 @@ import {
   Habit,
   NavSection,
   Note,
+  NotificationSettings,
   PrimaryIncomeConfig,
   SavingsGoal,
   Task,
@@ -55,11 +60,19 @@ import {
   isTaskDueOnDate,
   isTaskRepeating,
 } from '../utils/taskSchedule';
+import {
+  CARD_SURFACE_CLASSES,
+  CARD_TYPE_META,
+  INTERNAL_TRANSFER_CATEGORY,
+  computeCardStats,
+  formatCardLabel,
+} from '../utils/cardBalances';
 
 interface OverviewViewProps {
   selectedMonth: string;
   primaryIncome: PrimaryIncomeConfig;
   transactions: Transaction[];
+  cards: BankCard[];
   tasks: Task[];
   notes: Note[];
   budgets: BudgetLimit[];
@@ -71,6 +84,7 @@ interface OverviewViewProps {
   focusSessions: FocusSession[];
   soundEnabled: boolean;
   browserNotifications: boolean;
+  notificationSettings?: NotificationSettings;
   onCompleteFocusSession: (session: Omit<FocusSession, 'id' | 'completedAt'>) => void;
   onSaveFocusGoal: (title: string) => void;
   onToggleFocusGoal: () => void;
@@ -79,6 +93,7 @@ interface OverviewViewProps {
   onToggleHabitDate: (habitId: string, date: string) => void;
   onNavigate: (tab: NavSection) => void;
   onOpenNewModal: (initialMode: QuickModalMode) => void;
+  onQuickCardTransaction: (type: 'income' | 'expense', cardId: string) => void;
   onConfirmPreExpense?: (txId: string) => void;
 }
 
@@ -94,6 +109,7 @@ export function OverviewView({
   selectedMonth,
   primaryIncome,
   transactions,
+  cards,
   tasks,
   notes,
   budgets,
@@ -105,6 +121,7 @@ export function OverviewView({
   focusSessions,
   soundEnabled,
   browserNotifications,
+  notificationSettings,
   onCompleteFocusSession,
   onSaveFocusGoal,
   onToggleFocusGoal,
@@ -113,6 +130,7 @@ export function OverviewView({
   onToggleHabitDate,
   onNavigate,
   onOpenNewModal,
+  onQuickCardTransaction,
   onConfirmPreExpense,
 }: OverviewViewProps) {
   const currency = 'AMD' as const;
@@ -132,7 +150,16 @@ export function OverviewView({
     cycleEndBalance: balance,
   } = computeCycleFinancials(transactions, selectedMonth, effectivePayday, todayISO);
 
-  const incomeTransactions = monthTransactions.filter((t) => t.type === 'income');
+  const cardsById = new Map(cards.map((c) => [c.id, c]));
+  const cardStats = cards.map((card) => computeCardStats(card, transactions));
+  const totalCardsBalance = cardStats.reduce(
+    (sum, item) => sum + item.currentBalance,
+    0
+  );
+
+  const incomeTransactions = monthTransactions.filter(
+    (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
+  );
   const monthlyIncomeTotal = incomeTransactions
     .filter((t) => getTransactionIncomeKind(t) === 'monthly')
     .reduce((sum, t) => sum + t.amount, 0);
@@ -148,9 +175,9 @@ export function OverviewView({
       : 0;
 
   // Interactive cumulative real balance points starting from prior carryover
-  const sortedChronological = [...monthTransactions].sort((a, b) =>
-    a.date.localeCompare(b.date)
-  );
+  const sortedChronological = [...monthTransactions]
+    .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
+    .sort((a, b) => a.date.localeCompare(b.date));
   const rawNodes: { balance: number; label: string; date: string }[] = [
     {
       balance: openingBalance,
@@ -192,7 +219,9 @@ export function OverviewView({
     .slice(0, 5);
 
   const expenseByCategory = monthTransactions
-    .filter((t) => t.type === 'expense')
+    .filter(
+      (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
     .reduce<Record<string, number>>((acc, t) => {
       acc[t.category] = (acc[t.category] ?? 0) + t.amount;
       return acc;
@@ -403,6 +432,7 @@ export function OverviewView({
         focusSessions={focusSessions}
         soundEnabled={soundEnabled}
         browserNotifications={browserNotifications}
+        notificationSettings={notificationSettings}
         onCompleteSession={onCompleteFocusSession}
       />
 
@@ -792,6 +822,138 @@ export function OverviewView({
         </div>
       </section>
 
+      {/* Row 1.5: Compact Cards & Wallets Strip */}
+      <section
+        aria-label="Քարտեր և մնացորդներ"
+        className="surface-card p-4 sm:p-5 space-y-3.5"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-8 h-8 rounded-lg bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+              <CreditCard className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <h2 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  Քարտեր և մնացորդներ
+                </h2>
+                {cards.length > 0 && (
+                  <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                    · Ընդհանուր՝{' '}
+                    <strong className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                      {formatMoney(totalCardsBalance, currency)}
+                    </strong>
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Մուտք և ելք ձեռքով · առանց բանկային կապի
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => onOpenNewModal('card')}
+              className="min-h-[34px] px-3 py-1 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap inline-flex items-center gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Քարտ</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('finance')}
+              className="min-h-[34px] px-2.5 rounded-lg text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <span>Կառավարել</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {cardStats.length === 0 ? (
+          <EmptyStatePlaceholder
+            compact
+            icon={CreditCard}
+            title="Քարտեր դեռ ավելացված չեն"
+            description="Ավելացրեք ձեր բանկային քարտը կամ կանխիկ դրամապանակը՝ մուտք ու ելքը հետևելու համար։"
+            actionLabel="+ Ավելացնել քարտ"
+            onAction={() => onOpenNewModal('card')}
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {cardStats.slice(0, 4).map(({ card, currentBalance }) => {
+              const style =
+                CARD_SURFACE_CLASSES[card.color] ?? CARD_SURFACE_CLASSES.blue;
+              const typeMeta =
+                CARD_TYPE_META[card.cardType] ?? CARD_TYPE_META.other;
+              return (
+                <div
+                  key={card.id}
+                  className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC]/80 dark:bg-[#0B1120] p-3.5 flex flex-col justify-between gap-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${style.softBg} ${style.softText}`}
+                      >
+                        {card.cardType === 'cash' ? (
+                          <Banknote className="w-4 h-4" />
+                        ) : card.cardType === 'other' ? (
+                          <Wallet className="w-4 h-4" />
+                        ) : (
+                          <CreditCard className="w-4 h-4" />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                          {card.name}
+                        </p>
+                        <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                          {typeMeta.shortLabel}
+                          {card.last4 ? ` · •••• ${card.last4}` : ''}
+                          {card.isDefault ? ' · Հիմնական' : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p
+                    className={`text-lg font-mono font-bold tabular-nums truncate ${
+                      currentBalance >= 0
+                        ? 'text-[#0F172A] dark:text-[#F8FAFC]'
+                        : 'text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {formatMoney(currentBalance, currency)}
+                  </p>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onQuickCardTransaction('income', card.id)}
+                      className="flex-1 min-h-[32px] px-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ArrowDownLeft className="w-3 h-3" />
+                      <span>Մուտք</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onQuickCardTransaction('expense', card.id)}
+                      className="flex-1 min-h-[32px] px-2 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <ArrowUpRight className="w-3 h-3" />
+                      <span>Ելք</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       {/* Row 2: 3-Column Architectural Strip */}
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 items-start">
         <div className="surface-card min-w-0">
@@ -856,9 +1018,17 @@ export function OverviewView({
                         )}
                       </div>
                       <p className="text-xs text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
-                        {tx.type === 'income'
-                          ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} · ${tx.category} · ${formatShortDate(tx.date)}`
-                          : `${tx.category} · ${formatShortDate(tx.date)}${tx.isPending ? ' · Չհանված' : ''}`}
+                        {(() => {
+                          const linkedCard = tx.cardId
+                            ? cardsById.get(tx.cardId)
+                            : undefined;
+                          const cardPart = linkedCard
+                            ? ` · ${formatCardLabel(linkedCard)}`
+                            : '';
+                          return tx.type === 'income'
+                            ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} · ${tx.category}${cardPart} · ${formatShortDate(tx.date)}`
+                            : `${tx.category}${cardPart} · ${formatShortDate(tx.date)}${tx.isPending ? ' · Չհանված' : ''}`;
+                        })()}
                       </p>
                     </div>
                   </div>

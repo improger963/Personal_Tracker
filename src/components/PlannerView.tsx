@@ -22,6 +22,7 @@ import {
   FocusGoal,
   FocusSession,
   Habit,
+  NotificationSettings,
   Task,
   TaskPriority,
   TaskScheduleType,
@@ -60,6 +61,7 @@ interface PlannerViewProps {
   focusSessions: FocusSession[];
   soundEnabled: boolean;
   browserNotifications: boolean;
+  notificationSettings?: NotificationSettings;
   onCompleteFocusSession: (session: Omit<FocusSession, 'id' | 'completedAt'>) => void;
 }
 
@@ -137,6 +139,7 @@ export function PlannerView({
   focusSessions,
   soundEnabled,
   browserNotifications,
+  notificationSettings,
   onCompleteFocusSession,
 }: PlannerViewProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -316,6 +319,7 @@ export function PlannerView({
                 focusSessions={focusSessions}
                 soundEnabled={soundEnabled}
                 browserNotifications={browserNotifications}
+                notificationSettings={notificationSettings}
                 onCompleteSession={onCompleteFocusSession}
               />
 

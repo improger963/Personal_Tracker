@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
@@ -37,6 +38,17 @@ interface GroundingSource {
   uri: string;
 }
 
+const VALID_TTS_VOICES = new Set(['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr']);
+
+interface TTSRequestBody {
+  text?: unknown;
+  voiceName?: unknown;
+  urgent?: unknown;
+}
+
+const ttsAudioCache = new Map<string, string>();
+const TTS_CACHE_MAX = 40;
+
 function sanitizeText(value: unknown, maxLen: number): string {
   if (typeof value !== 'string') return '';
   return value
@@ -64,6 +76,7 @@ function isSafeHttpUrl(rawUrl: string): boolean {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   const port = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '64kb' }));
@@ -236,10 +249,114 @@ ${topExpensesSummary}
     }
   });
 
+  app.post('/api/notifications/tts', async (req: Request, res: Response) => {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY-ն կարգավորված չէ սերվերում։',
+        fallbackRecommended: true,
+      });
+    }
+
+    const body = (req.body ?? {}) as TTSRequestBody;
+    const text = sanitizeText(body.text, 320);
+    if (!text) {
+      return res.status(400).json({ error: 'Ձայնային տեքստը դատարկ է։' });
+    }
+
+    const requestedVoice =
+      typeof body.voiceName === 'string' && VALID_TTS_VOICES.has(body.voiceName)
+        ? body.voiceName
+        : 'Kore';
+    const urgent = Boolean(body.urgent);
+    const style = urgent
+      ? 'Clear, attentive, polite personal assistant delivering an urgent financial or schedule reminder in Armenian.'
+      : 'Warm, clear, calm personal assistant delivering a helpful reminder in Armenian.';
+
+    const cacheKey = `${requestedVoice}:${urgent ? '1' : '0'}:${text}`;
+    const cached = ttsAudioCache.get(cacheKey);
+    if (cached) {
+      ttsAudioCache.delete(cacheKey);
+      ttsAudioCache.set(cacheKey, cached);
+      return res.json({
+        audioBase64: cached,
+        mimeType: 'audio/wav',
+        voiceName: requestedVoice,
+        cached: true,
+      });
+    }
+
+    try {
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text,
+                speechMetadata: {
+                  style,
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: requestedVoice },
+            },
+          },
+        },
+      });
+
+      const base64Audio =
+        response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+      if (!base64Audio) {
+        return res.status(502).json({
+          error: 'Չհաջողվեց ստեղծել ձայնային ծանուցումը։',
+          fallbackRecommended: true,
+        });
+      }
+
+      if (ttsAudioCache.size >= TTS_CACHE_MAX) {
+        const oldestKey = ttsAudioCache.keys().next().value;
+        if (oldestKey) ttsAudioCache.delete(oldestKey);
+      }
+      ttsAudioCache.set(cacheKey, base64Audio);
+
+      return res.json({
+        audioBase64: base64Audio,
+        mimeType: 'audio/wav',
+        voiceName: requestedVoice,
+      });
+    } catch (error) {
+      console.error('Failed to synthesize notification voice:', error);
+      return res.status(502).json({
+        error: 'Ձայնային սինթեզը ժամանակավորապես անհասանելի է։',
+        fallbackRecommended: true,
+      });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: disableHmr ? false : { server: httpServer },
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -251,7 +368,7 @@ ${topExpensesSummary}
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
+  httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Server listening on http://0.0.0.0:${port}`);
   });
 }

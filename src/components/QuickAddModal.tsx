@@ -17,6 +17,9 @@ import {
   predictCategoryFromHistory,
 } from '../utils/transactionAutoCategory';
 import {
+  BankCard,
+  CardColor,
+  CardType,
   DebtDirection,
   DebtItem,
   Habit,
@@ -32,6 +35,16 @@ import {
   TransactionType,
 } from '../types';
 import {
+  ARMENIAN_BANK_PRESETS,
+  CARD_COLORS,
+  CARD_TYPE_META,
+  INTERNAL_TRANSFER_CATEGORY,
+  computeCardStats,
+  formatCardLabel,
+  getDefaultCard,
+} from '../utils/cardBalances';
+import { formatMoney } from '../data/defaults';
+import {
   TASK_REPEAT_INTERVAL_OPTIONS,
   TASK_SCHEDULE_OPTIONS,
   WEEKDAY_OPTIONS,
@@ -40,6 +53,7 @@ import {
 
 export type QuickModalMode =
   | 'transaction'
+  | 'card'
   | 'task'
   | 'habit'
   | 'note'
@@ -52,6 +66,7 @@ export type QuickModalState =
       editing?: Transaction;
       prefill?: Partial<Omit<Transaction, 'id' | 'createdAt'>>;
     }
+  | { mode: 'card'; editing?: BankCard }
   | { mode: 'task'; editing?: Task }
   | { mode: 'habit'; editing?: Habit }
   | { mode: 'note'; editing?: Note }
@@ -61,11 +76,17 @@ export type QuickModalState =
 interface QuickAddModalProps {
   modalState: QuickModalState;
   transactions: Transaction[];
+  cards: BankCard[];
   onClose: () => void;
   onAddTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onUpdateTransaction: (
     id: string,
     updates: Omit<Transaction, 'id' | 'createdAt'>
+  ) => void;
+  onAddCard: (card: Omit<BankCard, 'id' | 'createdAt'>) => void;
+  onUpdateCard: (
+    id: string,
+    updates: Omit<BankCard, 'id' | 'createdAt'>
   ) => void;
   onAddTask: (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => void;
   onUpdateTask: (
@@ -93,6 +114,7 @@ interface QuickAddModalProps {
 
 const MODAL_TITLES_EDIT: Record<QuickModalMode, string> = {
   transaction: 'Խմբագրել գործարքը',
+  card: 'Խմբագրել քարտը',
   task: 'Խմբագրել անելիքը',
   habit: 'Խմբագրել սովորությունը',
   note: 'Խմբագրել նշումը',
@@ -103,9 +125,12 @@ const MODAL_TITLES_EDIT: Record<QuickModalMode, string> = {
 export function QuickAddModal({
   modalState,
   transactions,
+  cards,
   onClose,
   onAddTransaction,
   onUpdateTransaction,
+  onAddCard,
+  onUpdateCard,
   onAddTask,
   onUpdateTask,
   onAddHabit,
@@ -125,6 +150,8 @@ export function QuickAddModal({
     modalState.mode === 'transaction' ? modalState.editing : undefined;
   const txPrefill =
     modalState.mode === 'transaction' ? modalState.prefill : undefined;
+  const editingCard =
+    modalState.mode === 'card' ? modalState.editing : undefined;
   const editingTask =
     modalState.mode === 'task' ? modalState.editing : undefined;
   const editingHabit =
@@ -161,6 +188,11 @@ export function QuickAddModal({
   const [txDate, setTxDate] = useState(
     editingTx?.date ?? txPrefill?.date ?? getTodayISO()
   );
+  const [txCardId, setTxCardId] = useState<string>(() => {
+    if (editingTx) return editingTx.cardId ?? '';
+    if (txPrefill && txPrefill.cardId !== undefined) return txPrefill.cardId;
+    return getDefaultCard(cards)?.id ?? '';
+  });
   const [txIsPending, setTxIsPending] = useState(
     Boolean(editingTx?.isPending ?? txPrefill?.isPending)
   );
@@ -174,6 +206,22 @@ export function QuickAddModal({
     Boolean(editingTx)
   );
   const [isTxTitleFocused, setIsTxTitleFocused] = useState(false);
+
+  // Card / Wallet state
+  const [cardName, setCardName] = useState(editingCard?.name ?? '');
+  const [cardLast4, setCardLast4] = useState(editingCard?.last4 ?? '');
+  const [cardType, setCardType] = useState<CardType>(
+    editingCard?.cardType ?? 'visa'
+  );
+  const [cardColor, setCardColor] = useState<CardColor>(
+    editingCard?.color ?? 'blue'
+  );
+  const [cardInitialBalance, setCardInitialBalance] = useState(
+    editingCard ? String(editingCard.initialBalance) : '0'
+  );
+  const [cardIsDefault, setCardIsDefault] = useState(
+    editingCard ? Boolean(editingCard.isDefault) : cards.length === 0
+  );
 
   // Task state
   const [taskTitle, setTaskTitle] = useState(editingTask?.title ?? '');
@@ -240,6 +288,7 @@ export function QuickAddModal({
   const [error, setError] = useState('');
 
   const amountRef = useRef<HTMLInputElement>(null);
+  const cardInputRef = useRef<HTMLInputElement>(null);
   const taskInputRef = useRef<HTMLInputElement>(null);
   const habitInputRef = useRef<HTMLInputElement>(null);
   const noteInputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +306,7 @@ export function QuickAddModal({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (mode === 'transaction') amountRef.current?.focus();
+      if (mode === 'card') cardInputRef.current?.focus();
       if (mode === 'task') taskInputRef.current?.focus();
       if (mode === 'habit') habitInputRef.current?.focus();
       if (mode === 'note') noteInputRef.current?.focus();
@@ -265,6 +315,16 @@ export function QuickAddModal({
     }, 40);
     return () => window.clearTimeout(timer);
   }, [mode]);
+
+  const cardStatsMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof computeCardStats>>();
+    for (const c of cards) {
+      map.set(c.id, computeCardStats(c, transactions));
+    }
+    return map;
+  }, [cards, transactions]);
+
+  const selectedCardStats = txCardId ? cardStatsMap.get(txCardId) : undefined;
 
   const autoCategoryPrediction = useMemo(
     () =>
@@ -382,7 +442,7 @@ export function QuickAddModal({
         );
         return;
       }
-      const payload = {
+      const payload: Omit<Transaction, 'id' | 'createdAt'> = {
         type: txType,
         incomeKind: txType === 'income' ? txIncomeKind : undefined,
         amount,
@@ -390,11 +450,41 @@ export function QuickAddModal({
         category: txCategory,
         date: txDate || getTodayISO(),
         isPending: txType === 'expense' ? txIsPending : false,
+        cardId: txCardId || undefined,
       };
       if (editingTx) {
         onUpdateTransaction(editingTx.id, payload);
       } else {
         onAddTransaction(payload);
+      }
+      onClose();
+      return;
+    }
+
+    if (mode === 'card') {
+      const trimmedName = cardName.trim();
+      if (!trimmedName) {
+        setError('Մուտքագրեք քարտի կամ դրամապանակի անունը։');
+        return;
+      }
+      const parsedBalance = Number(cardInitialBalance || 0);
+      if (!Number.isFinite(parsedBalance)) {
+        setError('Մուտքագրեք ճիշտ սկզբնական բալանս։');
+        return;
+      }
+      const payload: Omit<BankCard, 'id' | 'createdAt'> = {
+        name: trimmedName.slice(0, 120),
+        last4: cardType === 'cash' ? '' : cardLast4.replace(/\D/g, '').slice(0, 4),
+        cardType,
+        color: cardColor,
+        initialBalance: Math.round(parsedBalance),
+        currency: 'AMD',
+        isDefault: cardIsDefault,
+      };
+      if (editingCard) {
+        onUpdateCard(editingCard.id, payload);
+      } else {
+        onAddCard(payload);
       }
       onClose();
       return;
@@ -549,8 +639,17 @@ export function QuickAddModal({
     onClose();
   };
 
-  const categories =
-    txType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const categories = useMemo(() => {
+    const base: string[] =
+      txType === 'income' ? [...INCOME_CATEGORIES] : [...EXPENSE_CATEGORIES];
+    if (
+      editingTx?.category === INTERNAL_TRANSFER_CATEGORY &&
+      !base.includes(INTERNAL_TRANSFER_CATEGORY)
+    ) {
+      base.push(INTERNAL_TRANSFER_CATEGORY);
+    }
+    return base;
+  }, [txType, editingTx?.category]);
 
   return (
     <div
@@ -595,10 +694,11 @@ export function QuickAddModal({
 
         {/* Mode Tabs (hidden when editing an existing item) */}
         {!isEditing && (
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1 p-1 rounded-xl surface-subtle mb-5">
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-1 p-1 rounded-xl surface-subtle mb-5">
             {(
               [
                 { id: 'transaction', label: 'Ֆինանս' },
+                { id: 'card', label: 'Քարտ' },
                 { id: 'task', label: 'Անելիք' },
                 { id: 'habit', label: 'Սովոր.' },
                 { id: 'note', label: 'Նշում' },
@@ -614,7 +714,7 @@ export function QuickAddModal({
                   setMode(tab.id);
                   setError('');
                 }}
-                className={`min-h-[36px] px-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[36px] px-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
                   mode === tab.id
                     ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
                     : 'text-[#64748B] dark:text-[#94A3B8]'
@@ -838,6 +938,69 @@ export function QuickAddModal({
                   )}
               </div>
 
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                    Քարտ / Դրամապանակ
+                  </label>
+                  {cards.length === 0 && !isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('card');
+                        setError('');
+                      }}
+                      className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+                    >
+                      + Ավելացնել քարտ
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={txCardId}
+                  onChange={(e) => setTxCardId(e.target.value)}
+                  className="w-full min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
+                >
+                  {cards.map((card) => {
+                    const stats = cardStatsMap.get(card.id);
+                    const bal = stats?.currentBalance ?? card.initialBalance;
+                    return (
+                      <option key={card.id} value={card.id}>
+                        {formatCardLabel(card)} ({formatMoney(bal, 'AMD')})
+                      </option>
+                    );
+                  })}
+                  <option value="">Առանց քարտի (չկապված)</option>
+                </select>
+
+                {selectedCardStats && Number(txAmount) > 0 && (
+                  <p className="mt-1 text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                    {txType === 'expense' && txIsPending ? (
+                      'Սպասվող նախածախս · քարտի բալանսից դեռ չի հանվի'
+                    ) : (
+                      <>
+                        Քարտի բալանսը կդառնա՝{' '}
+                        <strong
+                          className={
+                            txType === 'income'
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                          }
+                        >
+                          {formatMoney(
+                            selectedCardStats.currentBalance +
+                              (txType === 'income'
+                                ? Number(txAmount)
+                                : -Number(txAmount)),
+                            'AMD'
+                          )}
+                        </strong>
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
+
               {txType === 'expense' && (
                 <div
                   className={`p-3 rounded-xl border transition-all ${
@@ -874,6 +1037,138 @@ export function QuickAddModal({
                   </label>
                 </div>
               )}
+            </>
+          )}
+
+          {mode === 'card' && (
+            <>
+              <div>
+                <span className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1.5">
+                  Արագ ընտրություն (բանկ / դրամապանակ)
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {ARMENIAN_BANK_PRESETS.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => {
+                        setCardName(preset.name);
+                        setCardType(preset.cardType);
+                        setCardColor(preset.color);
+                      }}
+                      className="min-h-[30px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] transition-colors cursor-pointer"
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                  Քարտի կամ դրամապանակի անուն
+                </label>
+                <input
+                  ref={cardInputRef}
+                  type="text"
+                  maxLength={120}
+                  value={cardName}
+                  onChange={(e) => setCardName(e.target.value)}
+                  placeholder="Օրինակ՝ Ամերիաբանկ Visa կամ Կանխիկ"
+                  className="w-full min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                    Սկզբնական բալանս (֏)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={cardInitialBalance}
+                    onChange={(e) => setCardInitialBalance(e.target.value)}
+                    placeholder="0"
+                    className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums rounded-xl input-field"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                    Տեսակ
+                  </label>
+                  <select
+                    value={cardType}
+                    onChange={(e) => setCardType(e.target.value as CardType)}
+                    className="w-full min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
+                  >
+                    {(Object.keys(CARD_TYPE_META) as CardType[]).map((t) => (
+                      <option key={t} value={t}>
+                        {CARD_TYPE_META[t].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {cardType !== 'cash' && (
+                <div>
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                    Վերջին 4 թվերը (ըստ ցանկության)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={cardLast4}
+                    onChange={(e) =>
+                      setCardLast4(e.target.value.replace(/\D/g, '').slice(0, 4))
+                    }
+                    placeholder="4589"
+                    className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums tracking-widest rounded-xl input-field"
+                  />
+                </div>
+              )}
+
+              <div>
+                <span className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1.5">
+                  Քարտի գույն
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {CARD_COLORS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCardColor(c.id)}
+                      aria-pressed={cardColor === c.id}
+                      className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-xs font-medium inline-flex items-center gap-1.5 transition-all cursor-pointer ${
+                        cardColor === c.id
+                          ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#0F172A] dark:text-[#F8FAFC]'
+                          : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:border-[#CBD5E1]'
+                      }`}
+                    >
+                      <span className={`w-3 h-3 rounded-full ${c.dotClass}`} />
+                      <span>{c.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2.5 p-3 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cardIsDefault}
+                  onChange={(e) => setCardIsDefault(e.target.checked)}
+                  className="w-4 h-4 rounded text-[#2563EB] focus:ring-[#2563EB] cursor-pointer"
+                />
+                <span className="text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC]">
+                  Դարձնել հիմնական քարտ (ավտոմատ ընտրվող նոր գործարքներում)
+                </span>
+              </label>
+
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Առանց բանկային միացման․ քարտի մուտքերն ու ելքերը կառավարում եք դուք ձեռքով, իսկ բալանսը հաշվարկվում է ավտոմատ։
+              </p>
             </>
           )}
 

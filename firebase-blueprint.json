@@ -31,7 +31,10 @@
         "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "primaryIncome": { "type": "object" },
         "focusGoal": { "type": "object" },
-        "notificationSettings": { "type": "object" },
+        "notificationSettings": {
+          "type": "object",
+          "description": "Sound presets, volume, spoken voice narration mode/voice/rate, browser alerts, and quiet hours config"
+        },
         "isDark": { "type": "boolean" },
         "serverCreatedAt": { "type": "string", "format": "date-time" },
         "serverUpdatedAt": { "type": "string", "format": "date-time" }
@@ -61,7 +64,7 @@
         "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
         "primaryCycleKey": { "type": "string", "maxLength": 20 },
         "isPending": { "type": "boolean" },
-        "cardId": { "type": "string", "maxLength": 128 },
+        "cardId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "serverCreatedAt": { "type": "string", "format": "date-time" },
         "serverUpdatedAt": { "type": "string", "format": "date-time" }
       },

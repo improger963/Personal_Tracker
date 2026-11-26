@@ -11,6 +11,7 @@ import {
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import { SwipeableTransactionRow } from './SwipeableTransactionRow';
 import {
+  BankCard,
   Currency,
   IncomeKind,
   PrimaryIncomeConfig,
@@ -27,11 +28,15 @@ import {
 } from '../../data/defaults';
 import { TxSortMode } from './financeShared';
 import { findAutoCategorizableTransactions } from '../../utils/transactionAutoCategory';
+import { formatCardLabel } from '../../utils/cardBalances';
 
 interface TransactionsLedgerPageProps {
   selectedMonth: string;
   effectivePayday: number;
   currency: Currency;
+  cards: BankCard[];
+  filterCardId: string;
+  onFilterCardChange: (cardId: string) => void;
   monthTransactions: Transaction[];
   allTransactions: Transaction[];
   onOpenNewTransactionModal: () => void;
@@ -56,6 +61,9 @@ interface TransactionsLedgerPageProps {
 
 export function TransactionsLedgerPage({
   currency,
+  cards,
+  filterCardId,
+  onFilterCardChange,
   monthTransactions,
   allTransactions,
   onOpenNewTransactionModal,
@@ -141,10 +149,16 @@ export function TransactionsLedgerPage({
     [monthTransactions, allTransactions]
   );
 
+  const cardsById = useMemo(
+    () => new Map(cards.map((c) => [c.id, c])),
+    [cards]
+  );
+
   const hasActiveFilters =
     filterType !== 'all' ||
     filterIncomeKind !== 'all' ||
     filterCategory !== 'all' ||
+    filterCardId !== 'all' ||
     filterDateMode !== 'all' ||
     searchQuery.trim() !== '';
 
@@ -152,6 +166,7 @@ export function TransactionsLedgerPage({
     setFilterType('all');
     setFilterIncomeKind('all');
     setFilterCategory('all');
+    onFilterCardChange('all');
     setFilterDateMode('all');
     setFilterDateSpecific('');
     setFilterDateFrom('');
@@ -173,6 +188,11 @@ export function TransactionsLedgerPage({
       filterCategory === 'all' ? true : t.category === filterCategory
     )
     .filter((t) => {
+      if (filterCardId === 'all') return true;
+      if (filterCardId === 'unassigned') return !t.cardId;
+      return t.cardId === filterCardId;
+    })
+    .filter((t) => {
       if (filterDateMode === 'specific' && filterDateSpecific) {
         return t.date === filterDateSpecific;
       }
@@ -187,11 +207,15 @@ export function TransactionsLedgerPage({
       const q = searchQuery.toLowerCase().trim();
       const titleMatch = t.title.toLowerCase().includes(q);
       const catMatch = t.category.toLowerCase().includes(q);
+      const linkedCard = t.cardId ? cardsById.get(t.cardId) : undefined;
+      const cardMatch = linkedCard
+        ? formatCardLabel(linkedCard).toLowerCase().includes(q)
+        : false;
       const amountStr = String(t.amount);
       const amountMatch =
         amountStr.includes(q) ||
         (Number(q) > 0 && Math.abs(t.amount - Number(q)) < 1);
-      return titleMatch || catMatch || amountMatch;
+      return titleMatch || catMatch || cardMatch || amountMatch;
     })
     .sort((a, b) => {
       if (txSort === 'amount-desc') return b.amount - a.amount;
@@ -358,6 +382,23 @@ export function TransactionsLedgerPage({
                 </option>
               ))}
             </select>
+
+            {cards.length > 0 && (
+              <select
+                value={filterCardId}
+                onChange={(e) => onFilterCardChange(e.target.value)}
+                aria-label="Զտել ըստ քարտի կամ դրամապանակի"
+                className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+              >
+                <option value="all">Բոլոր քարտերը</option>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {formatCardLabel(c)}
+                  </option>
+                ))}
+                <option value="unassigned">Առանց քարտի</option>
+              </select>
+            )}
 
             <select
               value={txSort}
@@ -627,6 +668,7 @@ export function TransactionsLedgerPage({
                   <SwipeableTransactionRow
                     key={tx.id}
                     tx={tx}
+                    card={tx.cardId ? cardsById.get(tx.cardId) : undefined}
                     currency={currency}
                     todayISO={todayISO}
                     isEditing={false}

@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowRight,
+  AudioLines,
   Bell,
   BellRing,
   CalendarClock,
@@ -18,14 +19,19 @@ import {
   HandCoins,
   LayoutDashboard,
   LogOut,
+  Mic,
+  MicOff,
   Moon,
   NotebookPen,
+  Play,
   Plus,
   RefreshCw,
   Repeat,
   RotateCcw,
   SkipForward,
+  SlidersHorizontal,
   Sparkles,
+  Square,
   Sun,
   Volume2,
   VolumeX,
@@ -34,14 +40,26 @@ import {
 } from 'lucide-react';
 import {
   AppNotificationItem,
+  GeminiVoicePreset,
   NavSection,
   Note,
   NotificationSettings,
+  NotificationSoundPreset,
+  NotificationVoiceMode,
   Task,
 } from '../types';
 import { formatMoney } from '../data/defaults';
 import { formatCycleLabel } from '../utils/financialCycle';
 import { triggerHaptic } from '../utils/haptics';
+import {
+  GEMINI_VOICE_PRESETS,
+  NOTIFICATION_SOUND_PRESETS,
+  getBrowserSpeechVoices,
+  playNotificationChime,
+  speakNotificationText,
+  stopNotificationVoice,
+  subscribeVoicePlaybackState,
+} from '../utils/notifications';
 
 export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 
@@ -59,6 +77,8 @@ interface TopNavProps {
   canUseBrowserNotifs: boolean;
   onToggleSound: () => void;
   onToggleBrowserNotifications: () => void;
+  onUpdateNotificationSettings: (patch: Partial<NotificationSettings>) => void;
+  onSpeakNotif: (item: AppNotificationItem) => void;
   onConfirmExpenseNotif: (item: AppNotificationItem) => void;
   onSkipExpenseNotif: (item: AppNotificationItem) => void;
   onSnoozeNotif: (id: string, minutes: number) => void;
@@ -127,6 +147,8 @@ export function TopNav({
   canUseBrowserNotifs,
   onToggleSound,
   onToggleBrowserNotifications,
+  onUpdateNotificationSettings,
+  onSpeakNotif,
   onConfirmExpenseNotif,
   onSkipExpenseNotif,
   onSnoozeNotif,
@@ -147,11 +169,33 @@ export function TopNav({
   children,
 }: TopNavProps) {
   const [remindersOpen, setRemindersOpen] = useState(false);
+  const [notifSettingsOpen, setNotifSettingsOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notifFilter, setNotifFilter] = useState<NotifFilter>('all');
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const popoverRef = useRef<HTMLDivElement>(null);
   const accountPopoverRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    const unsub = subscribeVoicePlaybackState(setIsSpeaking);
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      setBrowserVoices(getBrowserSpeechVoices());
+    };
+    loadVoices();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener?.('voiceschanged', loadVoices);
+      };
+    }
+    return undefined;
+  }, []);
 
   const todayCount = todayTasks.length;
   const totalBellCount = notifications.length;
@@ -719,21 +763,23 @@ export function TopNav({
                       aria-label="Պրո ծանուցումների կենտրոն"
                       className="fixed inset-x-3.5 top-[4.25rem] max-h-[calc(100dvh-5.5rem)] sm:max-h-none sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[26rem] rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 overflow-hidden flex flex-col"
                     >
-                      {/* Header + Sound / Browser Notification Toggles */}
+                      {/* Header + Sound / Voice / Browser Notification Toggles */}
                       <div className="px-4 py-3 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-2">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-display text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-                              Պրո ծանուցումներ
+                              {notifSettingsOpen ? 'Ձայն և ձայնային ծանուցումներ' : 'Պրո ծանուցումներ'}
                             </span>
-                            {urgentCount > 0 && (
+                            {!notifSettingsOpen && urgentCount > 0 && (
                               <span className="text-[10px] font-mono font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-rose-500/12 text-rose-600 dark:text-rose-400">
                                 {urgentCount} հասունացած
                               </span>
                             )}
                           </div>
                           <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
-                            {totalBellCount} ակտիվ հիշեցում
+                            {notifSettingsOpen
+                              ? 'Կարգավորեք հնչյունները և խոսքը'
+                              : `${totalBellCount} ակտիվ հիշեցում`}
                           </p>
                         </div>
 
@@ -764,6 +810,36 @@ export function TopNav({
                             )}
                           </button>
 
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateNotificationSettings({
+                                voiceEnabled: !notificationSettings.voiceEnabled,
+                              })
+                            }
+                            title={
+                              notificationSettings.voiceEnabled
+                                ? 'Ձայնային ընթերցումը միացված է'
+                                : 'Ձայնային ընթերցումը անջատված է'
+                            }
+                            aria-label={
+                              notificationSettings.voiceEnabled
+                                ? 'Անջատել ձայնային ընթերցումը'
+                                : 'Միացնել ձայնային ընթերցումը'
+                            }
+                            className={`min-h-[32px] min-w-[32px] rounded-lg flex items-center justify-center border transition-colors cursor-pointer ${
+                              notificationSettings.voiceEnabled
+                                ? 'border-violet-300 dark:border-violet-500/40 bg-violet-500/12 text-violet-600 dark:text-violet-400'
+                                : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                            }`}
+                          >
+                            {notificationSettings.voiceEnabled ? (
+                              <Mic className="w-3.5 h-3.5" />
+                            ) : (
+                              <MicOff className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
                           {canUseBrowserNotifs && (
                             <button
                               type="button"
@@ -783,9 +859,401 @@ export function TopNav({
                               <BellRing className="w-3.5 h-3.5" />
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => setNotifSettingsOpen((prev) => !prev)}
+                            title="Ձայնի և խոսքի կարգավորումներ"
+                            aria-label="Ձայնի և խոսքի կարգավորումներ"
+                            aria-expanded={notifSettingsOpen}
+                            className={`min-h-[32px] min-w-[32px] rounded-lg flex items-center justify-center border transition-colors cursor-pointer ${
+                              notifSettingsOpen
+                                ? 'border-[#2563EB] dark:border-[#3B82F6] bg-[#2563EB] text-white dark:bg-[#3B82F6] dark:text-[#060B16]'
+                                : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                            }`}
+                          >
+                            <SlidersHorizontal className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
 
+                      {notifSettingsOpen ? (
+                        <div className="max-h-[25rem] overflow-y-auto scroll-container p-4 space-y-4">
+                          {/* Section 1: Sound Alerts & Presets */}
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] inline-flex items-center gap-1.5">
+                                <Volume2 className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                                <span>Հնչյունային ազդանշան</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={onToggleSound}
+                                className={`min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                  notificationSettings.soundEnabled
+                                    ? 'border-[#2563EB]/40 bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#2563EB] dark:text-[#60A5FA]'
+                                    : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8]'
+                                }`}
+                              >
+                                {notificationSettings.soundEnabled ? 'Միացված է' : 'Անջատված է'}
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {NOTIFICATION_SOUND_PRESETS.map((preset) => {
+                                const selected =
+                                  (notificationSettings.soundPreset ?? 'chime') === preset.id;
+                                return (
+                                  <button
+                                    key={preset.id}
+                                    type="button"
+                                    onClick={() => {
+                                      onUpdateNotificationSettings({
+                                        soundEnabled: true,
+                                        soundPreset: preset.id as NotificationSoundPreset,
+                                      });
+                                      playNotificationChime({
+                                        preset: preset.id,
+                                        volume: notificationSettings.soundVolume ?? 0.75,
+                                      });
+                                    }}
+                                    className={`p-2 rounded-xl border text-left transition-colors cursor-pointer ${
+                                      selected
+                                        ? 'border-[#2563EB] dark:border-[#3B82F6] bg-[#EFF6FF]/80 dark:bg-[#172554]/50'
+                                        : 'border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#94A3B8] dark:hover:border-[#334155]'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span
+                                        className={`text-[11px] font-semibold truncate ${
+                                          selected
+                                            ? 'text-[#1D4ED8] dark:text-[#60A5FA]'
+                                            : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                                        }`}
+                                      >
+                                        {preset.label}
+                                      </span>
+                                      <Play className="w-2.5 h-2.5 text-[#64748B] dark:text-[#94A3B8] shrink-0" />
+                                    </div>
+                                    <p className="text-[10px] text-[#64748B] dark:text-[#94A3B8] truncate mt-0.5">
+                                      {preset.description}
+                                    </p>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Volume + Urgent Tone */}
+                            <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-2.5 space-y-2">
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="text-[#475569] dark:text-[#CBD5E1] font-medium">
+                                  Ձայնի բարձրություն
+                                </span>
+                                <span className="font-mono font-semibold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                                  {Math.round((notificationSettings.soundVolume ?? 0.75) * 100)}%
+                                </span>
+                              </div>
+                              <input
+                                type="range"
+                                min={10}
+                                max={100}
+                                step={5}
+                                value={Math.round((notificationSettings.soundVolume ?? 0.75) * 100)}
+                                onChange={(e) =>
+                                  onUpdateNotificationSettings({
+                                    soundVolume: Number(e.target.value) / 100,
+                                  })
+                                }
+                                aria-label="Ծանուցման ձայնի բարձրություն"
+                                className="w-full accent-[#2563EB] cursor-pointer"
+                              />
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <label className="flex items-center gap-2 text-[11px] text-[#475569] dark:text-[#CBD5E1] cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={notificationSettings.urgentSoundEnabled !== false}
+                                    onChange={(e) =>
+                                      onUpdateNotificationSettings({
+                                        urgentSoundEnabled: e.target.checked,
+                                      })
+                                    }
+                                    className="rounded accent-[#2563EB]"
+                                  />
+                                  <span>Հատուկ տոն ուշացածների համար</span>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    playNotificationChime({
+                                      preset: notificationSettings.soundPreset ?? 'chime',
+                                      volume: notificationSettings.soundVolume ?? 0.75,
+                                      urgent: notificationSettings.urgentSoundEnabled !== false,
+                                    })
+                                  }
+                                  className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer shrink-0"
+                                >
+                                  Փորձել
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Section 2: Spoken Voice Alerts */}
+                          <div className="pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] inline-flex items-center gap-1.5">
+                                <AudioLines className="w-3.5 h-3.5 text-violet-600 dark:text-violet-400" />
+                                <span>Ձայնային ընթերցում (Խոսք)</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateNotificationSettings({
+                                    voiceEnabled: !notificationSettings.voiceEnabled,
+                                  })
+                                }
+                                className={`min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                  notificationSettings.voiceEnabled
+                                    ? 'border-violet-400/50 bg-violet-500/12 text-violet-700 dark:text-violet-300'
+                                    : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8]'
+                                }`}
+                              >
+                                {notificationSettings.voiceEnabled ? 'Միացված է' : 'Անջատված է'}
+                              </button>
+                            </div>
+
+                            {/* Voice Engine Mode */}
+                            <div className="grid grid-cols-3 gap-1 p-1 rounded-xl surface-subtle">
+                              {(
+                                [
+                                  { id: 'auto', label: 'Ավտոմատ' },
+                                  { id: 'gemini', label: 'Բնական AI' },
+                                  { id: 'browser', label: 'Համակարգ' },
+                                ] as Array<{ id: NotificationVoiceMode; label: string }>
+                              ).map((mode) => {
+                                const active =
+                                  (notificationSettings.voiceMode ?? 'auto') === mode.id;
+                                return (
+                                  <button
+                                    key={mode.id}
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateNotificationSettings({ voiceMode: mode.id })
+                                    }
+                                    className={`min-h-[28px] px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                                      active
+                                        ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                                        : 'text-[#64748B] dark:text-[#94A3B8]'
+                                    }`}
+                                  >
+                                    {mode.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* AI Voice Personas */}
+                            {(notificationSettings.voiceMode ?? 'auto') !== 'browser' && (
+                              <div className="space-y-1.5">
+                                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                                  Հայերեն ձայնի տոնայնություն
+                                </p>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  {GEMINI_VOICE_PRESETS.map((voice) => {
+                                    const selected =
+                                      (notificationSettings.voicePreset ?? 'Kore') === voice.id;
+                                    return (
+                                      <button
+                                        key={voice.id}
+                                        type="button"
+                                        onClick={() => {
+                                          const nextSettings: NotificationSettings = {
+                                            ...notificationSettings,
+                                            voiceEnabled: true,
+                                            voicePreset: voice.id as GeminiVoicePreset,
+                                          };
+                                          onUpdateNotificationSettings({
+                                            voiceEnabled: true,
+                                            voicePreset: voice.id as GeminiVoicePreset,
+                                          });
+                                          void speakNotificationText(
+                                            `Բարև, սա ${voice.label} ձայնն է ծանուցումների համար։`,
+                                            nextSettings
+                                          );
+                                        }}
+                                        className={`p-2 rounded-xl border text-left transition-colors cursor-pointer ${
+                                          selected
+                                            ? 'border-violet-500/70 bg-violet-500/10'
+                                            : 'border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#94A3B8] dark:hover:border-[#334155]'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span
+                                            className={`text-[11px] font-semibold ${
+                                              selected
+                                                ? 'text-violet-700 dark:text-violet-300'
+                                                : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                                            }`}
+                                          >
+                                            {voice.label}
+                                          </span>
+                                          <Play className="w-2.5 h-2.5 text-[#64748B] dark:text-[#94A3B8]" />
+                                        </div>
+                                        <p className="text-[10px] text-[#64748B] dark:text-[#94A3B8] truncate mt-0.5">
+                                          {voice.description}
+                                        </p>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* System SpeechSynthesis Voice Fallback Selector */}
+                            {browserVoices.length > 0 && (
+                              <div className="space-y-1">
+                                <label
+                                  htmlFor="pa-browser-voice-select"
+                                  className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]"
+                                >
+                                  Սարքի ներկառուցված ձայն (օֆլայն պահուստ)
+                                </label>
+                                <select
+                                  id="pa-browser-voice-select"
+                                  value={notificationSettings.browserVoiceURI ?? ''}
+                                  onChange={(e) =>
+                                    onUpdateNotificationSettings({
+                                      browserVoiceURI: e.target.value,
+                                    })
+                                  }
+                                  className="w-full min-h-[34px] px-2.5 py-1 rounded-xl input-field text-[11px]"
+                                >
+                                  <option value="">Ավտոմատ (լավագույն հասանելի)</option>
+                                  {browserVoices.slice(0, 30).map((v) => (
+                                    <option key={v.voiceURI} value={v.voiceURI}>
+                                      {v.name} ({v.lang})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Speech Rate + Test Voice Button */}
+                            <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                              <div className="inline-flex items-center gap-1 p-0.5 rounded-lg surface-subtle">
+                                {[0.85, 1, 1.15, 1.3].map((rate) => {
+                                  const active =
+                                    Math.abs((notificationSettings.voiceRate ?? 1) - rate) < 0.03;
+                                  return (
+                                    <button
+                                      key={rate}
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateNotificationSettings({ voiceRate: rate })
+                                      }
+                                      className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold tabular-nums cursor-pointer transition-colors ${
+                                        active
+                                          ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] shadow-xs'
+                                          : 'text-[#64748B] dark:text-[#94A3B8]'
+                                      }`}
+                                    >
+                                      {rate}x
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isSpeaking) {
+                                    stopNotificationVoice();
+                                  } else {
+                                    void speakNotificationText(
+                                      'Հիշեցում․ Մթերային գնումներ, 15,000 դրամ, ժամը 18:30-ին։',
+                                      notificationSettings
+                                    );
+                                  }
+                                }}
+                                className={`min-h-[30px] px-3 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors ${
+                                  isSpeaking
+                                    ? 'bg-rose-500/12 text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-500/40'
+                                    : 'bg-violet-600 hover:bg-violet-700 text-white'
+                                }`}
+                              >
+                                {isSpeaking ? (
+                                  <>
+                                    <Square className="w-3 h-3 fill-current" />
+                                    <span>Կանգնեցնել</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Play className="w-3 h-3" />
+                                    <span>Փորձարկել խոսքը</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Section 3: Quiet Hours */}
+                          <div className="pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] inline-flex items-center gap-1.5">
+                                <Moon className="w-3.5 h-3.5 text-[#64748B] dark:text-[#94A3B8]" />
+                                <span>Լուռ ժամեր</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onUpdateNotificationSettings({
+                                    quietHoursEnabled: !notificationSettings.quietHoursEnabled,
+                                  })
+                                }
+                                className={`min-h-[26px] px-2.5 rounded-lg text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                  notificationSettings.quietHoursEnabled
+                                    ? 'border-emerald-400/50 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                                    : 'border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8]'
+                                }`}
+                              >
+                                {notificationSettings.quietHoursEnabled ? 'Միացված է' : 'Անջատված է'}
+                              </button>
+                            </div>
+
+                            {notificationSettings.quietHoursEnabled && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="text-[10px] text-[#64748B] dark:text-[#94A3B8] space-y-1">
+                                  <span>Սկիզբ</span>
+                                  <input
+                                    type="time"
+                                    value={notificationSettings.quietHoursStart ?? '22:30'}
+                                    onChange={(e) =>
+                                      onUpdateNotificationSettings({
+                                        quietHoursStart: e.target.value,
+                                      })
+                                    }
+                                    className="w-full min-h-[32px] px-2 py-1 rounded-lg input-field font-mono text-xs tabular-nums"
+                                  />
+                                </label>
+                                <label className="text-[10px] text-[#64748B] dark:text-[#94A3B8] space-y-1">
+                                  <span>Ավարտ</span>
+                                  <input
+                                    type="time"
+                                    value={notificationSettings.quietHoursEnd ?? '08:00'}
+                                    onChange={(e) =>
+                                      onUpdateNotificationSettings({
+                                        quietHoursEnd: e.target.value,
+                                      })
+                                    }
+                                    className="w-full min-h-[32px] px-2 py-1 rounded-lg input-field font-mono text-xs tabular-nums"
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <>
                       {/* Filter Tabs */}
                       <div className="px-3 py-2 border-b border-[#F1F5F9] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex items-center gap-1">
                         {[
@@ -913,7 +1381,16 @@ export function TopNav({
                                               )}
                                             </div>
 
-                                            <div className="flex items-center justify-end gap-1.5">
+                                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                              <button
+                                                type="button"
+                                                onClick={() => onSpeakNotif(item)}
+                                                title="Լսել ձայնային ընթերցմամբ"
+                                                aria-label={`Լսել «${item.title}» ծանուցումը`}
+                                                className="min-h-[28px] min-w-[28px] px-1.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#26334D] text-[#64748B] dark:text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:border-[#2563EB] inline-flex items-center justify-center cursor-pointer transition-colors mr-auto"
+                                              >
+                                                <Volume2 className="w-3 h-3" />
+                                              </button>
                                               <button
                                                 type="button"
                                                 onClick={() =>
@@ -979,6 +1456,15 @@ export function TopNav({
                                                 {item.subtitle}
                                               </p>
                                             </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => onSpeakNotif(item)}
+                                              title="Լսել ձայնային ընթերցմամբ"
+                                              aria-label={`Լսել «${item.title}» անելիքը`}
+                                              className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 transition-colors cursor-pointer shrink-0"
+                                            >
+                                              <Volume2 className="w-3 h-3" />
+                                            </button>
                                           </div>
                                         );
                                        }
@@ -1053,7 +1539,16 @@ export function TopNav({
                                               </div>
                                             )}
 
-                                            <div className="flex items-center justify-end gap-1.5">
+                                            <div className="flex items-center justify-between gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => onSpeakNotif(item)}
+                                                title="Լսել ձայնային ընթերցմամբ"
+                                                aria-label={`Լսել «${item.title}» ահազանգը`}
+                                                className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg border border-amber-500/25 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 transition-colors cursor-pointer"
+                                              >
+                                                <Volume2 className="w-3 h-3" />
+                                              </button>
                                               <button
                                                 type="button"
                                                 onClick={() => {
@@ -1105,7 +1600,16 @@ export function TopNav({
                                                 </span>
                                               )}
                                             </div>
-                                            <div className="flex items-center justify-end">
+                                            <div className="flex items-center justify-between gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => onSpeakNotif(item)}
+                                                title="Լսել ձայնային ընթերցմամբ"
+                                                aria-label={`Լսել «${item.title}» հիշեցումը`}
+                                                className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg border border-[#2563EB]/25 text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#2563EB]/10 transition-colors cursor-pointer"
+                                              >
+                                                <Volume2 className="w-3 h-3" />
+                                              </button>
                                               <button
                                                 type="button"
                                                 onClick={() => {
@@ -1149,20 +1653,31 @@ export function TopNav({
                                               {item.subtitle}
                                             </p>
                                           </button>
-                                          {item.noteId && (
+                                          <div className="flex items-center gap-0.5 shrink-0">
                                             <button
                                               type="button"
-                                              onClick={() =>
-                                                onDismissNoteReminder(
-                                                  item.noteId!
-                                                )
-                                              }
-                                              aria-label={`Փակել «${item.title}» հիշեցումը`}
-                                              className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-colors cursor-pointer shrink-0"
+                                              onClick={() => onSpeakNotif(item)}
+                                              title="Լսել ձայնային ընթերցմամբ"
+                                              aria-label={`Լսել «${item.title}» նշումը`}
+                                              className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
                                             >
-                                              <X className="w-3.5 h-3.5" />
+                                              <Volume2 className="w-3 h-3" />
                                             </button>
-                                          )}
+                                            {item.noteId && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  onDismissNoteReminder(
+                                                    item.noteId!
+                                                  )
+                                                }
+                                                aria-label={`Փակել «${item.title}» հիշեցումը`}
+                                                className="min-h-[26px] min-w-[26px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                                              >
+                                                <X className="w-3.5 h-3.5" />
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                       );
                                     })}
@@ -1171,6 +1686,8 @@ export function TopNav({
                               )
                           )}
                         </div>
+                      )}
+                        </>
                       )}
 
                       <div className="px-4 py-2.5 border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex items-center justify-between gap-2 flex-wrap">

@@ -25,14 +25,47 @@
     <script>
       (function () {
         // Suppress benign Vite HMR WebSocket connection errors in dev preview environment
+        var isBenignViteWsError = function (text) {
+          if (!text) return false;
+          var s = String(text);
+          return (
+            s.indexOf('WebSocket closed without opened') !== -1 ||
+            s.indexOf('failed to connect to websocket') !== -1 ||
+            (s.indexOf('@vite/client') !== -1 && s.indexOf('WebSocket') !== -1)
+          );
+        };
+
+        var origConsoleError = console.error;
+        console.error = function () {
+          try {
+            var args = Array.prototype.slice.call(arguments);
+            var combined = args
+              .map(function (a) {
+                if (!a) return '';
+                if (typeof a === 'string') return a;
+                return (a.message || '') + ' ' + (a.stack || '') + ' ' + String(a);
+              })
+              .join(' ');
+            if (
+              combined.indexOf('[vite]') !== -1 &&
+              isBenignViteWsError(combined)
+            ) {
+              return;
+            }
+          } catch (e) {}
+          return origConsoleError.apply(console, arguments);
+        };
+
         window.addEventListener(
           'error',
           function (event) {
-            if (
-              event.message &&
-              (event.message.includes('WebSocket') ||
-                event.message.includes('@vite/client'))
-            ) {
+            var text =
+              (event.message || '') +
+              ' ' +
+              (event.filename || '') +
+              ' ' +
+              (event.error && (event.error.stack || event.error.message || ''));
+            if (isBenignViteWsError(text)) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }
@@ -42,12 +75,15 @@
         window.addEventListener(
           'unhandledrejection',
           function (event) {
-            var msg =
-              event.reason && (event.reason.message || String(event.reason));
-            if (
-              msg &&
-              (msg.includes('WebSocket') || msg.includes('@vite/client'))
-            ) {
+            var reason = event.reason;
+            var msg = reason
+              ? (reason.message || '') +
+                ' ' +
+                (reason.stack || '') +
+                ' ' +
+                String(reason)
+              : '';
+            if (isBenignViteWsError(msg)) {
               event.preventDefault();
               event.stopImmediatePropagation();
             }

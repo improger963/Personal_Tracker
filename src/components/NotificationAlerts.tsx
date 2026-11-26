@@ -7,6 +7,7 @@ import {
   Clock,
   Repeat,
   SkipForward,
+  Volume2,
   X,
 } from 'lucide-react';
 import { AppNotificationItem } from '../types';
@@ -18,6 +19,7 @@ interface NotificationAlertsProps {
   onSnooze: (id: string, minutes: number) => void;
   onSkipExpense: (item: AppNotificationItem) => void;
   onDismissBanner: (id: string) => void;
+  onSpeakAlert?: (item: AppNotificationItem) => void;
 }
 
 export function NotificationAlerts({
@@ -26,6 +28,7 @@ export function NotificationAlerts({
   onSnooze,
   onSkipExpense,
   onDismissBanner,
+  onSpeakAlert,
 }: NotificationAlertsProps) {
   const visible = alerts.slice(0, 2);
   if (visible.length === 0) return null;
@@ -111,14 +114,27 @@ export function NotificationAlerts({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => onDismissBanner(item.id)}
-                  aria-label={`Թաքցնել «${item.title}» ծանուցումը`}
-                  className="min-h-[28px] min-w-[28px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer shrink-0"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  {onSpeakAlert && (
+                    <button
+                      type="button"
+                      onClick={() => onSpeakAlert(item)}
+                      title="Լսել ձայնային ընթերցմամբ"
+                      aria-label={`Լսել «${item.title}» ծանուցումը`}
+                      className="min-h-[28px] min-w-[28px] flex items-center justify-center rounded-lg text-[#64748B] dark:text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/60 transition-colors cursor-pointer"
+                    >
+                      <Volume2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onDismissBanner(item.id)}
+                    aria-label={`Թաքցնել «${item.title}» ծանուցումը`}
+                    className="min-h-[28px] min-w-[28px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
 
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#F1F5F9] dark:border-[#1E293B]">

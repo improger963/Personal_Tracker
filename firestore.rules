@@ -67,9 +67,34 @@ service cloud.firestore {
         && (data.primaryIncome.creditedCycles.size() == 0 || data.primaryIncome.creditedCycles[0] is string)
         && data.notificationSettings is map
         && data.notificationSettings.keys().hasAll(['soundEnabled', 'browserNotifications'])
-        && data.notificationSettings.keys().hasOnly(['soundEnabled', 'browserNotifications'])
+        && data.notificationSettings.keys().hasOnly([
+          'soundEnabled',
+          'browserNotifications',
+          'soundPreset',
+          'urgentSoundEnabled',
+          'soundVolume',
+          'voiceEnabled',
+          'voiceMode',
+          'voicePreset',
+          'browserVoiceURI',
+          'voiceRate',
+          'quietHoursEnabled',
+          'quietHoursStart',
+          'quietHoursEnd'
+        ])
         && data.notificationSettings.soundEnabled is bool
         && data.notificationSettings.browserNotifications is bool
+        && (!('soundPreset' in data.notificationSettings) || data.notificationSettings.soundPreset in ['chime', 'bell', 'marimba', 'pulse', 'zen'])
+        && (!('urgentSoundEnabled' in data.notificationSettings) || data.notificationSettings.urgentSoundEnabled is bool)
+        && (!('soundVolume' in data.notificationSettings) || (data.notificationSettings.soundVolume is number && data.notificationSettings.soundVolume >= 0.05 && data.notificationSettings.soundVolume <= 1))
+        && (!('voiceEnabled' in data.notificationSettings) || data.notificationSettings.voiceEnabled is bool)
+        && (!('voiceMode' in data.notificationSettings) || data.notificationSettings.voiceMode in ['auto', 'gemini', 'browser'])
+        && (!('voicePreset' in data.notificationSettings) || data.notificationSettings.voicePreset in ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'])
+        && (!('browserVoiceURI' in data.notificationSettings) || (data.notificationSettings.browserVoiceURI is string && data.notificationSettings.browserVoiceURI.size() <= 200))
+        && (!('voiceRate' in data.notificationSettings) || (data.notificationSettings.voiceRate is number && data.notificationSettings.voiceRate >= 0.7 && data.notificationSettings.voiceRate <= 1.5))
+        && (!('quietHoursEnabled' in data.notificationSettings) || data.notificationSettings.quietHoursEnabled is bool)
+        && (!('quietHoursStart' in data.notificationSettings) || (data.notificationSettings.quietHoursStart is string && data.notificationSettings.quietHoursStart.size() <= 10))
+        && (!('quietHoursEnd' in data.notificationSettings) || (data.notificationSettings.quietHoursEnd is string && data.notificationSettings.quietHoursEnd.size() <= 10))
         && (!('focusGoal' in data) || data.focusGoal == null || (
           data.focusGoal is map
           && data.focusGoal.keys().hasAll(['title', 'completed', 'date'])
@@ -84,7 +109,7 @@ service cloud.firestore {
 
     function isValidTransaction(data, userId, docId) {
       return data.keys().hasAll(['userId', 'id', 'type', 'amount', 'title', 'category', 'date', 'createdAt', 'serverCreatedAt', 'serverUpdatedAt'])
-        && data.keys().hasOnly(['userId', 'id', 'type', 'incomeKind', 'amount', 'title', 'category', 'date', 'createdAt', 'primaryCycleKey', 'isPending', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.keys().hasOnly(['userId', 'id', 'type', 'incomeKind', 'amount', 'title', 'category', 'date', 'createdAt', 'primaryCycleKey', 'isPending', 'cardId', 'serverCreatedAt', 'serverUpdatedAt'])
         && data.userId is string && data.userId == userId
         && isValidId(data.id) && data.id == docId
         && data.type in ['income', 'expense']
@@ -96,6 +121,24 @@ service cloud.firestore {
         && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 50
         && (!('primaryCycleKey' in data) || (data.primaryCycleKey is string && data.primaryCycleKey.size() <= 20))
         && (!('isPending' in data) || data.isPending is bool)
+        && (!('cardId' in data) || isValidId(data.cardId))
+        && data.serverCreatedAt is timestamp
+        && data.serverUpdatedAt is timestamp;
+    }
+
+    function isValidBankCard(data, userId, docId) {
+      return data.keys().hasAll(['userId', 'id', 'name', 'cardType', 'color', 'initialBalance', 'currency', 'createdAt', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.keys().hasOnly(['userId', 'id', 'name', 'last4', 'cardType', 'color', 'initialBalance', 'currency', 'isDefault', 'createdAt', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.userId is string && data.userId == userId
+        && isValidId(data.id) && data.id == docId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && (!('last4' in data) || (data.last4 is string && data.last4.size() <= 10))
+        && data.cardType in ['arca', 'visa', 'mastercard', 'other', 'cash']
+        && data.color in ['blue', 'purple', 'emerald', 'amber', 'rose', 'slate']
+        && data.initialBalance is number && data.initialBalance >= -100000000 && data.initialBalance <= 1000000000
+        && data.currency == 'AMD'
+        && (!('isDefault' in data) || data.isDefault is bool)
+        && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 50
         && data.serverCreatedAt is timestamp
         && data.serverUpdatedAt is timestamp;
     }
@@ -301,8 +344,27 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().serverCreatedAt == existing().serverCreatedAt
           && incoming().serverUpdatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'incomeKind', 'amount', 'title', 'category', 'date', 'primaryCycleKey', 'isPending', 'serverUpdatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'incomeKind', 'amount', 'title', 'category', 'date', 'primaryCycleKey', 'isPending', 'cardId', 'serverUpdatedAt']);
         allow delete: if isVerifiedOwner(userId) && isValidId(txId);
+      }
+
+      match /cards/{cardId} {
+        allow get: if isVerifiedOwner(userId) && isValidId(cardId);
+        allow list: if isVerifiedOwner(userId);
+        allow create: if isVerifiedOwner(userId) && isValidId(cardId)
+          && isValidBankCard(incoming(), userId, cardId)
+          && incoming().serverCreatedAt == request.time
+          && incoming().serverUpdatedAt == request.time
+          && userExists(userId);
+        allow update: if isVerifiedOwner(userId) && isValidId(cardId)
+          && isValidBankCard(incoming(), userId, cardId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().createdAt == existing().createdAt
+          && incoming().serverCreatedAt == existing().serverCreatedAt
+          && incoming().serverUpdatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'last4', 'cardType', 'color', 'initialBalance', 'currency', 'isDefault', 'serverUpdatedAt']);
+        allow delete: if isVerifiedOwner(userId) && isValidId(cardId);
       }
 
       match /tasks/{taskId} {

@@ -233,10 +233,15 @@ export function computeCycleFinancials(
     0
   );
   const cycleIncome = cycleTransactions
-    .filter((t) => t.type === 'income')
+    .filter((t) => t.type === 'income' && t.category !== 'Քարտերի փոխանցում')
     .reduce((sum, t) => sum + t.amount, 0);
   const cycleExpense = cycleTransactions
-    .filter((t) => t.type === 'expense' && !t.isPending)
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        !t.isPending &&
+        t.category !== 'Քարտերի փոխանցում'
+    )
     .reduce((sum, t) => sum + t.amount, 0);
   const cyclePendingExpense = cycleTransactions
     .filter((t) => t.type === 'expense' && t.isPending)

@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { OperationType, db, handleFirestoreError } from '../firebase';
 import {
+  BankCard,
   BudgetLimit,
   DebtItem,
   FocusGoal,
@@ -28,6 +29,7 @@ import {
   Task,
   Transaction,
 } from '../types';
+import { normalizeNotificationSettings } from '../data/defaults';
 
 export interface WorkspaceSettingsPayload {
   primaryIncome: PrimaryIncomeConfig;
@@ -38,6 +40,7 @@ export interface WorkspaceSettingsPayload {
 
 export interface FullWorkspaceSnapshot {
   transactions: Transaction[];
+  cards: BankCard[];
   tasks: Task[];
   notes: Note[];
   budgets: BudgetLimit[];
@@ -177,9 +180,46 @@ function buildTransactionDoc(
   } else if (!includeCreated) {
     payload.isPending = deleteField();
   }
+  if (tx.cardId) {
+    payload.cardId = sanitizeSafeId(tx.cardId, 'card');
+  } else if (!includeCreated) {
+    payload.cardId = deleteField();
+  }
   if (includeCreated) {
     payload.createdAt = sanitizeString(
       tx.createdAt || new Date().toISOString(),
+      50
+    );
+    payload.serverCreatedAt = serverTimestamp();
+  }
+  return payload;
+}
+
+function buildBankCardDoc(
+  card: BankCard,
+  userId: string,
+  includeCreated: boolean
+): Record<string, unknown> {
+  const id = sanitizeSafeId(card.id, 'card');
+  const rawBalance = Number(card.initialBalance);
+  const safeBalance = Number.isFinite(rawBalance)
+    ? Math.min(1_000_000_000, Math.max(-100_000_000, Math.round(rawBalance)))
+    : 0;
+  const payload: Record<string, unknown> = {
+    userId,
+    id,
+    name: sanitizeString(card.name.trim() || 'Քարտ', 120),
+    last4: sanitizeString((card.last4 || '').trim(), 10),
+    cardType: card.cardType,
+    color: card.color,
+    initialBalance: safeBalance,
+    currency: 'AMD',
+    isDefault: Boolean(card.isDefault),
+    serverUpdatedAt: serverTimestamp(),
+  };
+  if (includeCreated) {
+    payload.createdAt = sanitizeString(
+      card.createdAt || new Date().toISOString(),
       50
     );
     payload.serverCreatedAt = serverTimestamp();
@@ -523,12 +563,26 @@ function buildSettingsDoc(
           date: sanitizeString(settings.focusGoal.date, 20),
         }
       : null,
-    notificationSettings: {
-      soundEnabled: Boolean(settings.notificationSettings.soundEnabled),
-      browserNotifications: Boolean(
-        settings.notificationSettings.browserNotifications
-      ),
-    },
+    notificationSettings: (() => {
+      const normalized = normalizeNotificationSettings(
+        settings.notificationSettings
+      );
+      return {
+        soundEnabled: normalized.soundEnabled,
+        browserNotifications: normalized.browserNotifications,
+        soundPreset: normalized.soundPreset ?? 'chime',
+        urgentSoundEnabled: normalized.urgentSoundEnabled !== false,
+        soundVolume: normalized.soundVolume ?? 0.75,
+        voiceEnabled: Boolean(normalized.voiceEnabled),
+        voiceMode: normalized.voiceMode ?? 'auto',
+        voicePreset: normalized.voicePreset ?? 'Kore',
+        browserVoiceURI: sanitizeString(normalized.browserVoiceURI ?? '', 200),
+        voiceRate: normalized.voiceRate ?? 1,
+        quietHoursEnabled: Boolean(normalized.quietHoursEnabled),
+        quietHoursStart: sanitizeString(normalized.quietHoursStart ?? '22:30', 10),
+        quietHoursEnd: sanitizeString(normalized.quietHoursEnd ?? '08:00', 10),
+      };
+    })(),
     isDark: Boolean(settings.isDark),
     serverUpdatedAt: serverTimestamp(),
   };
@@ -568,6 +622,13 @@ export async function uploadFullWorkspaceToCloud(
     ops.push({
       ref: doc(db, 'users', userId, 'transactions', id),
       data: buildTransactionDoc(tx, userId, true),
+    });
+  }
+  for (const card of snapshot.cards ?? []) {
+    const id = sanitizeSafeId(card.id, 'card');
+    ops.push({
+      ref: doc(db, 'users', userId, 'cards', id),
+      data: buildBankCardDoc(card, userId, true),
     });
   }
   for (const task of snapshot.tasks) {
@@ -668,6 +729,7 @@ export async function syncCollectionItems<T>(params: {
   userId: string;
   collectionName:
     | 'transactions'
+    | 'cards'
     | 'tasks'
     | 'notes'
     | 'budgets'
@@ -756,6 +818,7 @@ export async function syncCollectionItems<T>(params: {
 
 export const collectionBuilders = {
   transactions: buildTransactionDoc,
+  cards: buildBankCardDoc,
   tasks: buildTaskDoc,
   notes: buildNoteDoc,
   budgets: buildBudgetDoc,
@@ -777,6 +840,7 @@ function stripServerMeta<T extends Record<string, unknown>>(raw: T): T {
 export function subscribeUserWorkspace(params: {
   userId: string;
   onTransactions: (items: Transaction[], known: Map<string, string>) => void;
+  onCards: (items: BankCard[], known: Map<string, string>) => void;
   onTasks: (items: Task[], known: Map<string, string>) => void;
   onNotes: (items: Note[], known: Map<string, string>) => void;
   onBudgets: (items: BudgetLimit[], known: Map<string, string>) => void;
@@ -823,6 +887,19 @@ export function subscribeUserWorkspace(params: {
     (items, known) => {
       items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       params.onTransactions(items, known);
+    }
+  );
+  attachCollection<BankCard & Record<string, unknown>>(
+    'cards',
+    (item) => sanitizeSafeId(item.id, 'card'),
+    (items, known) => {
+      items.sort((a, b) => {
+        if (Boolean(a.isDefault) !== Boolean(b.isDefault)) {
+          return a.isDefault ? -1 : 1;
+        }
+        return (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
+      params.onCards(items, known);
     }
   );
   attachCollection<Task & Record<string, unknown>>(
@@ -896,7 +973,9 @@ export function subscribeUserWorkspace(params: {
         {
           primaryIncome: data.primaryIncome as PrimaryIncomeConfig,
           focusGoal: (data.focusGoal as FocusGoal | null) ?? null,
-          notificationSettings: data.notificationSettings as NotificationSettings,
+          notificationSettings: normalizeNotificationSettings(
+            data.notificationSettings as Partial<NotificationSettings>
+          ),
           isDark: Boolean(data.isDark),
         },
         true

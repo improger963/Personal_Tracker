@@ -14,16 +14,18 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react';
-import { Currency, Transaction } from '../../types';
+import { BankCard, Currency, Transaction } from '../../types';
 import {
   INCOME_KIND_LABELS,
   formatMoney,
   formatShortDate,
   getTransactionIncomeKind,
 } from '../../data/defaults';
+import { formatCardLabel } from '../../utils/cardBalances';
 
 interface SwipeableTransactionRowProps {
   tx: Transaction;
+  card?: BankCard;
   currency: Currency;
   todayISO: string;
   isEditing: boolean;
@@ -42,6 +44,7 @@ const VELOCITY_COMMIT = 0.55;
 
 export function SwipeableTransactionRow({
   tx,
+  card,
   currency,
   todayISO,
   isEditing,
@@ -235,15 +238,17 @@ export function SwipeableTransactionRow({
     }
   };
 
+  const cardMeta = card ? ` · ${formatCardLabel(card)}` : '';
+
   const desktopMeta = `${
     tx.type === 'income'
       ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} եկամուտ`
       : tx.isPending
         ? 'Սպասվող նախածախս'
         : 'Ծախս'
-  } · ${tx.category} · ${formatShortDate(tx.date)}${tx.date > todayISO ? ' (ապագա)' : ''}`;
+  } · ${tx.category}${cardMeta} · ${formatShortDate(tx.date)}${tx.date > todayISO ? ' (ապագա)' : ''}`;
 
-  const mobileMeta = `${tx.category} · ${formatShortDate(tx.date)}${
+  const mobileMeta = `${tx.category}${cardMeta} · ${formatShortDate(tx.date)}${
     tx.date > todayISO ? ' (ապագա)' : ''
   }`;
 

@@ -46,6 +46,7 @@ import {
   ARMENIAN_MONTHS,
   formatMoney,
   getInitialBudgets,
+  getInitialCards,
   getInitialDebts,
   getInitialFocusSessions,
   getInitialHabits,
@@ -58,6 +59,7 @@ import {
   getInitialTransactions,
   getTodayISO,
   getTransactionIncomeKind,
+  normalizeNotificationSettings,
 } from './data/defaults';
 import {
   computeCycleFinancials,
@@ -73,18 +75,23 @@ import {
 import {
   buildAppNotifications,
   canUseBrowserNotifications,
+  formatNotificationForSpeech,
   getBillFrequency,
   getCurrentHHMM,
+  playNotificationAlertSequence,
   playNotificationChime,
   sendBrowserNotification,
+  speakNotificationText,
 } from './utils/notifications';
 import {
   isTaskCompletedOnDate,
   isTaskDueOnDate,
   isTaskRepeating,
 } from './utils/taskSchedule';
+import { INTERNAL_TRANSFER_CATEGORY } from './utils/cardBalances';
 import {
   AppNotificationItem,
+  BankCard,
   BudgetLimit,
   DebtItem,
   FocusGoal,
@@ -170,6 +177,10 @@ export default function App() {
     'pa_transactions',
     getInitialTransactions
   );
+  const [cards, setCards] = useLocalStorage<BankCard[]>(
+    'pa_cards',
+    getInitialCards
+  );
   const [tasks, setTasks] = useLocalStorage<Task[]>(
     'pa_tasks',
     getInitialTasks
@@ -206,11 +217,15 @@ export default function App() {
     'pa_focus_goal',
     null
   );
-  const [notificationSettings, setNotificationSettings] =
+  const [rawNotificationSettings, setNotificationSettings] =
     useLocalStorage<NotificationSettings>(
       'pa_notification_settings',
       getInitialNotificationSettings
     );
+  const notificationSettings = useMemo(
+    () => normalizeNotificationSettings(rawNotificationSettings),
+    [rawNotificationSettings]
+  );
   const [snoozedUntilMap, setSnoozedUntilMap] = useLocalStorage<
     Record<string, number>
   >('pa_notif_snoozed', {});
@@ -239,6 +254,7 @@ export default function App() {
 
   const knownMapsRef = useRef<{
     transactions: Map<string, string>;
+    cards: Map<string, string>;
     tasks: Map<string, string>;
     notes: Map<string, string>;
     budgets: Map<string, string>;
@@ -249,6 +265,7 @@ export default function App() {
     focusSessions: Map<string, string>;
   }>({
     transactions: new Map(),
+    cards: new Map(),
     tasks: new Map(),
     notes: new Map(),
     budgets: new Map(),
@@ -264,6 +281,7 @@ export default function App() {
 
   const latestWorkspaceRef = useRef<FullWorkspaceSnapshot>({
     transactions,
+    cards,
     tasks,
     notes,
     budgets,
@@ -281,6 +299,7 @@ export default function App() {
   });
   latestWorkspaceRef.current = {
     transactions,
+    cards,
     tasks,
     notes,
     budgets,
@@ -377,6 +396,14 @@ export default function App() {
               isApplyingRemoteRef.current = false;
             });
           },
+          onCards: (items, known) => {
+            isApplyingRemoteRef.current = true;
+            knownMapsRef.current.cards = known;
+            setCards(items);
+            queueMicrotask(() => {
+              isApplyingRemoteRef.current = false;
+            });
+          },
           onTasks: (items, known) => {
             isApplyingRemoteRef.current = true;
             knownMapsRef.current.tasks = known;
@@ -450,7 +477,9 @@ export default function App() {
               }
               setFocusGoal(settings.focusGoal ?? null);
               if (settings.notificationSettings) {
-                setNotificationSettings(settings.notificationSettings);
+                setNotificationSettings(
+                  normalizeNotificationSettings(settings.notificationSettings)
+                );
               }
               setIsDark(Boolean(settings.isDark));
               queueMicrotask(() => {
@@ -476,6 +505,7 @@ export default function App() {
     };
   }, [
     setTransactions,
+    setCards,
     setTasks,
     setNotes,
     setBudgets,
@@ -512,6 +542,28 @@ export default function App() {
     }, 400);
     return () => window.clearTimeout(t);
   }, [user, transactions]);
+
+  useEffect(() => {
+    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
+    const t = window.setTimeout(async () => {
+      try {
+        setSyncStatus('syncing');
+        await syncCollectionItems({
+          userId: user.uid,
+          collectionName: 'cards',
+          items: cards,
+          getId: (item) => item.id,
+          knownSerializedMap: knownMapsRef.current.cards,
+          buildDoc: collectionBuilders.cards,
+          serializeForDiff: canonicalSerialize,
+        });
+        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
+      } catch {
+        setSyncStatus('error');
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [user, cards]);
 
   useEffect(() => {
     if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
@@ -987,6 +1039,137 @@ export default function App() {
     showToast(`${newTxs.length} ամսական եկամուտ գրանցվեց`);
   };
 
+  // Manual Bank Cards & Wallets Handlers (no banking APIs)
+  const handleAddCard = (card: Omit<BankCard, 'id' | 'createdAt'>) => {
+    const newCard: BankCard = {
+      ...card,
+      isDefault: cards.length === 0 ? true : Boolean(card.isDefault),
+      id: createId('card'),
+      createdAt: new Date().toISOString(),
+    };
+    setCards((prev) => {
+      const normalized = newCard.isDefault
+        ? prev.map((c) => ({ ...c, isDefault: false }))
+        : prev;
+      return [...normalized, newCard];
+    });
+    showToast('Քարտը ավելացվեց');
+  };
+
+  const handleUpdateCard = (
+    id: string,
+    updates: Omit<BankCard, 'id' | 'createdAt'>
+  ) => {
+    setCards((prev) =>
+      prev.map((c) => {
+        if (c.id === id) {
+          return { ...c, ...updates };
+        }
+        return updates.isDefault ? { ...c, isDefault: false } : c;
+      })
+    );
+    showToast('Քարտը թարմացվեց');
+  };
+
+  const handleDeleteCard = (id: string) => {
+    const prevCards = cards;
+    const prevTransactions = transactions;
+    const target = cards.find((c) => c.id === id);
+    if (!target) return;
+
+    setCards((prev) => {
+      const filtered = prev.filter((c) => c.id !== id);
+      if (target.isDefault && filtered.length > 0 && !filtered.some((c) => c.isDefault)) {
+        return filtered.map((c, idx) =>
+          idx === 0 ? { ...c, isDefault: true } : c
+        );
+      }
+      return filtered;
+    });
+
+    setTransactions((prev) =>
+      prev.map((t) =>
+        t.cardId === id ? { ...t, cardId: undefined } : t
+      )
+    );
+
+    showToast('Քարտը ջնջվեց', () => {
+      setCards(prevCards);
+      setTransactions(prevTransactions);
+    });
+  };
+
+  const handleSetDefaultCard = (id: string) => {
+    setCards((prev) =>
+      prev.map((c) => ({ ...c, isDefault: c.id === id }))
+    );
+    showToast('Հիմնական քարտը թարմացվեց');
+  };
+
+  const handleQuickCardTransaction = (
+    type: 'income' | 'expense',
+    cardId: string
+  ) => {
+    setModalState({
+      mode: 'transaction',
+      prefill: {
+        type,
+        cardId,
+      },
+    });
+  };
+
+  const handleTransferBetweenCards = ({
+    fromCardId,
+    toCardId,
+    amount,
+    date,
+    note,
+  }: {
+    fromCardId: string;
+    toCardId: string;
+    amount: number;
+    date: string;
+    note?: string;
+  }) => {
+    const fromCard = cards.find((c) => c.id === fromCardId);
+    const toCard = cards.find((c) => c.id === toCardId);
+    if (!fromCard || !toCard || fromCardId === toCardId || amount <= 0) return;
+
+    const prevTransactions = transactions;
+    const nowIso = new Date().toISOString();
+    const baseTitle = `Փոխանցում՝ ${fromCard.name} -> ${toCard.name}`;
+    const fullTitle = note ? `${baseTitle} (${note})` : baseTitle;
+
+    const outTx: Transaction = {
+      id: createId('tx'),
+      type: 'expense',
+      amount: Math.round(amount),
+      title: fullTitle,
+      category: INTERNAL_TRANSFER_CATEGORY,
+      date,
+      cardId: fromCardId,
+      createdAt: nowIso,
+    };
+    const inTx: Transaction = {
+      id: createId('tx'),
+      type: 'income',
+      incomeKind: 'one_time',
+      amount: Math.round(amount),
+      title: fullTitle,
+      category: INTERNAL_TRANSFER_CATEGORY,
+      date,
+      cardId: toCardId,
+      createdAt: nowIso,
+    };
+
+    setTransactions((prev) => [inTx, outTx, ...prev]);
+    setSelectedMonth(getCycleKeyForDate(date, effectivePayday));
+    showToast(`Փոխանցումը կատարվեց (${formatMoney(amount)})`, () => {
+      setTransactions(prevTransactions);
+    });
+  };
+
   const handleSaveBudget = (category: string, limit: number) => {
     setBudgets((prev) => {
       const exists = prev.some((b) => b.category === category);
@@ -1222,10 +1405,35 @@ export default function App() {
   };
 
   const handleToggleSound = () => {
+    const nextEnabled = !notificationSettings.soundEnabled;
     setNotificationSettings((prev) => ({
-      ...prev,
-      soundEnabled: !prev.soundEnabled,
+      ...normalizeNotificationSettings(prev),
+      soundEnabled: nextEnabled,
     }));
+    if (nextEnabled) {
+      playNotificationChime({
+        preset: notificationSettings.soundPreset ?? 'chime',
+        volume: notificationSettings.soundVolume ?? 0.75,
+      });
+    }
+  };
+
+  const handleUpdateNotificationSettings = (
+    patch: Partial<NotificationSettings>
+  ) => {
+    setNotificationSettings((prev) =>
+      normalizeNotificationSettings({
+        ...normalizeNotificationSettings(prev),
+        ...patch,
+      })
+    );
+  };
+
+  const handleSpeakNotification = (item: AppNotificationItem) => {
+    const spoken = formatNotificationForSpeech(item);
+    void speakNotificationText(spoken, notificationSettings, {
+      urgent: item.status === 'overdue',
+    });
   };
 
   const handleToggleBrowserNotifications = async () => {
@@ -1681,6 +1889,7 @@ export default function App() {
       exportedAt: new Date().toISOString(),
       currency: 'AMD',
       primaryIncome,
+      cards,
       transactions,
       tasks,
       notes,
@@ -1710,6 +1919,7 @@ export default function App() {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result));
+        if (Array.isArray(parsed.cards)) setCards(parsed.cards);
         if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
         if (Array.isArray(parsed.tasks)) setTasks(parsed.tasks);
         if (Array.isArray(parsed.notes)) setNotes(parsed.notes);
@@ -1735,7 +1945,9 @@ export default function App() {
           parsed.notificationSettings &&
           typeof parsed.notificationSettings.soundEnabled === 'boolean'
         ) {
-          setNotificationSettings(parsed.notificationSettings);
+          setNotificationSettings(
+            normalizeNotificationSettings(parsed.notificationSettings)
+          );
         }
         showToast('Տվյալները հաջողությամբ վերականգնվեցին');
       } catch {
@@ -1836,25 +2048,28 @@ export default function App() {
   );
 
   useEffect(() => {
-    const newlyDue = activeNotifications.filter(
-      (n) =>
+    const newlyDue = activeNotifications.filter((n) => {
+      if (alertedIdsRef.current.has(n.id)) return false;
+      const isFinanceDue =
         (n.kind === 'daily_expense' ||
           n.kind === 'planned_expense' ||
           n.kind === 'monthly_bill' ||
           n.kind === 'budget_alert') &&
-        (n.status === 'due_now' || n.status === 'overdue') &&
-        !alertedIdsRef.current.has(n.id)
-    );
+        (n.status === 'due_now' || n.status === 'overdue');
+      const isScheduledScheduleDue =
+        (n.kind === 'task' || n.kind === 'note') &&
+        Boolean(n.dueTime) &&
+        n.dueTime! <= currentHHMM;
+      return isFinanceDue || isScheduledScheduleDue;
+    });
     if (newlyDue.length === 0) return;
 
     newlyDue.forEach((n) => alertedIdsRef.current.add(n.id));
-    if (notificationSettings.soundEnabled) {
-      playNotificationChime();
-    }
+    playNotificationAlertSequence(newlyDue, notificationSettings, currentHHMM);
     if (notificationSettings.browserNotifications) {
       newlyDue.forEach((n) => sendBrowserNotification(n));
     }
-  }, [activeNotifications, notificationSettings]);
+  }, [activeNotifications, notificationSettings, currentHHMM]);
 
   const editorialDate = getTodayEditorialDate();
 
@@ -1876,6 +2091,8 @@ export default function App() {
         canUseBrowserNotifs={canUseBrowserNotifications()}
         onToggleSound={handleToggleSound}
         onToggleBrowserNotifications={handleToggleBrowserNotifications}
+        onUpdateNotificationSettings={handleUpdateNotificationSettings}
+        onSpeakNotif={handleSpeakNotification}
         onConfirmExpenseNotif={handleConfirmExpenseNotification}
         onSkipExpenseNotif={handleSkipExpenseNotification}
         onSnoozeNotif={handleSnoozeNotification}
@@ -1951,6 +2168,7 @@ export default function App() {
                     selectedMonth={selectedMonth}
                     primaryIncome={primaryIncome}
                     transactions={transactions}
+                    cards={cards}
                     tasks={tasks}
                     notes={notes}
                     budgets={budgets}
@@ -1964,6 +2182,7 @@ export default function App() {
                     focusSessions={focusSessions}
                     soundEnabled={notificationSettings.soundEnabled}
                     browserNotifications={notificationSettings.browserNotifications}
+                    notificationSettings={notificationSettings}
                     onCompleteFocusSession={handleCompleteFocusSession}
                     onSaveFocusGoal={handleSaveFocusGoal}
                     onToggleFocusGoal={handleToggleFocusGoal}
@@ -1972,6 +2191,7 @@ export default function App() {
                     onToggleHabitDate={handleToggleHabitDate}
                     onNavigate={handleSelectTab}
                     onOpenNewModal={(mode) => setModalState({ mode })}
+                    onQuickCardTransaction={handleQuickCardTransaction}
                     onConfirmPreExpense={handleConfirmPreExpense}
                   />
                 )}
@@ -2023,6 +2243,15 @@ export default function App() {
                     }
                     onRecordDebtPayment={handleRecordDebtPayment}
                     onDeleteDebt={handleDeleteDebt}
+                    cards={cards}
+                    onOpenNewCardModal={() => setModalState({ mode: 'card' })}
+                    onEditCard={(card) =>
+                      setModalState({ mode: 'card', editing: card })
+                    }
+                    onDeleteCard={handleDeleteCard}
+                    onSetDefaultCard={handleSetDefaultCard}
+                    onQuickCardTransaction={handleQuickCardTransaction}
+                    onTransferBetweenCards={handleTransferBetweenCards}
                     onExportJSON={handleExportJSON}
                     onImportJSON={handleImportJSON}
                   />
@@ -2052,6 +2281,7 @@ export default function App() {
                     focusSessions={focusSessions}
                     soundEnabled={notificationSettings.soundEnabled}
                     browserNotifications={notificationSettings.browserNotifications}
+                    notificationSettings={notificationSettings}
                     onCompleteFocusSession={handleCompleteFocusSession}
                   />
                 )}
@@ -2122,6 +2352,7 @@ export default function App() {
         onConfirmExpense={handleConfirmExpenseNotification}
         onSnooze={handleSnoozeNotification}
         onSkipExpense={handleSkipExpenseNotification}
+        onSpeakAlert={handleSpeakNotification}
         onDismissBanner={(id) =>
           setDismissedBannerIds((prev) =>
             prev.includes(id) ? prev : [...prev, id]
@@ -2157,9 +2388,12 @@ export default function App() {
         <QuickAddModal
           modalState={modalState}
           transactions={transactions}
+          cards={cards}
           onClose={() => setModalState(null)}
           onAddTransaction={handleAddTransaction}
           onUpdateTransaction={handleUpdateTransaction}
+          onAddCard={handleAddCard}
+          onUpdateCard={handleUpdateCard}
           onAddTask={handleAddTask}
           onUpdateTask={handleUpdateTask}
           onAddHabit={handleAddHabit}

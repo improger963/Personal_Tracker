@@ -9,11 +9,12 @@ import {
   RotateCcw,
   Timer,
 } from 'lucide-react';
-import { FocusGoal, FocusSession, Task } from '../types';
+import { FocusGoal, FocusSession, NotificationSettings, Task } from '../types';
 import { getLastNDaysISO, getTodayISO } from '../data/defaults';
 import {
   canUseBrowserNotifications,
   playNotificationChime,
+  speakNotificationText,
 } from '../utils/notifications';
 import { isTaskCompletedOnDate } from '../utils/taskSchedule';
 
@@ -23,6 +24,7 @@ interface FocusTimerCardProps {
   focusSessions: FocusSession[];
   soundEnabled: boolean;
   browserNotifications: boolean;
+  notificationSettings?: NotificationSettings;
   onCompleteSession: (session: Omit<FocusSession, 'id' | 'completedAt'>) => void;
   compact?: boolean;
 }
@@ -124,6 +126,7 @@ export function FocusTimerCard({
   focusSessions,
   soundEnabled,
   browserNotifications,
+  notificationSettings,
   onCompleteSession,
   compact = false,
 }: FocusTimerCardProps) {
@@ -178,7 +181,19 @@ export function FocusTimerCard({
       persistTimerState(resetState);
 
       if (soundEnabled) {
-        playNotificationChime();
+        playNotificationChime({
+          preset: notificationSettings?.soundPreset ?? 'chime',
+          volume: notificationSettings?.soundVolume ?? 0.75,
+        });
+      }
+      if (notificationSettings?.voiceEnabled) {
+        const spokenTitle =
+          stateSnapshot.mode === 'focus'
+            ? `Ֆոկուս սեսիան ավարտվեց, ${selectedLabel}, ${minutesCompleted} րոպե`
+            : `Ընդմիջումն ավարտվեց, ժամանակն է վերադառնալ գործին`;
+        window.setTimeout(() => {
+          void speakNotificationText(spokenTitle, notificationSettings);
+        }, soundEnabled ? 350 : 40);
       }
       if (
         browserNotifications &&
@@ -215,7 +230,7 @@ export function FocusTimerCard({
         finishingRef.current = false;
       }, 300);
     },
-    [soundEnabled, browserNotifications, selectedLabel, onCompleteSession]
+    [soundEnabled, browserNotifications, notificationSettings, selectedLabel, onCompleteSession]
   );
 
   // Listen to storage / cross-component timer sync events

@@ -125,9 +125,31 @@ export interface FocusSession {
   completedAt: string;
 }
 
+export type NotificationSoundPreset =
+  | 'chime'
+  | 'bell'
+  | 'marimba'
+  | 'pulse'
+  | 'zen';
+
+export type NotificationVoiceMode = 'auto' | 'gemini' | 'browser';
+
+export type GeminiVoicePreset = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
+
 export interface NotificationSettings {
   soundEnabled: boolean;
   browserNotifications: boolean;
+  soundPreset?: NotificationSoundPreset;
+  urgentSoundEnabled?: boolean;
+  soundVolume?: number; // 0.1..1
+  voiceEnabled?: boolean;
+  voiceMode?: NotificationVoiceMode;
+  voicePreset?: GeminiVoicePreset;
+  browserVoiceURI?: string;
+  voiceRate?: number; // 0.75..1.4
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string; // HH:mm
+  quietHoursEnd?: string; // HH:mm
 }
 
 export type AppNotificationKind =

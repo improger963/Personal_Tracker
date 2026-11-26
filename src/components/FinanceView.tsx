@@ -33,6 +33,7 @@ import {
   Upload,
 } from 'lucide-react';
 import {
+  BankCard,
   BudgetLimit,
   Currency,
   DebtItem,
@@ -52,9 +53,12 @@ import {
   calcDeltaPct,
   formatAxisCompact,
 } from './finance/financeShared';
+import { CardsSection } from './finance/CardsSection';
+import { CardTransferModal } from './finance/CardTransferModal';
 import { MonthlySavingsAdviceCard } from './finance/MonthlySavingsAdviceCard';
 import { EmptyStatePlaceholder, PageSkeleton } from './ui/Skeleton';
 import { scrollToTopInstant, scrollToTopSmooth } from '../utils/scroll';
+import { INTERNAL_TRANSFER_CATEGORY } from '../utils/cardBalances';
 
 const TransactionsLedgerPage = lazy(() =>
   import('./finance/TransactionsLedgerPage').then((m) => ({
@@ -144,6 +148,19 @@ interface FinanceViewProps {
     recordInLedger: boolean
   ) => void;
   onDeleteDebt: (debtId: string) => void;
+  cards: BankCard[];
+  onOpenNewCardModal: () => void;
+  onEditCard: (card: BankCard) => void;
+  onDeleteCard: (cardId: string) => void;
+  onSetDefaultCard: (cardId: string) => void;
+  onQuickCardTransaction: (type: 'income' | 'expense', cardId: string) => void;
+  onTransferBetweenCards: (params: {
+    fromCardId: string;
+    toCardId: string;
+    amount: number;
+    date: string;
+    note?: string;
+  }) => void;
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
 }
@@ -186,12 +203,24 @@ export function FinanceView({
   onEditDebt,
   onRecordDebtPayment,
   onDeleteDebt,
+  cards,
+  onOpenNewCardModal,
+  onEditCard,
+  onDeleteCard,
+  onSetDefaultCard,
+  onQuickCardTransaction,
+  onTransferBetweenCards,
   onExportJSON,
   onImportJSON,
 }: FinanceViewProps) {
   const currency: Currency = 'AMD';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prefersReducedMotion = useReducedMotion();
+
+  const [selectedCardFilter, setSelectedCardFilter] = useState<string>('all');
+  const [transferModalState, setTransferModalState] = useState<{
+    fromCardId?: string;
+  } | null>(null);
 
   const [dynamicsRange, setDynamicsRange] = useState<6 | 12>(6);
   const [dynamicsMode, setDynamicsMode] = useState<'area' | 'bar'>('area');
@@ -287,8 +316,12 @@ export function FinanceView({
     cycleEndBalance: realBalance,
   } = computeCycleFinancials(transactions, selectedMonth, effectivePayday, todayISO);
 
-  const incomeTransactions = monthTransactions.filter((t) => t.type === 'income');
-  const expenseTransactions = monthTransactions.filter((t) => t.type === 'expense');
+  const incomeTransactions = monthTransactions.filter(
+    (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
+  );
+  const expenseTransactions = monthTransactions.filter(
+    (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
+  );
 
   const monthlyIncomeTotal = incomeTransactions
     .filter((t) => getTransactionIncomeKind(t) === 'monthly')
@@ -329,10 +362,17 @@ export function FinanceView({
     isDateInCycle(t.date, prevMonthKey, effectivePayday)
   );
   const prevIncome = prevMonthTransactions
-    .filter((t) => t.type === 'income')
+    .filter(
+      (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
     .reduce((sum, t) => sum + t.amount, 0);
   const prevExpense = prevMonthTransactions
-    .filter((t) => t.type === 'expense')
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        !t.isPending &&
+        t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
     .reduce((sum, t) => sum + t.amount, 0);
 
   const incomeDeltaPct = calcDeltaPct(totalIncome, prevIncome);
@@ -341,6 +381,7 @@ export function FinanceView({
   const repeatableMonthlyIncomes = prevMonthTransactions.filter(
     (t) =>
       t.type === 'income' &&
+      t.category !== INTERNAL_TRANSFER_CATEGORY &&
       getTransactionIncomeKind(t) === 'monthly' &&
       !incomeTransactions.some(
         (cur) => cur.title.toLowerCase() === t.title.toLowerCase()
@@ -348,7 +389,9 @@ export function FinanceView({
   );
 
   const expenseByCategory = monthTransactions
-    .filter((t) => t.type === 'expense')
+    .filter(
+      (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
     .reduce<Record<string, number>>((acc, t) => {
       acc[t.category] = (acc[t.category] ?? 0) + t.amount;
       return acc;
@@ -385,7 +428,13 @@ export function FinanceView({
     .map((offset) => {
       const k = shiftMonthKey(selectedMonth, -offset);
       const sum = transactions
-        .filter((t) => t.type === 'expense' && isDateInCycle(t.date, k, effectivePayday))
+        .filter(
+          (t) =>
+            t.type === 'expense' &&
+            !t.isPending &&
+            t.category !== INTERNAL_TRANSFER_CATEGORY &&
+            isDateInCycle(t.date, k, effectivePayday)
+        )
         .reduce((s, t) => s + t.amount, 0);
       return [k, sum] as [string, number];
     })
@@ -487,8 +536,10 @@ export function FinanceView({
   // 6-Month Trend Data
   const last6Months = getLastNMonthsKeys(selectedMonth, 6);
   const monthlySeries: MonthlyPoint[] = last6Months.map((monthKey) => {
-    const items = transactions.filter((t) =>
-      isDateInCycle(t.date, monthKey, effectivePayday)
+    const items = transactions.filter(
+      (t) =>
+        t.category !== INTERNAL_TRANSFER_CATEGORY &&
+        isDateInCycle(t.date, monthKey, effectivePayday)
     );
     const inc = items
       .filter((t) => t.type === 'income')
@@ -508,8 +559,10 @@ export function FinanceView({
   const dynamicsSeries = useMemo(() => {
     const keys = getLastNMonthsKeys(selectedMonth, dynamicsRange);
     return keys.map((monthKey) => {
-      const items = transactions.filter((t) =>
-        isDateInCycle(t.date, monthKey, effectivePayday)
+      const items = transactions.filter(
+        (t) =>
+          t.category !== INTERNAL_TRANSFER_CATEGORY &&
+          isDateInCycle(t.date, monthKey, effectivePayday)
       );
       const inc = items
         .filter((t) => t.type === 'income')
@@ -547,14 +600,16 @@ export function FinanceView({
   // 3-Month Comparative Data
   const last3MonthsKeys = getLastNMonthsKeys(selectedMonth, 3);
   const last3MonthsSeries = last3MonthsKeys.map((monthKey) => {
-    const items = transactions.filter((t) =>
-      isDateInCycle(t.date, monthKey, effectivePayday)
+    const items = transactions.filter(
+      (t) =>
+        t.category !== INTERNAL_TRANSFER_CATEGORY &&
+        isDateInCycle(t.date, monthKey, effectivePayday)
     );
     const inc = items
       .filter((t) => t.type === 'income')
       .reduce((s, t) => s + t.amount, 0);
     const exp = items
-      .filter((t) => t.type === 'expense')
+      .filter((t) => t.type === 'expense' && !t.isPending)
       .reduce((s, t) => s + t.amount, 0);
     return {
       monthKey,
@@ -591,7 +646,12 @@ export function FinanceView({
 
   const pieExpenseSegments: CategoryDonutPoint[] = useMemo(() => {
     const confirmedByCat = monthTransactions
-      .filter((t) => t.type === 'expense' && !t.isPending)
+      .filter(
+        (t) =>
+          t.type === 'expense' &&
+          !t.isPending &&
+          t.category !== INTERNAL_TRANSFER_CATEGORY
+      )
       .reduce<Record<string, number>>((acc, t) => {
         acc[t.category] = (acc[t.category] ?? 0) + t.amount;
         return acc;
@@ -828,6 +888,29 @@ export function FinanceView({
           );
         })}
       </div>
+
+      {/* 2.15. Manual Cards & Wallets Section */}
+      <CardsSection
+        cards={cards}
+        transactions={transactions}
+        currency={currency}
+        selectedCardFilter={selectedCardFilter}
+        onSelectCardFilter={(cardId) => {
+          setSelectedCardFilter(cardId);
+          if (cardId !== 'all' && activePage !== 'ledger') {
+            handleSelectPage('ledger');
+          }
+        }}
+        onOpenNewCardModal={onOpenNewCardModal}
+        onEditCard={onEditCard}
+        onDeleteCard={onDeleteCard}
+        onSetDefaultCard={onSetDefaultCard}
+        onQuickCardIncome={(cardId) => onQuickCardTransaction('income', cardId)}
+        onQuickCardExpense={(cardId) => onQuickCardTransaction('expense', cardId)}
+        onOpenTransferModal={(fromCardId) =>
+          setTransferModalState({ fromCardId })
+        }
+      />
 
       {/* 2.25. Safe-to-Spend Daily Allowance Summary Strip */}
       <section
@@ -1504,6 +1587,9 @@ export function FinanceView({
                 selectedMonth={selectedMonth}
                 effectivePayday={effectivePayday}
                 currency={currency}
+                cards={cards}
+                filterCardId={selectedCardFilter}
+                onFilterCardChange={setSelectedCardFilter}
                 monthTransactions={monthTransactions}
                 allTransactions={transactions}
                 onOpenNewTransactionModal={onOpenNewTransactionModal}
@@ -1620,6 +1706,17 @@ export function FinanceView({
           </Suspense>
         </motion.div>
       </AnimatePresence>
+
+      {transferModalState && (
+        <CardTransferModal
+          cards={cards}
+          transactions={transactions}
+          currency={currency}
+          initialFromCardId={transferModalState.fromCardId}
+          onClose={() => setTransferModalState(null)}
+          onTransfer={onTransferBetweenCards}
+        />
+      )}
     </div>
   );
 }

@@ -17,6 +17,84 @@ export function getInitialNotificationSettings(): NotificationSettings {
   return {
     soundEnabled: true,
     browserNotifications: false,
+    soundPreset: 'chime',
+    urgentSoundEnabled: true,
+    soundVolume: 0.75,
+    voiceEnabled: false,
+    voiceMode: 'auto',
+    voicePreset: 'Kore',
+    browserVoiceURI: '',
+    voiceRate: 1,
+    quietHoursEnabled: false,
+    quietHoursStart: '22:30',
+    quietHoursEnd: '08:00',
+  };
+}
+
+export function normalizeNotificationSettings(
+  raw?: Partial<NotificationSettings> | null
+): NotificationSettings {
+  const defaults = getInitialNotificationSettings();
+  if (!raw || typeof raw !== 'object') return defaults;
+
+  const validPresets = new Set(['chime', 'bell', 'marimba', 'pulse', 'zen']);
+  const validVoiceModes = new Set(['auto', 'gemini', 'browser']);
+  const validVoicePresets = new Set(['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr']);
+  const hhmmRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  return {
+    soundEnabled:
+      typeof raw.soundEnabled === 'boolean'
+        ? raw.soundEnabled
+        : defaults.soundEnabled,
+    browserNotifications:
+      typeof raw.browserNotifications === 'boolean'
+        ? raw.browserNotifications
+        : defaults.browserNotifications,
+    soundPreset:
+      typeof raw.soundPreset === 'string' && validPresets.has(raw.soundPreset)
+        ? (raw.soundPreset as NotificationSettings['soundPreset'])
+        : defaults.soundPreset,
+    urgentSoundEnabled:
+      typeof raw.urgentSoundEnabled === 'boolean'
+        ? raw.urgentSoundEnabled
+        : defaults.urgentSoundEnabled,
+    soundVolume:
+      typeof raw.soundVolume === 'number' && Number.isFinite(raw.soundVolume)
+        ? Math.min(1, Math.max(0.1, Number(raw.soundVolume.toFixed(2))))
+        : defaults.soundVolume,
+    voiceEnabled:
+      typeof raw.voiceEnabled === 'boolean'
+        ? raw.voiceEnabled
+        : defaults.voiceEnabled,
+    voiceMode:
+      typeof raw.voiceMode === 'string' && validVoiceModes.has(raw.voiceMode)
+        ? (raw.voiceMode as NotificationSettings['voiceMode'])
+        : defaults.voiceMode,
+    voicePreset:
+      typeof raw.voicePreset === 'string' && validVoicePresets.has(raw.voicePreset)
+        ? (raw.voicePreset as NotificationSettings['voicePreset'])
+        : defaults.voicePreset,
+    browserVoiceURI:
+      typeof raw.browserVoiceURI === 'string'
+        ? raw.browserVoiceURI.slice(0, 200)
+        : defaults.browserVoiceURI,
+    voiceRate:
+      typeof raw.voiceRate === 'number' && Number.isFinite(raw.voiceRate)
+        ? Math.min(1.4, Math.max(0.75, Number(raw.voiceRate.toFixed(2))))
+        : defaults.voiceRate,
+    quietHoursEnabled:
+      typeof raw.quietHoursEnabled === 'boolean'
+        ? raw.quietHoursEnabled
+        : defaults.quietHoursEnabled,
+    quietHoursStart:
+      typeof raw.quietHoursStart === 'string' && hhmmRegex.test(raw.quietHoursStart)
+        ? raw.quietHoursStart
+        : defaults.quietHoursStart,
+    quietHoursEnd:
+      typeof raw.quietHoursEnd === 'string' && hhmmRegex.test(raw.quietHoursEnd)
+        ? raw.quietHoursEnd
+        : defaults.quietHoursEnd,
   };
 }
 
