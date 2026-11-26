@@ -361,6 +361,36 @@ export const TopNav = memo(function TopNav({
             </span>
           </button>
 
+          {/* Desktop Permanent Real Balance Card */}
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelectTab('finance')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                onSelectTab('finance');
+              }
+            }}
+            className="p-3.5 rounded-2xl bg-gradient-to-br from-[#F8FAFC] to-[#EFF6FF] dark:from-[#0F172A] dark:to-[#172554]/40 border border-[#CBD5E1]/80 dark:border-[#1E293B] shadow-xs hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-all cursor-pointer space-y-1.5 group select-none"
+            title="Անցնել Ֆինանսական մատյան"
+          >
+            <div className="flex items-center justify-between text-xs text-[#64748B] dark:text-[#94A3B8]">
+              <span className="flex items-center gap-1.5 font-medium">
+                <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Իրական բալանս</span>
+              </span>
+              <span className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
+                <span>Մատյան</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-1">
+              <p className="pa-sensitive font-mono text-xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+                {formatMoney(totalBalance, currency)}
+              </p>
+            </div>
+          </div>
+
           <nav className="space-y-1" aria-label="Հիմնական նավիգացիա">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
@@ -418,24 +448,6 @@ export const TopNav = memo(function TopNav({
               );
             })}
           </nav>
-        </div>
-
-        {/* Desktop Sidebar Total Balance Widget */}
-        <div
-          onClick={() => onSelectTab('finance')}
-          className="mb-3 p-3 rounded-2xl bg-[#EFF6FF] dark:bg-[#172554]/50 border border-[#BFDBFE] dark:border-[#1E3A8A] cursor-pointer hover:border-[#2563EB] transition-colors space-y-1 group"
-          title="Անցնել Ֆինանսներ"
-        >
-          <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-            <span className="flex items-center gap-1.5 font-medium">
-              <Wallet className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
-              <span>Ընդհանուր մնացորդ</span>
-            </span>
-            <span className="text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform">→</span>
-          </div>
-          <p className="pa-sensitive font-mono text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
-            {formatMoney(totalBalance, currency)}
-          </p>
         </div>
 
         {/* Sidebar Bottom Controls */}
@@ -604,23 +616,6 @@ export const TopNav = memo(function TopNav({
               </div>
             </div>
 
-            {/* Real-Time Live Balance (Always in front of eyes) */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onSelectTab('finance')}
-                title="Անցնել Ֆինանսներ · Իրական մնացորդ"
-                aria-label={`Իրական մնացորդ՝ ${formatMoney(totalBalance, currency)}`}
-                className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-xl border border-emerald-500/40 dark:border-emerald-500/50 bg-emerald-500/10 dark:bg-emerald-500/15 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:border-emerald-500 transition-all cursor-pointer shadow-xs"
-              >
-                <Wallet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                <span className="hidden xs:inline text-[#475569] dark:text-[#94A3B8] font-medium">Մնացորդ՝</span>
-                <span className="pa-sensitive font-mono font-extrabold tabular-nums">
-                  {formatMoney(totalBalance, currency)}
-                </span>
-              </button>
-            </div>
-
             {/* Tablet Horizontal Navigation (md to lg) */}
             <nav
               className="hidden md:flex lg:hidden items-center gap-1 p-1 rounded-xl surface-subtle"
@@ -668,7 +663,7 @@ export const TopNav = memo(function TopNav({
               })}
             </nav>
 
-            {/* Right: Month Switcher (Desktop), Reminder Bell, Primary CTA */}
+            {/* Right: Controls */}
             <div className="flex items-center gap-2 shrink-0">
               {(activeTab === 'overview' || activeTab === 'finance') && (
                 <div className="hidden lg:inline-flex items-center border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E]">
@@ -699,7 +694,7 @@ export const TopNav = memo(function TopNav({
                 onClick={onOpenCommandPalette}
                 title="Արագ որոնում և հրամաններ (Ctrl+K)"
                 aria-label="Արագ որոնում և հրամաններ"
-                className="min-h-[40px] min-w-[40px] lg:px-3 flex items-center justify-center gap-1.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+                className="min-h-[38px] min-w-[38px] lg:px-3 flex items-center justify-center gap-1.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
               >
                 <Search className="w-4 h-4" />
                 <span className="hidden xl:inline text-xs font-medium">Որոնում</span>
@@ -714,7 +709,7 @@ export const TopNav = memo(function TopNav({
                 aria-pressed={isPrivacyMode}
                 title={isPrivacyMode ? 'Ցույց տալ գումարները (Ctrl+Shift+H)' : 'Թաքցնել գումարները (Ctrl+Shift+H)'}
                 aria-label={isPrivacyMode ? 'Ցույց տալ գումարները' : 'Թաքցնել գումարները'}
-                className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border transition-colors cursor-pointer ${
+                className={`hidden lg:flex min-h-[38px] min-w-[38px] items-center justify-center rounded-xl border transition-colors cursor-pointer ${
                   isPrivacyMode
                     ? 'border-[#2563EB]/60 bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#1D4ED8] dark:text-[#60A5FA]'
                     : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6]'
@@ -727,128 +722,146 @@ export const TopNav = memo(function TopNav({
                 )}
               </button>
 
-              {!isOnline && (
-                <span
-                  title="Օֆլայն ռեժիմ"
-                  aria-label="Օֆլայն ռեժիմ"
-                  className="lg:hidden min-h-[40px] min-w-[36px] px-2 flex items-center justify-center rounded-xl border border-amber-300/60 dark:border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                >
-                  <CloudOff className="w-4 h-4" />
-                </span>
-              )}
-
-              {canInstallPWA && (
+              {/* Mobile Quick Preferences & Account Menu (< lg) */}
+              <div className="relative lg:hidden" ref={accountPopoverRef}>
                 <button
                   type="button"
-                  onClick={onInstallPWA}
-                  title="Տեղադրել հավելվածը"
-                  aria-label="Տեղադրել հավելվածը"
-                  className="lg:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A] bg-[#EFF6FF] dark:bg-[#172554]/50 text-[#2563EB] dark:text-[#60A5FA] transition-colors cursor-pointer"
+                  onClick={() => setAccountMenuOpen((prev) => !prev)}
+                  aria-expanded={accountMenuOpen}
+                  aria-label="Կարգավորումներ և հաշիվ"
+                  className="relative min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                </button>
-              )}
-
-              <div className="relative lg:hidden" ref={accountPopoverRef}>
-                {user ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setAccountMenuOpen((prev) => !prev)}
-                      aria-expanded={accountMenuOpen}
-                      aria-label="Ամպային հաշիվ և համաժամեցում"
-                      className="relative min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
-                    >
-                      {user.photoURL ? (
-                        <img
-                          src={user.photoURL}
-                          alt={user.displayName || 'Օգտատեր'}
-                          className="w-6 h-6 rounded-full object-cover"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <span className="w-6 h-6 rounded-full bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA] text-[11px] font-bold flex items-center justify-center">
-                          {userInitial}
-                        </span>
-                      )}
-                      <span
-                        className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-[#0C1220] ${currentSyncMeta.dotClass}`}
-                        aria-hidden="true"
+                  {user ? (
+                    user.photoURL ? (
+                      <img
+                        src={user.photoURL}
+                        alt={user.displayName || 'Օգտատեր'}
+                        className="w-6 h-6 rounded-full object-cover"
+                        referrerPolicy="no-referrer"
                       />
-                    </button>
+                    ) : (
+                      <span className="w-6 h-6 rounded-full bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA] text-[11px] font-bold flex items-center justify-center">
+                        {userInitial}
+                      </span>
+                    )
+                  ) : (
+                    <SlidersHorizontal className="w-4 h-4" />
+                  )}
+                  {user && (
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-[#0C1220] ${currentSyncMeta.dotClass}`}
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
 
-                    <AnimatePresence>
-                      {accountMenuOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 6, scale: 0.98 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 4, scale: 0.98 }}
-                          transition={{ duration: 0.14 }}
-                          role="dialog"
-                          aria-label="Google հաշիվ"
-                          className="absolute right-0 mt-2 w-60 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 p-3 space-y-2.5"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
-                              {user.displayName || 'Google հաշիվ'}
+                <AnimatePresence>
+                  {accountMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                      transition={{ duration: 0.14 }}
+                      role="dialog"
+                      aria-label="Կարգավորումներ"
+                      className="absolute right-0 mt-2 w-64 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 p-3 space-y-2.5"
+                    >
+                      {user ? (
+                        <div className="p-2.5 rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E] space-y-1.5">
+                          <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                            {user.displayName || 'Google հաշիվ'}
+                          </p>
+                          {user.email && (
+                            <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
+                              {user.email}
                             </p>
-                            {user.email && (
-                              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
-                                {user.email}
-                              </p>
-                            )}
-                            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5">
-                              {effectiveSyncStatus === 'syncing' ? (
-                                <RefreshCw className="w-3 h-3 animate-spin text-[#2563EB] dark:text-[#60A5FA]" />
-                              ) : (
-                                <span
-                                  className={`w-2 h-2 rounded-full ${currentSyncMeta.dotClass}`}
-                                  aria-hidden="true"
-                                />
-                              )}
-                              <span>{currentSyncMeta.label}</span>
-                            </p>
-                          </div>
+                          )}
+                          <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 pt-0.5">
+                            <span className={`w-2 h-2 rounded-full ${currentSyncMeta.dotClass}`} />
+                            <span>{currentSyncMeta.label}</span>
+                          </p>
                           <button
                             type="button"
                             onClick={() => {
                               setAccountMenuOpen(false);
                               onSignOutGoogle();
                             }}
-                            className="w-full min-h-[34px] px-3 py-1.5 rounded-xl border border-rose-200 dark:border-rose-500/30 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            className="w-full mt-1.5 min-h-[30px] px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-500/30 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
                           >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span>Դուրս գալ հաշվից</span>
+                            <LogOut className="w-3 h-3" />
+                            <span>Դուրս գալ</span>
                           </button>
-                        </motion.div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAccountMenuOpen(false);
+                            onSignInGoogle();
+                          }}
+                          className="w-full min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] flex items-center justify-between hover:border-[#2563EB] cursor-pointer"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            <Cloud className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA]" />
+                            <span>Մուտք Google-ով</span>
+                          </span>
+                          <span className="text-[11px] text-[#2563EB] dark:text-[#60A5FA]">Սինք</span>
+                        </button>
                       )}
-                    </AnimatePresence>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onSignInGoogle}
-                    title="Մուտք Google-ով"
-                    aria-label="Մուտք Google-ով՝ տվյալների սինքի համար"
-                    className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#2563EB] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
-                  >
-                    <Cloud className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
 
-              <button
-                type="button"
-                onClick={onToggleTheme}
-                aria-label={isDark ? 'Անցնել լուսավոր ռեժիմի' : 'Անցնել մութ ռեժիմի'}
-                className="lg:hidden min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
-              >
-                {isDark ? (
-                  <Sun className="w-4 h-4 text-amber-400" />
-                ) : (
-                  <Moon className="w-4 h-4 text-[#2563EB]" />
-                )}
-              </button>
+                      <div className="pt-1 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-1">
+                        <button
+                          type="button"
+                          onClick={onTogglePrivacy}
+                          className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] cursor-pointer"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            {isPrivacyMode ? (
+                              <EyeOff className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5 text-[#64748B]" />
+                            )}
+                            <span>{isPrivacyMode ? 'Գաղտնի (Միացված)' : 'Թաքցնել գումարները'}</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-[#64748B]">⌘⇧H</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={onToggleTheme}
+                          className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] cursor-pointer"
+                        >
+                          <span className="inline-flex items-center gap-2">
+                            {isDark ? (
+                              <Sun className="w-3.5 h-3.5 text-amber-400" />
+                            ) : (
+                              <Moon className="w-3.5 h-3.5 text-[#2563EB]" />
+                            )}
+                            <span>{isDark ? 'Լուսավոր ռեժիմ' : 'Մութ ռեժիմ'}</span>
+                          </span>
+                          <span className="text-[11px] text-[#64748B]">Փոխել</span>
+                        </button>
+
+                        {canInstallPWA && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccountMenuOpen(false);
+                              onInstallPWA();
+                            }}
+                            className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] bg-[#EFF6FF] dark:bg-[#172554]/50 cursor-pointer"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Տեղադրել հավելվածը</span>
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {/* Pro Notification Center Bell & Popover */}
               <div className="relative" ref={popoverRef}>
@@ -1889,31 +1902,58 @@ export const TopNav = memo(function TopNav({
           </div>
         </header>
 
-        {/* Mobile / Tablet Financial Status Strip (< lg) */}
-        {activeTab !== 'overview' && (
-          <div className="lg:hidden mx-3.5 sm:mx-6 mt-4 p-3.5 rounded-2xl bg-white dark:bg-[#0C1220] border border-[#E2E8F0] dark:border-[#1E293B] shadow-xs flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="w-9 h-9 rounded-xl bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
-                <Wallet className="w-4 h-4" />
+        {/* Mobile & Tablet Sticky Real Balance Sub-Bar (< lg) */}
+        <div className="lg:hidden sticky top-16 z-20 px-3.5 sm:px-6 py-2.5 bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-md border-b border-[#E2E8F0] dark:border-[#1E293B] shadow-xs flex items-center justify-between gap-3 select-none">
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => onSelectTab('finance')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                onSelectTab('finance');
+              }
+            }}
+            className="flex items-center gap-2.5 min-w-0 cursor-pointer group"
+            title="Անցնել Ֆինանսական մատյան"
+          >
+            <span className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Wallet className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <span className="block text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8] leading-none">
+                Իրական բալանս
               </span>
-              <div className="min-w-0">
-                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-                  Ընդհանուր հաշվեկշիռ
-                </p>
-                <p className="pa-sensitive font-mono text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums truncate">
-                  {formatMoney(totalBalance, currency)}
-                </p>
-              </div>
+              <span className="pa-sensitive block font-mono text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums tracking-tight leading-tight mt-0.5 truncate">
+                {formatMoney(totalBalance, currency)}
+              </span>
             </div>
-            <button
-              type="button"
-              onClick={() => onSelectTab('finance')}
-              className="min-h-[34px] px-3 py-1.5 rounded-xl bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-xs font-semibold shrink-0 cursor-pointer"
-            >
-              Ֆինանսներ
-            </button>
           </div>
-        )}
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {activeTab !== 'finance' ? (
+              <button
+                type="button"
+                onClick={() => onSelectTab('finance')}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#2563EB]/10 hover:bg-[#2563EB]/20 dark:bg-[#3B82F6]/15 dark:hover:bg-[#3B82F6]/25 text-[#2563EB] dark:text-[#60A5FA] text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <span>Մատյան</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic('medium');
+                  onOpenNewModal();
+                }}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Գործարք</span>
+              </button>
+            )}
+          </div>
+        </div>
 
         {children}
 
