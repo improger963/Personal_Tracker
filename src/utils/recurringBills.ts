@@ -28,6 +28,35 @@ export interface DetectRecurringExpensesOptions {
 
 const DEFAULT_UNCATEGORIZED = 'Այլ';
 
+export type MonthlyBillCycleStatus = 'paid' | 'confirmed' | 'skipped' | 'unpaid';
+
+export function getMonthlyBillCycleStatus(
+  bill: RecurringBill,
+  cycleKey: string,
+  cycleTransactions: Transaction[]
+): MonthlyBillCycleStatus {
+  const slotKey = `monthly:${cycleKey}`;
+  if (bill.skippedSlots?.includes(slotKey)) return 'skipped';
+  const normalizedTitle = bill.title.trim().toLowerCase();
+  const hasPaidTx = cycleTransactions.some(
+    (tx) =>
+      tx.type === 'expense' &&
+      !tx.isPending &&
+      tx.title.trim().toLowerCase() === normalizedTitle
+  );
+  if (hasPaidTx) return 'paid';
+  if (bill.confirmedSlots?.includes(slotKey)) return 'confirmed';
+  return 'unpaid';
+}
+
+export function isMonthlyBillSettledForCycle(
+  bill: RecurringBill,
+  cycleKey: string,
+  cycleTransactions: Transaction[]
+): boolean {
+  return getMonthlyBillCycleStatus(bill, cycleKey, cycleTransactions) !== 'unpaid';
+}
+
 export function isUncategorizedExpense(tx: Transaction): boolean {
   if (tx.type !== 'expense' || tx.isPending) return false;
   if (tx.category === INTERNAL_TRANSFER_CATEGORY) return false;

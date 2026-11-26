@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Calculator,
   Calendar,
@@ -58,6 +58,15 @@ export function SavingsGoalsPage({
   const [goalActionAmount, setGoalActionAmount] = useState('');
   const [goalRecordLedger, setGoalRecordLedger] = useState(true);
   const [monthlyPace, setMonthlyPace] = useState<number>(50000);
+
+  useEffect(() => {
+    if (!goalActionModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setGoalActionModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [goalActionModal]);
 
   const {
     totalSavedInGoals,

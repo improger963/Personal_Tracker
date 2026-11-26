@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -55,6 +55,15 @@ export function DebtsPage({
   const [debtPayAmount, setDebtPayAmount] = useState('');
   const [debtRecordLedger, setDebtRecordLedger] = useState(true);
   const [monthlyPace, setMonthlyPace] = useState<number>(50000);
+
+  useEffect(() => {
+    if (!debtPayModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDebtPayModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [debtPayModal]);
 
   const debtTotals = useMemo(() => {
     let activeLent = 0;

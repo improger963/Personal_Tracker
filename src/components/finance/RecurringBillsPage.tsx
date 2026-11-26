@@ -41,7 +41,11 @@ import {
   getCurrentHHMM,
   getDailyPresetTimes,
 } from '../../utils/notifications';
-import { RecurringBillSuggestion } from '../../utils/recurringBills';
+import {
+  RecurringBillSuggestion,
+  getMonthlyBillCycleStatus,
+  isMonthlyBillSettledForCycle,
+} from '../../utils/recurringBills';
 
 interface RecurringBillsPageProps {
   selectedMonth: string;
@@ -303,11 +307,7 @@ export function RecurringBillsPage({
     (bill) =>
       bill.active !== false &&
       getBillFrequency(bill) === 'monthly' &&
-      !monthTransactions.some(
-        (tx) =>
-          tx.type === 'expense' &&
-          tx.title.toLowerCase() === bill.title.toLowerCase()
-      )
+      !isMonthlyBillSettledForCycle(bill, selectedMonth, monthTransactions)
   );
   const unpaidTotal = unpaidBills.reduce((s, b) => s + (b.amount || 0), 0);
 
@@ -1210,10 +1210,10 @@ export function RecurringBillsPage({
                 );
               }
 
-              const isPaidThisMonth = monthTransactions.some(
-                (tx) =>
-                  tx.type === 'expense' &&
-                  tx.title.toLowerCase() === bill.title.toLowerCase()
+              const monthlyStatus = getMonthlyBillCycleStatus(
+                bill,
+                selectedMonth,
+                monthTransactions
               );
               return (
                 <div
@@ -1255,10 +1255,15 @@ export function RecurringBillsPage({
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {isPaidThisMonth ? (
+                    {monthlyStatus === 'paid' || monthlyStatus === 'confirmed' ? (
                       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 px-2">
                         <CheckCircle2 className="w-4 h-4" />
                         <span>Վճարված է</span>
+                      </span>
+                    ) : monthlyStatus === 'skipped' ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#64748B] dark:text-[#94A3B8] px-2">
+                        <SkipForward className="w-3.5 h-3.5" />
+                        <span>Բաց թողնված</span>
                       </span>
                     ) : (
                       <button

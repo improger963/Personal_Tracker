@@ -17,7 +17,9 @@ import {
   getCycleKeyForDate,
   getDateInCycleForDay,
   isDateInCycle,
+  shiftMonthKey,
 } from './financialCycle';
+import { isMonthlyBillSettledForCycle } from './recurringBills';
 import {
   getTaskScheduleLabel,
   isTaskCompletedOnDate,
@@ -245,49 +247,48 @@ export function buildAppNotifications(params: {
         slotKey: 'planned',
       });
     } else {
-      const slotKey = `monthly:${activeCycleKey}`;
-      if (bill.skippedSlots?.includes(slotKey)) continue;
+      const candidateCycles = [activeCycleKey, shiftMonthKey(activeCycleKey, 1)];
+      for (const cKey of candidateCycles) {
+        const slotKey = `monthly:${cKey}`;
+        const cycleTxs = transactions.filter((tx) =>
+          isDateInCycle(tx.date, cKey, effectivePayday)
+        );
+        if (isMonthlyBillSettledForCycle(bill, cKey, cycleTxs)) continue;
 
-      const alreadyPaidThisCycle = transactions.some(
-        (tx) =>
-          tx.type === 'expense' &&
-          isDateInCycle(tx.date, activeCycleKey, effectivePayday) &&
-          tx.title.toLowerCase() === bill.title.toLowerCase()
-      );
-      if (alreadyPaidThisCycle) continue;
+        const dueDate = getDateInCycleForDay(
+          cKey,
+          effectivePayday,
+          bill.dayOfMonth
+        );
+        const rTime = bill.reminderTime || '10:00';
+        const diffDays = daysBetweenISO(todayISO, dueDate);
+        if (diffDays > 3) continue;
 
-      const dueDate = getDateInCycleForDay(
-        activeCycleKey,
-        effectivePayday,
-        bill.dayOfMonth
-      );
-      const rTime = bill.reminderTime || '10:00';
-      const diffDays = daysBetweenISO(todayISO, dueDate);
-      if (diffDays > 3) continue;
+        const status =
+          dueDate < todayISO
+            ? 'overdue'
+            : dueDate === todayISO
+              ? 'due_now'
+              : 'upcoming';
 
-      const status =
-        dueDate < todayISO
-          ? 'overdue'
-          : dueDate === todayISO
-            ? 'due_now'
-            : 'upcoming';
-
-      items.push({
-        id: `monthly:${bill.id}:${activeCycleKey}`,
-        kind: 'monthly_bill',
-        title: bill.title,
-        subtitle:
-          status === 'overdue'
-            ? `Ամսական վճարում (ուշացած) · Ամսվա ${bill.dayOfMonth}-ին`
-            : `Ամսական վճարում · ${dueDate === todayISO ? `Այսօր, ${rTime}` : formatShortDate(dueDate)}`,
-        amount: bill.amount,
-        category: bill.category,
-        dueDate,
-        dueTime: rTime,
-        status,
-        billId: bill.id,
-        slotKey,
-      });
+        items.push({
+          id: `monthly:${bill.id}:${cKey}`,
+          kind: 'monthly_bill',
+          title: bill.title,
+          subtitle:
+            status === 'overdue'
+              ? `Ամսական վճարում (ուշացած) · Ամսվա ${bill.dayOfMonth}-ին`
+              : `Ամսական վճարում · ${dueDate === todayISO ? `Այսօր, ${rTime}` : formatShortDate(dueDate)}`,
+          amount: bill.amount,
+          category: bill.category,
+          dueDate,
+          dueTime: rTime,
+          status,
+          billId: bill.id,
+          slotKey,
+        });
+        break;
+      }
     }
   }
 

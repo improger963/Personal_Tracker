@@ -55,6 +55,7 @@ import {
   RecurringBillSuggestion,
   buildRecurringBillFromSuggestion,
   detectFrequentUncategorizedExpenses,
+  isMonthlyBillSettledForCycle,
 } from '../utils/recurringBills';
 import { computeBudgetForecast } from '../utils/budgetForecast';
 import { BudgetForecastWarningStrip } from './finance/BudgetForecastCard';
@@ -405,7 +406,9 @@ export const FinanceView = memo(function FinanceView({
         else oneTime += t.amount;
       } else {
         expTxs.push(t);
-        byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
+        if (!t.isPending) {
+          byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
+        }
       }
     }
 
@@ -572,11 +575,7 @@ export const FinanceView = memo(function FinanceView({
       (bill) =>
         bill.active !== false &&
         getBillFrequency(bill) === 'monthly' &&
-        !monthTransactions.some(
-          (tx) =>
-            tx.type === 'expense' &&
-            tx.title.toLowerCase() === bill.title.toLowerCase()
-        )
+        !isMonthlyBillSettledForCycle(bill, selectedMonth, monthTransactions)
     );
     const unpaidTotal = unpaid.reduce((sum, b) => sum + b.amount, 0);
     const totalBudgetLimit = budgets.reduce((sum, b) => sum + b.limit, 0);

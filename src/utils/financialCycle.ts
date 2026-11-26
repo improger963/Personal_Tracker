@@ -4,6 +4,7 @@ import {
   formatMonthLabel,
   formatShortDate,
 } from '../data/defaults';
+import { INTERNAL_TRANSFER_CATEGORY } from './cardBalances';
 
 export interface CycleBounds {
   startDate: string;
@@ -228,30 +229,44 @@ export function computeCycleFinancials(
   );
   const priorTransactions = transactions.filter((t) => t.date < startDate);
 
-  const openingBalance = priorTransactions.reduce(
-    (sum, t) => sum + (t.type === 'income' ? t.amount : (t.isPending ? 0 : -t.amount)),
-    0
-  );
+  const openingBalance = priorTransactions
+    .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
+    .reduce(
+      (sum, t) =>
+        sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
+      0
+    );
   const cycleIncome = cycleTransactions
-    .filter((t) => t.type === 'income' && t.category !== 'Քարտերի փոխանցում')
+    .filter((t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY)
     .reduce((sum, t) => sum + t.amount, 0);
   const cycleExpense = cycleTransactions
     .filter(
       (t) =>
         t.type === 'expense' &&
         !t.isPending &&
-        t.category !== 'Քարտերի փոխանցում'
+        t.category !== INTERNAL_TRANSFER_CATEGORY
     )
     .reduce((sum, t) => sum + t.amount, 0);
   const cyclePendingExpense = cycleTransactions
-    .filter((t) => t.type === 'expense' && t.isPending)
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        t.isPending &&
+        t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
     .reduce((sum, t) => sum + t.amount, 0);
   const cycleNet = cycleIncome - cycleExpense;
   const cycleEndBalance = openingBalance + cycleNet;
 
   const liveRealBalance = transactions
-    .filter((t) => t.date <= todayISO)
-    .reduce((sum, t) => sum + (t.type === 'income' ? t.amount : (t.isPending ? 0 : -t.amount)), 0);
+    .filter(
+      (t) => t.date <= todayISO && t.category !== INTERNAL_TRANSFER_CATEGORY
+    )
+    .reduce(
+      (sum, t) =>
+        sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
+      0
+    );
 
   return {
     cycleTransactions,
@@ -305,7 +320,13 @@ export function computeSafeToSpend(params: {
   const dailyAllowance = Math.max(0, Math.floor(freeFunds / remainingDaysInclusive));
 
   const todaySpent = transactions
-    .filter((t) => t.type === 'expense' && !t.isPending && t.date === todayISO)
+    .filter(
+      (t) =>
+        t.type === 'expense' &&
+        !t.isPending &&
+        t.category !== INTERNAL_TRANSFER_CATEGORY &&
+        t.date === todayISO
+    )
     .reduce((sum, t) => sum + t.amount, 0);
 
   return {

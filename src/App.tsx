@@ -69,6 +69,11 @@ const SmartAssistantModal = lazy(() =>
     default: m.SmartAssistantModal,
   }))
 );
+const ShortcutsGuideModal = lazy(() =>
+  import('./components/ShortcutsGuideModal').then((m) => ({
+    default: m.ShortcutsGuideModal,
+  }))
+);
 import { buildSmartWorkspaceContext } from './services/smartAi';
 import {
   ARMENIAN_MONTHS,
@@ -120,6 +125,8 @@ import {
   INTERNAL_TRANSFER_CATEGORY,
   computeCardStats,
 } from './utils/cardBalances';
+import { isMonthlyBillSettledForCycle } from './utils/recurringBills';
+import { sanitizeBackupPayload } from './utils/backupValidation';
 import {
   AppNotificationItem,
   BankCard,
@@ -353,6 +360,7 @@ export default function App() {
     false
   );
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsGuideOpen, setShortcutsGuideOpen] = useState(false);
   const [assistantModalState, setAssistantModalState] = useState<{
     open: boolean;
     initialPrompt?: string;
@@ -501,6 +509,22 @@ export default function App() {
       ) {
         e.preventDefault();
         setIsPrivacyMode((prev) => !prev);
+      } else if (
+        e.key === '?' &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const target = e.target as HTMLElement | null;
+        const isTyping =
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          Boolean(target?.isContentEditable);
+        if (!isTyping) {
+          e.preventDefault();
+          setShortcutsGuideOpen((prev) => !prev);
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
@@ -2166,38 +2190,30 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const parsed = JSON.parse(String(reader.result));
-        if (Array.isArray(parsed.cards)) setCards(parsed.cards);
-        if (Array.isArray(parsed.transactions)) setTransactions(parsed.transactions);
-        if (Array.isArray(parsed.tasks)) setTasks(parsed.tasks);
-        if (Array.isArray(parsed.notes)) setNotes(parsed.notes);
-        if (Array.isArray(parsed.budgets)) setBudgets(parsed.budgets);
-        if (Array.isArray(parsed.recurringBills))
-          setRecurringBills(parsed.recurringBills);
-        if (Array.isArray(parsed.habits)) setHabits(parsed.habits);
-        if (Array.isArray(parsed.savingsGoals))
-          setSavingsGoals(parsed.savingsGoals);
-        if (Array.isArray(parsed.debts)) setDebts(parsed.debts);
-        if (Array.isArray(parsed.focusSessions))
-          setFocusSessions(parsed.focusSessions);
-        if (
-          parsed.primaryIncome &&
-          typeof parsed.primaryIncome.payday === 'number'
-        ) {
-          setPrimaryIncome(parsed.primaryIncome);
+        const raw = JSON.parse(String(reader.result));
+        const parsed = sanitizeBackupPayload(raw);
+        if (!parsed) {
+          showToast('Ֆայլում վավեր տվյալներ չեն գտնվել');
+          return;
         }
-        if (parsed.focusGoal && typeof parsed.focusGoal.title === 'string') {
-          setFocusGoal(parsed.focusGoal);
+        if (parsed.cards) setCards(parsed.cards);
+        if (parsed.transactions) setTransactions(parsed.transactions);
+        if (parsed.tasks) setTasks(parsed.tasks);
+        if (parsed.notes) setNotes(parsed.notes);
+        if (parsed.budgets) setBudgets(parsed.budgets);
+        if (parsed.recurringBills) setRecurringBills(parsed.recurringBills);
+        if (parsed.habits) setHabits(parsed.habits);
+        if (parsed.savingsGoals) setSavingsGoals(parsed.savingsGoals);
+        if (parsed.debts) setDebts(parsed.debts);
+        if (parsed.focusSessions) setFocusSessions(parsed.focusSessions);
+        if (parsed.primaryIncome) setPrimaryIncome(parsed.primaryIncome);
+        if (parsed.focusGoal !== undefined) setFocusGoal(parsed.focusGoal);
+        if (parsed.notificationSettings) {
+          setNotificationSettings(parsed.notificationSettings);
         }
-        if (
-          parsed.notificationSettings &&
-          typeof parsed.notificationSettings.soundEnabled === 'boolean'
-        ) {
-          setNotificationSettings(
-            normalizeNotificationSettings(parsed.notificationSettings)
-          );
-        }
-        showToast('Տվյալները հաջողությամբ վերականգնվեցին');
+        showToast(
+          `Վերականգնվեց ${parsed.importedRecordCount} գրառում և կարգավորում`
+        );
       } catch {
         showToast('Ֆայլի ձևաչափը սխալ է');
       }
@@ -2265,10 +2281,10 @@ export default function App() {
         (bill) =>
           bill.active !== false &&
           getBillFrequency(bill) === 'monthly' &&
-          !cycleFin.cycleTransactions.some(
-            (tx) =>
-              tx.type === 'expense' &&
-              tx.title.toLowerCase() === bill.title.toLowerCase()
+          !isMonthlyBillSettledForCycle(
+            bill,
+            selectedMonth,
+            cycleFin.cycleTransactions
           )
       )
       .reduce((sum, b) => sum + b.amount, 0);
@@ -2486,6 +2502,7 @@ export default function App() {
         onTogglePrivacy={() => setIsPrivacyMode((prev) => !prev)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         onOpenAssistant={() => handleOpenAssistant()}
+        onOpenShortcutsGuide={() => setShortcutsGuideOpen(true)}
         user={user}
         syncStatus={syncStatus}
         isOnline={isOnline}
@@ -2816,6 +2833,14 @@ export default function App() {
             onExecuteSmartTask={handleAddTask}
             onExecuteSmartNote={handleAddNote}
             onOpenAssistant={handleOpenAssistant}
+            onOpenShortcutsGuide={() => setShortcutsGuideOpen(true)}
+          />
+        )}
+
+        {shortcutsGuideOpen && (
+          <ShortcutsGuideModal
+            onClose={() => setShortcutsGuideOpen(false)}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
           />
         )}
 

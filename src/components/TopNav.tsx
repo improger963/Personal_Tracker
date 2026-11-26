@@ -24,6 +24,7 @@ import {
   EyeOff,
   Flame,
   HandCoins,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
   Mic,
@@ -112,6 +113,7 @@ interface TopNavProps {
   onTogglePrivacy: () => void;
   onOpenCommandPalette: () => void;
   onOpenAssistant?: () => void;
+  onOpenShortcutsGuide?: () => void;
   user: User | null;
   syncStatus: CloudSyncStatus;
   isOnline: boolean;
@@ -216,6 +218,7 @@ export const TopNav = memo(function TopNav({
   onTogglePrivacy,
   onOpenCommandPalette,
   onOpenAssistant,
+  onOpenShortcutsGuide,
   user,
   syncStatus,
   isOnline,
@@ -706,6 +709,23 @@ export const TopNav = memo(function TopNav({
               Փոխել
             </span>
           </button>
+
+          {onOpenShortcutsGuide && (
+            <button
+              type="button"
+              onClick={onOpenShortcutsGuide}
+              aria-label="Արագ ստեղներ և խելացի մուտք"
+              className="w-full min-h-[36px] px-3 py-1.5 rounded-xl text-xs font-medium text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#131D31] flex items-center justify-between transition-colors cursor-pointer"
+            >
+              <span className="inline-flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 shrink-0" />
+                <span>Արագ ստեղներ</span>
+              </span>
+              <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#26334D] text-[10px] font-mono">
+                ?
+              </kbd>
+            </button>
+          )}
         </div>
       </aside>
 
@@ -993,6 +1013,23 @@ export const TopNav = memo(function TopNav({
                           </span>
                           <span className="text-[11px] text-[#64748B]">Փոխել</span>
                         </button>
+
+                        {onOpenShortcutsGuide && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAccountMenuOpen(false);
+                              onOpenShortcutsGuide();
+                            }}
+                            className="w-full min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] cursor-pointer"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <HelpCircle className="w-3.5 h-3.5 text-[#64748B]" />
+                              <span>Արագ ստեղներ և հրամաններ</span>
+                            </span>
+                            <span className="text-[10px] font-mono text-[#64748B]">?</span>
+                          </button>
+                        )}
 
                         {canInstallPWA && (
                           <button

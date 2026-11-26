@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Share, PlusSquare, Smartphone, X } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 
@@ -7,6 +8,14 @@ interface PWAInstallModalProps {
 
 export function PWAInstallModal({ onClose }: PWAInstallModalProps) {
   const prefersReducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   return (
     <div

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Check, X, Wallet } from 'lucide-react';
 import { RecurringBill } from '../types';
@@ -22,6 +22,14 @@ export function ConfirmExpenseModal({
   );
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(amountInput);
@@ -38,6 +46,9 @@ export function ConfirmExpenseModal({
       role="dialog"
       aria-modal="true"
       aria-label="Ծախսի հաստատման պատուհան"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-xs"
     >
       <motion.div
@@ -68,7 +79,7 @@ export function ConfirmExpenseModal({
             type="button"
             onClick={onClose}
             aria-label="Փակել պատուհանը"
-            className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>

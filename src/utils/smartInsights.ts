@@ -19,6 +19,7 @@ import {
   shiftMonthKey,
 } from './financialCycle';
 import { getBillFrequency } from './notifications';
+import { isMonthlyBillSettledForCycle } from './recurringBills';
 import {
   isTaskCompletedOnDate,
   isTaskDueOnDate,
@@ -178,11 +179,10 @@ export function generateSmartDailyInsights(params: {
   const dueSoonBills = recurringBills.filter((bill) => {
     if (bill.active === false || getBillFrequency(bill) !== 'monthly') return false;
     return candidateCycles.some((cycleKey) => {
-      const slotKey = `monthly:${cycleKey}`;
-      if (
-        bill.confirmedSlots?.includes(slotKey) ||
-        bill.skippedSlots?.includes(slotKey)
-      ) {
+      const cycleTxs = transactions.filter((tx) =>
+        isDateInCycle(tx.date, cycleKey, effectivePayday)
+      );
+      if (isMonthlyBillSettledForCycle(bill, cycleKey, cycleTxs)) {
         return false;
       }
       const dueDate = getDateInCycleForDay(
@@ -191,14 +191,7 @@ export function generateSmartDailyInsights(params: {
         bill.dayOfMonth
       );
       const diff = daysBetweenISO(todayISO, dueDate);
-      if (diff < 0 || diff > 4) return false;
-      const paidThisCycle = transactions.some(
-        (tx) =>
-          tx.type === 'expense' &&
-          isDateInCycle(tx.date, cycleKey, effectivePayday) &&
-          tx.title.toLowerCase() === bill.title.toLowerCase()
-      );
-      return !paidThisCycle;
+      return diff >= 0 && diff <= 4;
     });
   });
 

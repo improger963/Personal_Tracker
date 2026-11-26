@@ -14,6 +14,7 @@ import {
   EyeOff,
   Flame,
   HandCoins,
+  HelpCircle,
   LayoutDashboard,
   Loader2,
   Moon,
@@ -77,6 +78,7 @@ interface CommandPaletteModalProps {
   ) => void;
   onExecuteSmartNote: (note: Omit<Note, 'id' | 'updatedAt'>) => void;
   onOpenAssistant: (initialPrompt?: string) => void;
+  onOpenShortcutsGuide?: () => void;
 }
 
 interface ActionResultItem {
@@ -120,6 +122,7 @@ export function CommandPaletteModal({
   onExecuteSmartTask,
   onExecuteSmartNote,
   onOpenAssistant,
+  onOpenShortcutsGuide,
 }: CommandPaletteModalProps) {
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -554,6 +557,22 @@ export function CommandPaletteModal({
           onClose();
         },
       },
+      ...(onOpenShortcutsGuide
+        ? [
+            {
+              id: 'act-shortcuts-guide',
+              label: 'Ստեղնաշարային դյուրանցումներ և խելացի մուտք',
+              subtitle: 'Արագ ստեղներ և հրամանների օրինակներ',
+              badge: '?',
+              icon: HelpCircle,
+              iconClass: 'bg-[#2563EB]/12 text-[#2563EB] dark:text-[#60A5FA]',
+              onRun: () => {
+                onClose();
+                onOpenShortcutsGuide();
+              },
+            },
+          ]
+        : []),
     ];
 
     if (!q) {
@@ -733,6 +752,7 @@ export function CommandPaletteModal({
     onNavigatePlanner,
     onOpenAssistant,
     onOpenNewModal,
+    onOpenShortcutsGuide,
     onTogglePrivacy,
     onToggleTheme,
   ]);

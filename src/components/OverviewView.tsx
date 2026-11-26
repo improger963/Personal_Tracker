@@ -191,8 +191,8 @@ export const OverviewView = memo(function OverviewView({
 
   const savingsRate =
     totalIncome > 0
-      ? Math.max(0, Math.round(((totalIncome - totalExpense) / totalIncome) * 100))
-      : 0;
+      ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100)
+      : null;
 
   // Interactive cumulative real balance points starting from prior carryover
   const { sparkNodes, sparkPoints, sparkArea } = useMemo(() => {
@@ -252,7 +252,10 @@ export const OverviewView = memo(function OverviewView({
   const topCategories = useMemo(() => {
     const byCat = monthTransactions
       .filter(
-        (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
+        (t) =>
+          t.type === 'expense' &&
+          !t.isPending &&
+          t.category !== INTERNAL_TRANSFER_CATEGORY
       )
       .reduce<Record<string, number>>((acc, t) => {
         acc[t.category] = (acc[t.category] ?? 0) + t.amount;
@@ -509,7 +512,13 @@ export const OverviewView = memo(function OverviewView({
             id: 'cycle-flow',
             label: 'Ցիկլի եկամուտ / ծախս',
             value: `+${formatMoney(totalIncome, currency)}`,
-            hint: `Ծախս՝ -${formatMoney(totalExpense, currency)} · Խնայող. ${savingsRate}%`,
+            hint: `Ծախս՝ -${formatMoney(totalExpense, currency)} · ${
+              savingsRate === null
+                ? 'Առանց եկամտի'
+                : savingsRate >= 0
+                  ? `Խնայող. ${savingsRate}%`
+                  : `Գերծախս ${Math.abs(savingsRate)}%`
+            }`,
             tone: cycleNet >= 0 ? 'positive' : 'negative',
             sensitive: true,
           },

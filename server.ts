@@ -1,5 +1,10 @@
 import 'dotenv/config';
-import express, { type Request, type Response } from 'express';
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from 'express';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -158,7 +163,24 @@ async function startServer() {
   const httpServer = http.createServer(app);
   const port = Number(process.env.PORT) || 3000;
 
+  app.disable('x-powered-by');
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+  });
+
   app.use(express.json({ limit: '6mb' }));
+
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.json({
+      ok: true,
+      env: process.env.NODE_ENV || 'development',
+      aiConfigured: Boolean(process.env.GEMINI_API_KEY?.trim()),
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   app.post('/api/smart/assistant', async (req: Request, res: Response) => {
     const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -960,6 +982,36 @@ ${topExpensesSummary}
     res.status(404).json({ error: 'API երթուղին չի գտնվել։' });
   });
 
+  app.use(
+    (
+      err: unknown,
+      _req: Request,
+      res: Response,
+      next: NextFunction
+    ) => {
+      if (res.headersSent) return next(err);
+      const status =
+        typeof err === 'object' &&
+        err !== null &&
+        'status' in err &&
+        typeof (err as { status?: unknown }).status === 'number'
+          ? (err as { status: number }).status
+          : 500;
+      if (status === 413) {
+        return res
+          .status(413)
+          .json({ error: 'Ուղարկված տվյալների չափը գերազանցում է թույլատրելի սահմանը։' });
+      }
+      if (err instanceof SyntaxError && status === 400) {
+        return res.status(400).json({ error: 'Սխալ JSON հարցման ձևաչափ։' });
+      }
+      console.error('Unhandled server error:', err);
+      return res.status(status >= 400 && status < 600 ? status : 500).json({
+        error: 'Ներքին սերվերային սխալ։',
+      });
+    }
+  );
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const disableHmr = process.env.DISABLE_HMR === 'true';
@@ -975,15 +1027,41 @@ ${topExpensesSummary}
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(__dirname, 'dist');
-    app.use(express.static(distDir));
+    const indexHtmlPath = path.join(distDir, 'index.html');
+    app.use(
+      express.static(distDir, {
+        maxAge: '7d',
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html') || filePath.endsWith('sw.js')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.join(distDir, 'index.html'));
+      if (!fs.existsSync(indexHtmlPath)) {
+        return res.status(503).send('Հավելվածը դեռ հավաքված չէ (npm run build)։');
+      }
+      res.setHeader('Cache-Control', 'no-cache');
+      return res.sendFile(indexHtmlPath);
     });
   }
 
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`Server listening on http://0.0.0.0:${port}`);
   });
+
+  const shutdown = (signal: string) => {
+    console.log(`Received ${signal}, closing server gracefully...`);
+    httpServer.close(() => {
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 5000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 startServer().catch((err) => {
