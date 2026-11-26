@@ -420,6 +420,24 @@ export const TopNav = memo(function TopNav({
           </nav>
         </div>
 
+        {/* Desktop Sidebar Total Balance Widget */}
+        <div
+          onClick={() => onSelectTab('finance')}
+          className="mb-3 p-3 rounded-2xl bg-[#EFF6FF] dark:bg-[#172554]/50 border border-[#BFDBFE] dark:border-[#1E3A8A] cursor-pointer hover:border-[#2563EB] transition-colors space-y-1 group"
+          title="Անցնել Ֆինանսներ"
+        >
+          <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+            <span className="flex items-center gap-1.5 font-medium">
+              <Wallet className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+              <span>Ընդհանուր մնացորդ</span>
+            </span>
+            <span className="text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform">→</span>
+          </div>
+          <p className="pa-sensitive font-mono text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+            {formatMoney(totalBalance, currency)}
+          </p>
+        </div>
+
         {/* Sidebar Bottom Controls */}
         <div className="space-y-2.5 pt-4 border-t border-[#E2E8F0] dark:border-[#1E293B]">
           {user ? (
@@ -586,18 +604,18 @@ export const TopNav = memo(function TopNav({
               </div>
             </div>
 
-            {/* Persistent Pinned Live Balance Header Pill (Always in front of user's eyes) */}
+            {/* Real-Time Live Balance (Always in front of eyes) */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onSelectTab('finance')}
-                title="Անցնել Ֆինանսներ · Ընդհանուր մնացորդ"
-                aria-label={`Ընդհանուր մնացորդ՝ ${formatMoney(totalBalance, currency)}`}
-                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-[#2563EB]/30 dark:border-[#3B82F6]/40 bg-[#EFF6FF] dark:bg-[#172554]/60 text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] transition-all cursor-pointer shadow-xs"
+                title="Անցնել Ֆինանսներ · Իրական մնացորդ"
+                aria-label={`Իրական մնացորդ՝ ${formatMoney(totalBalance, currency)}`}
+                className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-xl border border-emerald-500/40 dark:border-emerald-500/50 bg-emerald-500/10 dark:bg-emerald-500/15 text-xs font-bold text-emerald-700 dark:text-emerald-300 hover:border-emerald-500 transition-all cursor-pointer shadow-xs"
               >
-                <Wallet className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline text-[#475569] dark:text-[#94A3B8] font-medium">Բալանս՝</span>
-                <span className="pa-sensitive font-mono font-bold tabular-nums">
+                <Wallet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span className="hidden xs:inline text-[#475569] dark:text-[#94A3B8] font-medium">Մնացորդ՝</span>
+                <span className="pa-sensitive font-mono font-extrabold tabular-nums">
                   {formatMoney(totalBalance, currency)}
                 </span>
               </button>
@@ -1870,6 +1888,32 @@ export const TopNav = memo(function TopNav({
             </div>
           </div>
         </header>
+
+        {/* Mobile / Tablet Financial Status Strip (< lg) */}
+        {activeTab !== 'overview' && (
+          <div className="lg:hidden mx-3.5 sm:mx-6 mt-4 p-3.5 rounded-2xl bg-white dark:bg-[#0C1220] border border-[#E2E8F0] dark:border-[#1E293B] shadow-xs flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="w-9 h-9 rounded-xl bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                <Wallet className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Ընդհանուր հաշվեկշիռ
+                </p>
+                <p className="pa-sensitive font-mono text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums truncate">
+                  {formatMoney(totalBalance, currency)}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onSelectTab('finance')}
+              className="min-h-[34px] px-3 py-1.5 rounded-xl bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-xs font-semibold shrink-0 cursor-pointer"
+            >
+              Ֆինանսներ
+            </button>
+          </div>
+        )}
 
         {children}
 

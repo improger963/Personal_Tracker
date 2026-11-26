@@ -106,7 +106,10 @@ import {
   isTaskDueOnDate,
   isTaskRepeating,
 } from './utils/taskSchedule';
-import { INTERNAL_TRANSFER_CATEGORY } from './utils/cardBalances';
+import {
+  INTERNAL_TRANSFER_CATEGORY,
+  computeCardStats,
+} from './utils/cardBalances';
 import {
   AppNotificationItem,
   BankCard,
@@ -2283,20 +2286,25 @@ export default function App() {
     []
   );
 
-  const totalBalance = useMemo(() => {
-    let sum = 0;
-    for (const c of cards) {
-      let cardSum = c.initialBalance;
-      for (const tx of transactions) {
-        if (tx.cardId === c.id) {
-          if (tx.type === 'income') cardSum += tx.amount;
-          else if (!tx.isPending) cardSum -= tx.amount;
-        }
-      }
-      sum += cardSum;
-    }
-    return sum;
-  }, [cards, transactions]);
+  const cycleFin = useMemo(
+    () =>
+      computeCycleFinancials(
+        transactions,
+        selectedMonth,
+        effectivePayday,
+        getTodayISO()
+      ),
+    [transactions, selectedMonth, effectivePayday]
+  );
+  const totalCardsBalance = useMemo(
+    () =>
+      cards.reduce(
+        (sum, card) => sum + computeCardStats(card, transactions).currentBalance,
+        0
+      ),
+    [cards, transactions]
+  );
+  const totalBalance = cycleFin.cycleEndBalance;
 
   return (
     <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F4F6FA] dark:bg-[#080C14] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
