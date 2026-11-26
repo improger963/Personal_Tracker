@@ -11,6 +11,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  Flame,
   HandCoins,
   LayoutDashboard,
   Moon,
@@ -19,12 +20,12 @@ import {
   Plus,
   Receipt,
   Search,
-  Sparkles,
   Sun,
   Target,
   Timer,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   BankCard,
@@ -372,7 +373,7 @@ export function CommandPaletteModal({
         id: 'nav-plan-habits',
         label: 'Օրակարգ · Սովորություններ',
         subtitle: '7-օրյա մատրից և սերիաներ',
-        icon: Sparkles,
+        icon: Flame,
         iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
         onRun: () => {
           onNavigatePlanner('habits');
@@ -661,8 +662,8 @@ export function CommandPaletteModal({
 
         {/* Helpful Hint Strip */}
         <div className="px-4 py-2 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-          <span className="inline-flex items-center gap-1 font-medium text-[#2563EB] dark:text-[#60A5FA]">
-            <Sparkles className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1 font-medium text-[#1D4ED8] dark:text-[#60A5FA]">
+            <Zap className="w-3 h-3" />
             Խելացի մուտք.
           </span>
           <button

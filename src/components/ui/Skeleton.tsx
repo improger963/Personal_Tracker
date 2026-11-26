@@ -96,14 +96,14 @@ export function EmptyStatePlaceholder({
 }: EmptyStatePlaceholderProps) {
   return (
     <div
-      className={`flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-[#CBD5E1]/90 dark:border-[#26334D] bg-[#F8FAFC]/70 dark:bg-[#0B1120]/45 ${
+      className={`flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-[#CBD5E1]/90 dark:border-[#233049] bg-[#F8FAFC]/65 dark:bg-[#090F1B]/50 ${
         compact ? 'px-4 py-6' : 'px-6 py-10'
       } ${className}`}
     >
       <span
         className={`${
           compact ? 'w-9 h-9 mb-2.5' : 'w-11 h-11 mb-3'
-        } rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0`}
+        } rounded-xl border border-[#E2E8F0] dark:border-[#233049] bg-white dark:bg-[#11192B] text-[#475569] dark:text-[#94A3B8] flex items-center justify-center shrink-0`}
         aria-hidden="true"
       >
         <Icon className={compact ? 'w-4 h-4' : 'w-5 h-5'} />
@@ -111,7 +111,7 @@ export function EmptyStatePlaceholder({
       <p
         className={`${
           compact ? 'text-xs sm:text-sm' : 'text-sm'
-        } font-semibold text-[#334155] dark:text-[#E2E8F0]`}
+        } font-semibold text-[#0F172A] dark:text-[#F8FAFC]`}
       >
         {title}
       </p>
@@ -124,7 +124,7 @@ export function EmptyStatePlaceholder({
         <button
           type="button"
           onClick={onAction}
-          className="mt-3 min-h-[34px] px-3.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+          className="mt-3.5 min-h-[34px] px-3.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#233049] bg-white dark:bg-[#0D1422] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
         >
           {actionLabel}
         </button>
@@ -138,7 +138,7 @@ export function TopRouteProgressBar({ active }: { active: boolean }) {
     <div
       aria-hidden="true"
       style={{ transformOrigin: 'left center' }}
-      className={`fixed top-0 left-0 right-0 h-[2.5px] z-50 pointer-events-none bg-gradient-to-r from-[#2563EB] via-[#38BDF8] to-[#2563EB] dark:from-[#3B82F6] dark:via-[#60A5FA] dark:to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.45)] transition-[transform,opacity] duration-200 ease-out will-change-transform ${
+      className={`fixed top-0 left-0 right-0 h-[2px] z-50 pointer-events-none bg-[#1D4ED8] dark:bg-[#60A5FA] transition-[transform,opacity] duration-200 ease-out will-change-transform ${
         active ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
       }`}
     />

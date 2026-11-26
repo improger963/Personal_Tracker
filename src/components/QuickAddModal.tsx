@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Check, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, Plus, Trash2, Wand2, X } from 'lucide-react';
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
@@ -855,7 +855,7 @@ export function QuickAddModal({
 
                 {isTxTitleFocused && txTitleSuggestions.length > 0 && (
                   <div className="absolute left-0 right-0 top-full mt-1.5 bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl shadow-xl z-40 p-1.5 space-y-0.5 text-xs max-h-48 overflow-y-auto scroll-container">
-                    <p className="px-2 py-1 text-[10px] font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider">
+                    <p className="px-2 py-1 text-[11px] font-semibold text-[#64748B] dark:text-[#94A3B8]">
                       Նախկին վերնագրեր
                     </p>
                     {txTitleSuggestions.map((sug) => (
@@ -889,10 +889,10 @@ export function QuickAddModal({
                     !userSelectedCategory &&
                     autoCategoryPrediction.category === txCategory && (
                       <span
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#2563EB] dark:text-[#60A5FA]"
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#1D4ED8] dark:text-[#60A5FA]"
                         title={`Հիմնված է նախկին «${autoCategoryPrediction.matchedTitle}» գրանցման վրա`}
                       >
-                        <Sparkles className="w-3 h-3" />
+                        <Wand2 className="w-3 h-3" />
                         <span>Ավտոմատ ընտրված</span>
                       </span>
                     )}
@@ -927,9 +927,9 @@ export function QuickAddModal({
                         setTxCategory(autoCategoryPrediction.category);
                         setUserSelectedCategory(false);
                       }}
-                      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer text-left"
+                      className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium text-[#1D4ED8] dark:text-[#60A5FA] hover:underline cursor-pointer text-left"
                     >
-                      <Sparkles className="w-3 h-3 shrink-0" />
+                      <Wand2 className="w-3 h-3 shrink-0" />
                       <span>
                         Ընտրել «{autoCategoryPrediction.category}» (նախկին «
                         {autoCategoryPrediction.matchedTitle}»-ով)

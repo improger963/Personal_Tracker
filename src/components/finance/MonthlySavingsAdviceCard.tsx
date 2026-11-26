@@ -153,7 +153,7 @@ function AdviceMarkdownContent({ text }: { text: string }) {
           return (
             <h3
               key={index}
-              className="text-xs font-semibold uppercase tracking-wider text-[#2563EB] dark:text-[#60A5FA] pt-1"
+              className="text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] pt-1"
             >
               {renderInlineBold(block.content)}
             </h3>
@@ -536,7 +536,7 @@ export function MonthlySavingsAdviceCard({
                     <div className="pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-2.5">
                       {adviceData.sources.length > 0 && (
                         <div className="space-y-1.5">
-                          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#64748B] dark:text-[#94A3B8]">
+                          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#64748B] dark:text-[#94A3B8]">
                             <Search className="w-3 h-3" />
                             <span>Աղբյուրներ · Google Search</span>
                           </div>

@@ -42,43 +42,43 @@ export const CARD_SURFACE_CLASSES: Record<
 > = {
   blue: {
     gradient:
-      'from-[#1D4ED8] via-[#2563EB] to-[#1E3A8A] text-white shadow-blue-900/15',
-    ring: 'ring-blue-500/50',
+      'from-[#1E3A8A] via-[#1D4ED8] to-[#0F172A] text-white',
+    ring: 'ring-blue-500/45',
     softBg: 'bg-blue-500/12',
     softText: 'text-blue-600 dark:text-blue-400',
   },
   emerald: {
     gradient:
-      'from-[#059669] via-[#10B981] to-[#065F46] text-white shadow-emerald-900/15',
-    ring: 'ring-emerald-500/50',
+      'from-[#065F46] via-[#047857] to-[#022C22] text-white',
+    ring: 'ring-emerald-500/45',
     softBg: 'bg-emerald-500/12',
     softText: 'text-emerald-600 dark:text-emerald-400',
   },
   purple: {
     gradient:
-      'from-[#6D28D9] via-[#7C3AED] to-[#4C1D95] text-white shadow-violet-900/15',
-    ring: 'ring-violet-500/50',
-    softBg: 'bg-violet-500/12',
-    softText: 'text-violet-600 dark:text-violet-400',
+      'from-[#312E81] via-[#4338CA] to-[#1E1B4B] text-white',
+    ring: 'ring-indigo-500/45',
+    softBg: 'bg-indigo-500/12',
+    softText: 'text-indigo-600 dark:text-indigo-400',
   },
   amber: {
     gradient:
-      'from-[#D97706] via-[#F59E0B] to-[#92400E] text-white shadow-amber-900/15',
-    ring: 'ring-amber-500/50',
+      'from-[#92400E] via-[#B45309] to-[#451A03] text-white',
+    ring: 'ring-amber-500/45',
     softBg: 'bg-amber-500/12',
     softText: 'text-amber-600 dark:text-amber-400',
   },
   rose: {
     gradient:
-      'from-[#E11D48] via-[#F43F5E] to-[#881337] text-white shadow-rose-900/15',
-    ring: 'ring-rose-500/50',
+      'from-[#881337] via-[#BE123C] to-[#4C0519] text-white',
+    ring: 'ring-rose-500/45',
     softBg: 'bg-rose-500/12',
     softText: 'text-rose-600 dark:text-rose-400',
   },
   slate: {
     gradient:
-      'from-[#334155] via-[#1E293B] to-[#0F172A] text-white shadow-slate-950/20',
-    ring: 'ring-slate-500/50',
+      'from-[#1E293B] via-[#0F172A] to-[#020617] text-white',
+    ring: 'ring-slate-500/45',
     softBg: 'bg-slate-500/12',
     softText: 'text-slate-600 dark:text-slate-300',
   },

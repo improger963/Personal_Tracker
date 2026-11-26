@@ -557,10 +557,10 @@ export const FocusTimerCard = memo(function FocusTimerCard({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <span
-            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+            className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${
               timer.mode === 'break'
-                ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400'
-                : 'bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA]'
+                ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : 'border-[#E2E8F0] dark:border-[#233049] bg-[#F8FAFC] dark:bg-[#11192B] text-[#1D4ED8] dark:text-[#60A5FA]'
             }`}
           >
             {timer.mode === 'break' ? (
@@ -573,9 +573,8 @@ export const FocusTimerCard = memo(function FocusTimerCard({
             <h3 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-2">
               <span>Ֆոկուս ժամաչափ</span>
               {timer.running && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  Ակտիվ
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  · Ակտիվ է
                 </span>
               )}
             </h3>
@@ -599,7 +598,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 onClick={() => handleSelectPreset(preset.minutes, preset.mode)}
                 className={`min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
                   active
-                    ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                    ? 'bg-white dark:bg-[#0D1422] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold shadow-xs'
                     : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                 }`}
               >
@@ -610,14 +609,14 @@ export const FocusTimerCard = memo(function FocusTimerCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
         {/* Left: Ring + Time + Controls */}
         <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-center gap-4 shrink-0">
             <div className="relative flex items-center justify-center shrink-0">
               <svg
-                width={compact ? 88 : 104}
-                height={compact ? 88 : 104}
+                width={compact ? 92 : 112}
+                height={compact ? 92 : 112}
                 viewBox={compact ? '0 0 88 88' : '0 0 104 104'}
                 className="-rotate-90"
                 aria-hidden="true"
@@ -625,26 +624,36 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 <circle
                   cx={compact ? 44 : 52}
                   cy={compact ? 44 : 52}
-                  r={ringRadius}
+                  r={ringRadius + 5}
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="6"
-                  className="text-[#E2E8F0] dark:text-[#1E293B]"
+                  strokeWidth="1"
+                  strokeDasharray="2 5.5"
+                  className="text-[#CBD5E1] dark:text-[#233049]"
                 />
                 <circle
                   cx={compact ? 44 : 52}
                   cy={compact ? 44 : 52}
                   r={ringRadius}
                   fill="none"
-                  stroke={timer.mode === 'break' ? '#10B981' : '#3B82F6'}
-                  strokeWidth="6"
+                  stroke="currentColor"
+                  strokeWidth="5"
+                  className="text-[#E2E8F0] dark:text-[#1B2538]"
+                />
+                <circle
+                  cx={compact ? 44 : 52}
+                  cy={compact ? 44 : 52}
+                  r={ringRadius}
+                  fill="none"
+                  stroke={timer.mode === 'break' ? '#10B981' : '#2563EB'}
+                  strokeWidth="5"
                   strokeLinecap="round"
                   strokeDasharray={ringCircumference}
                   strokeDashoffset={ringOffset}
                   className="transition-[stroke-dashoffset] duration-300"
                 />
               </svg>
-              <span className="absolute font-mono text-base sm:text-lg font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+              <span className="absolute font-mono text-base sm:text-lg font-semibold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
                 {formatMMSS(timer.remainingSec)}
               </span>
             </div>

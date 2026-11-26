@@ -6,9 +6,10 @@ import {
   Download,
   Plus,
   Receipt,
+  Repeat,
   Search,
-  Sparkles,
   Trash2,
+  Wand2,
   X,
 } from 'lucide-react';
 import {
@@ -39,6 +40,7 @@ import { TxSortMode } from './financeShared';
 import { findAutoCategorizableTransactions } from '../../utils/transactionAutoCategory';
 import { formatCardLabel } from '../../utils/cardBalances';
 import { formatCycleLabel } from '../../utils/financialCycle';
+import { RecurringBillSuggestion } from '../../utils/recurringBills';
 
 const ALL_CATEGORIES = Array.from(
   new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])
@@ -76,6 +78,10 @@ interface TransactionsLedgerPageProps {
   isCurrentCycle: boolean;
   primaryIncome: PrimaryIncomeConfig;
   onManualCreditPrimaryIncome: () => void;
+  billSuggestions?: RecurringBillSuggestion[];
+  onConvertSuggestionToBill?: (suggestion: RecurringBillSuggestion) => void;
+  onOpenSuggestionInBills?: (suggestion: RecurringBillSuggestion) => void;
+  onDismissBillSuggestion?: (key: string) => void;
 }
 
 export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
@@ -108,6 +114,10 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   isCurrentCycle,
   primaryIncome,
   onManualCreditPrimaryIncome,
+  billSuggestions = [],
+  onConvertSuggestionToBill,
+  onOpenSuggestionInBills,
+  onDismissBillSuggestion,
 }: TransactionsLedgerPageProps) {
   const todayISO = getTodayISO();
   const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
@@ -493,7 +503,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
 
               {isSearchFocused && hasSuggestions && (
                 <div className="absolute left-0 right-0 top-full mt-1.5 bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl shadow-xl z-50 p-2 space-y-2 text-xs max-h-64 overflow-y-auto scroll-container">
-                  <div className="px-2 py-1 text-[11px] font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider flex items-center justify-between">
+                  <div className="px-2 py-1 text-[11px] font-semibold text-[#64748B] dark:text-[#94A3B8] flex items-center justify-between">
                     <span>Առաջարկվող հիշողությունից</span>
                     <span className="font-mono font-normal">Իրական ժամանակում</span>
                   </div>
@@ -657,7 +667,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
         {autoCategorizableItems.length > 0 && onAutoCategorizeTransactions && (
           <div className="px-4 sm:px-6 py-2.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-[#EFF6FF]/70 dark:bg-[#172554]/30 flex flex-wrap items-center justify-between gap-2.5">
             <div className="flex items-center gap-2 text-xs text-[#1E3A8A] dark:text-[#BFDBFE]">
-              <Sparkles className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
+              <Wand2 className="w-3.5 h-3.5 text-[#1D4ED8] dark:text-[#60A5FA] shrink-0" />
               <span>
                 Կա {autoCategorizableItems.length} «Այլ» գործարք, որոնք համապատասխանում են նախկին վերնագրերին
               </span>
@@ -673,11 +683,75 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                   }))
                 )
               }
-              className="min-h-[30px] px-3 py-1 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              className="min-h-[30px] px-3 py-1 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
             >
-              <Sparkles className="w-3 h-3" />
+              <Wand2 className="w-3 h-3" />
               <span>Ավտոմատ դասակարգել ({autoCategorizableItems.length})</span>
             </button>
+          </div>
+        )}
+
+        {/* Frequent Uncategorized Expenses -> Recurring Bills Prompt */}
+        {billSuggestions.length > 0 && (
+          <div className="px-4 sm:px-6 py-2.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-amber-50/75 dark:bg-amber-950/25 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 text-xs text-amber-950 dark:text-amber-200 min-w-0">
+              <Repeat className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="truncate sm:whitespace-normal tabular-nums">
+                {billSuggestions.length === 1 ? (
+                  <>
+                    «{billSuggestions[0].title}» չդասակարգված ծախսը կրկնվել է{' '}
+                    {billSuggestions[0].occurrences} անգամ (
+                    <span className="pa-sensitive font-mono font-medium">
+                      {formatMoney(billSuggestions[0].typicalAmount, currency)}
+                    </span>
+                    )
+                  </>
+                ) : (
+                  <>
+                    Հայտնաբերվել է {billSuggestions.length} հաճախակի չդասակարգված ծախս («
+                    {billSuggestions[0].title}» և այլն)
+                  </>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {onConvertSuggestionToBill && (
+                <button
+                  type="button"
+                  onClick={() => onConvertSuggestionToBill(billSuggestions[0])}
+                  className="min-h-[30px] px-3 py-1 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <Repeat className="w-3 h-3" />
+                  <span>
+                    {billSuggestions.length === 1
+                      ? 'Դարձնել կրկնվող վճար'
+                      : `Դարձնել վճար (${billSuggestions[0].title})`}
+                  </span>
+                </button>
+              )}
+              {onOpenSuggestionInBills && (
+                <button
+                  type="button"
+                  onClick={() => onOpenSuggestionInBills(billSuggestions[0])}
+                  className="min-h-[30px] px-2.5 py-1 rounded-lg border border-amber-300/90 dark:border-amber-800/80 bg-white/80 dark:bg-[#0F172A] text-xs font-medium text-amber-900 dark:text-amber-200 hover:border-amber-500 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  {billSuggestions.length > 1
+                    ? `Դիտել բոլորը (${billSuggestions.length})`
+                    : 'Կարգավորել'}
+                </button>
+              )}
+              {onDismissBillSuggestion && (
+                <button
+                  type="button"
+                  onClick={() => onDismissBillSuggestion(billSuggestions[0].key)}
+                  aria-label="Թաքցնել առաջարկը"
+                  title="Թաքցնել"
+                  className="min-h-[30px] min-w-[30px] flex items-center justify-center rounded-lg text-amber-700/75 dark:text-amber-300/75 hover:bg-amber-200/50 dark:hover:bg-amber-900/40 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         )}
 

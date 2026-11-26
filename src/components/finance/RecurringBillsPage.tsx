@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BellRing,
   CalendarClock,
@@ -41,6 +41,7 @@ import {
   getCurrentHHMM,
   getDailyPresetTimes,
 } from '../../utils/notifications';
+import { RecurringBillSuggestion } from '../../utils/recurringBills';
 
 interface RecurringBillsPageProps {
   selectedMonth: string;
@@ -63,6 +64,21 @@ interface RecurringBillsPageProps {
   currentHHMM?: string;
   monthTransactions: Transaction[];
   onAddTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  billSuggestions?: RecurringBillSuggestion[];
+  prefillSuggestion?: RecurringBillSuggestion | null;
+  onConsumePrefillSuggestion?: () => void;
+  onConvertSuggestionToBill?: (
+    suggestion: RecurringBillSuggestion,
+    overrides?: {
+      title?: string;
+      amount?: number;
+      category?: string;
+      frequency?: 'monthly' | 'daily';
+      dayOfMonth?: number;
+      categorizeMatchingTransactions?: boolean;
+    }
+  ) => void;
+  onDismissBillSuggestion?: (key: string) => void;
 }
 
 export function RecurringBillsPage({
@@ -83,6 +99,11 @@ export function RecurringBillsPage({
   currentHHMM,
   monthTransactions,
   onAddTransaction,
+  billSuggestions = [],
+  prefillSuggestion,
+  onConsumePrefillSuggestion,
+  onConvertSuggestionToBill,
+  onDismissBillSuggestion,
 }: RecurringBillsPageProps) {
   const todayISO = getTodayISO();
   const liveHHMM = currentHHMM || getCurrentHHMM();
@@ -103,6 +124,46 @@ export function RecurringBillsPage({
   const [billIsVariable, setBillIsVariable] = useState(false);
   const [billFilter, setBillFilter] = useState<'all' | BillFrequency>('all');
   const [billError, setBillError] = useState('');
+  const [suggestionDrafts, setSuggestionDrafts] = useState<
+    Record<
+      string,
+      {
+        category: string;
+        frequency: 'monthly' | 'daily';
+        amount: string;
+      }
+    >
+  >({});
+  const composerAnchorRef = useRef<HTMLDivElement>(null);
+
+  const loadSuggestionIntoComposer = (suggestion: RecurringBillSuggestion) => {
+    const draft = suggestionDrafts[suggestion.key];
+    setEditingBillId(null);
+    setBillFrequency(draft?.frequency ?? suggestion.suggestedFrequency);
+    setBillTitle(suggestion.title);
+    setBillAmount(draft?.amount ?? String(suggestion.typicalAmount || ''));
+    setBillCategory(draft?.category ?? suggestion.suggestedCategory);
+    setBillDay(String(suggestion.suggestedDayOfMonth || 15));
+    setBillReminderTime('10:00');
+    setBillDailyTimes(
+      suggestion.suggestedDailyTimes.length > 0
+        ? suggestion.suggestedDailyTimes
+        : ['10:00']
+    );
+    setBillIsVariable(suggestion.isVariableAmount);
+    setBillError('');
+  };
+
+  useEffect(() => {
+    if (!prefillSuggestion) return;
+    loadSuggestionIntoComposer(prefillSuggestion);
+    onConsumePrefillSuggestion?.();
+    composerAnchorRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillSuggestion]);
 
   const resetBillComposer = () => {
     setEditingBillId(null);
@@ -340,7 +401,191 @@ export function RecurringBillsPage({
         ]}
       />
 
+      {/* Frequent Uncategorized Expenses Detection Prompt */}
+      {billSuggestions.length > 0 && (
+        <SectionCard
+          title="Հայտնաբերված հաճախակի չդասակարգված ծախսեր"
+          subtitle={`Գտնվել է ${billSuggestions.length} կրկնվող ծախս «Այլ» կատեգորիայից՝ կարող եք վերածել կրկնվող վճարի`}
+          icon={Repeat}
+          noPadding
+        >
+          <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+            {billSuggestions.map((suggestion) => {
+              const draft = suggestionDrafts[suggestion.key];
+              const chosenCategory =
+                draft?.category ?? suggestion.suggestedCategory;
+              const chosenFrequency =
+                draft?.frequency ?? suggestion.suggestedFrequency;
+              const chosenAmount =
+                draft?.amount ?? String(suggestion.typicalAmount);
+              const parsedAmount = Number(chosenAmount);
+
+              const updateDraft = (
+                patch: Partial<{
+                  category: string;
+                  frequency: 'monthly' | 'daily';
+                  amount: string;
+                }>
+              ) => {
+                setSuggestionDrafts((prev) => ({
+                  ...prev,
+                  [suggestion.key]: {
+                    category: prev[suggestion.key]?.category ?? suggestion.suggestedCategory,
+                    frequency:
+                      prev[suggestion.key]?.frequency ?? suggestion.suggestedFrequency,
+                    amount:
+                      prev[suggestion.key]?.amount ?? String(suggestion.typicalAmount),
+                    ...patch,
+                  },
+                }));
+              };
+
+              return (
+                <div
+                  key={suggestion.key}
+                  className="px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3.5"
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                        {suggestion.title}
+                      </p>
+                      <span className="text-xs font-medium text-amber-600 dark:text-amber-400 tabular-nums">
+                        · {suggestion.occurrences} անգամ առանց կատեգորիայի
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 flex-wrap tabular-nums">
+                      <span>Տիպիկ գումար՝</span>
+                      <span className="pa-sensitive font-mono font-medium text-[#0F172A] dark:text-[#E2E8F0]">
+                        {formatMoney(suggestion.typicalAmount, currency)}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>
+                        Վերջինը՝ {formatShortDate(suggestion.lastDate)}
+                      </span>
+                      {suggestion.averageIntervalDays !== null && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>
+                            {suggestion.averageIntervalDays <= 1
+                              ? 'Գրեթե ամեն օր'
+                              : `Միջինը ${suggestion.averageIntervalDays} օրը մեկ`}
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={chosenAmount}
+                      onChange={(e) => updateDraft({ amount: e.target.value })}
+                      aria-label={`Գումար՝ ${suggestion.title}`}
+                      className="w-28 min-h-[36px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                    />
+                    <select
+                      value={chosenCategory}
+                      onChange={(e) => updateDraft({ category: e.target.value })}
+                      aria-label={`Կատեգորիա՝ ${suggestion.title}`}
+                      className="min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
+                    >
+                      {EXPENSE_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={chosenFrequency}
+                      onChange={(e) =>
+                        updateDraft({
+                          frequency: e.target.value as 'monthly' | 'daily',
+                        })
+                      }
+                      aria-label={`Հաճախականություն՝ ${suggestion.title}`}
+                      className="min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
+                    >
+                      <option value="monthly">Ամսական</option>
+                      <option value="daily">Ամենօրյա</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const finalAmt =
+                          Number.isFinite(parsedAmount) && parsedAmount > 0
+                            ? parsedAmount
+                            : suggestion.typicalAmount;
+                        if (onConvertSuggestionToBill) {
+                          onConvertSuggestionToBill(suggestion, {
+                            amount: finalAmt,
+                            category: chosenCategory,
+                            frequency: chosenFrequency,
+                          });
+                        } else {
+                          onAddRecurringBill({
+                            title: suggestion.title,
+                            amount: finalAmt,
+                            category: chosenCategory,
+                            frequency: chosenFrequency,
+                            dayOfMonth: suggestion.suggestedDayOfMonth,
+                            reminderTime:
+                              chosenFrequency === 'monthly' ? '10:00' : undefined,
+                            dailyTimes:
+                              chosenFrequency === 'daily'
+                                ? suggestion.suggestedDailyTimes
+                                : undefined,
+                            isVariableAmount: suggestion.isVariableAmount,
+                            active: true,
+                          });
+                        }
+                      }}
+                      className="min-h-[36px] px-3 py-1.5 rounded-xl btn-primary text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Repeat className="w-3.5 h-3.5" />
+                      <span>Դարձնել կրկնվող վճար</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loadSuggestionIntoComposer(suggestion);
+                        composerAnchorRef.current?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'nearest',
+                        });
+                      }}
+                      title="Խմբագրել ներքևի ձևում"
+                      aria-label={`Խմբագրել ${suggestion.title} առաջարկը ձևում`}
+                      className="min-h-[36px] px-2.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      Խմբագրել ձևում
+                    </button>
+
+                    {onDismissBillSuggestion && (
+                      <button
+                        type="button"
+                        onClick={() => onDismissBillSuggestion(suggestion.key)}
+                        aria-label={`Թաքցնել ${suggestion.title} առաջարկը`}
+                        title="Թաքցնել"
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
+      )}
+
       {/* Composer */}
+      <div ref={composerAnchorRef}>
       <SectionCard
         title={
           editingBillId ? 'Խմբագրել վճարումը' : 'Ավելացնել նոր վճարում կամ հիշեցում'
@@ -621,6 +866,7 @@ export function RecurringBillsPage({
           )}
         </form>
       </SectionCard>
+      </div>
 
       {/* Bills List */}
       <SectionCard

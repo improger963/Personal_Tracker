@@ -39,6 +39,7 @@ import {
 } from '../layout/PagePrimitives';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import { MonthlySavingsAdviceCard } from './MonthlySavingsAdviceCard';
+import { SpendingTrendLineCard } from './SpendingTrendLineCard';
 import {
   BudgetLimit,
   Currency,
@@ -508,6 +509,14 @@ export function AnalyticsAndReportsPage({
             sensitive: true,
           },
         ]}
+      />
+
+      {/* Cycle vs Previous Cycle Spending Trend Line Chart */}
+      <SpendingTrendLineCard
+        selectedMonth={selectedMonth}
+        effectivePayday={effectivePayday}
+        currency={currency}
+        transactions={transactions}
       />
 
       {/* 1. Monthly Income & Expense Dynamics (6m / 12m) */}
@@ -1410,7 +1419,7 @@ export function AnalyticsAndReportsPage({
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-semibold text-[#94A3B8] uppercase">
+            <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-semibold text-[#94A3B8]">
               {['Երկ', 'Երք', 'Չոր', 'Հինգ', 'Ուրբ', 'Շաբ', 'Կիր'].map((wd) => (
                 <div key={wd} className="py-1">
                   {wd}

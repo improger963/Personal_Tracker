@@ -528,16 +528,19 @@ export const OverviewView = memo(function OverviewView({
                 >
                   <defs>
                     <linearGradient id="cobaltFlow" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.24" />
-                      <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+                      <stop offset="0%" stopColor="#2563EB" stopOpacity="0.22" />
+                      <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
                     </linearGradient>
                   </defs>
+                  <line x1="0" y1="18" x2="320" y2="18" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 4" />
+                  <line x1="0" y1="46" x2="320" y2="46" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 4" />
+                  <line x1="0" y1="74" x2="320" y2="74" stroke="currentColor" strokeOpacity="0.08" />
                   <polygon points={sparkArea} fill="url(#cobaltFlow)" />
                   <polyline
                     points={sparkPoints}
                     fill="none"
-                    stroke="#3B82F6"
-                    strokeWidth="2.2"
+                    stroke="#2563EB"
+                    strokeWidth="2.1"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
@@ -548,17 +551,17 @@ export const OverviewView = memo(function OverviewView({
                         y1="0"
                         x2={activeSparkNode.x}
                         y2="84"
-                        stroke="#3B82F6"
-                        strokeOpacity="0.45"
+                        stroke="#2563EB"
+                        strokeOpacity="0.4"
                         strokeDasharray="2 2"
                       />
                       <circle
                         cx={activeSparkNode.x}
                         cy={activeSparkNode.y}
-                        r="4"
-                        fill="#3B82F6"
+                        r="4.2"
+                        fill="#2563EB"
                         stroke="#FFFFFF"
-                        strokeWidth="1.5"
+                        strokeWidth="1.75"
                       />
                     </>
                   )}
@@ -650,7 +653,7 @@ export const OverviewView = memo(function OverviewView({
                 {frequentExpensePresets.map((preset) => (
                   <div
                     key={`${preset.title}-${preset.category}`}
-                    className="flex items-center justify-between gap-1 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] px-2.5 py-2 min-w-0"
+                    className="flex items-center justify-between gap-1 rounded-xl border border-[#E2E8F0]/90 dark:border-[#1B2538] bg-[#F8FAFC]/80 dark:bg-[#0A101D] hover:border-[#2563EB]/45 dark:hover:border-[#3B82F6]/45 transition-colors px-2.5 py-2 min-w-0"
                   >
                     <button
                       type="button"
@@ -977,21 +980,21 @@ export const OverviewView = memo(function OverviewView({
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
                           tx.isPending
-                            ? 'bg-amber-500/12 text-amber-600 dark:text-amber-400'
+                            ? 'border-amber-500/25 bg-amber-500/[0.07] text-amber-600 dark:text-amber-400'
                             : tx.type === 'income'
-                              ? 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400'
-                              : 'bg-rose-500/12 text-rose-600 dark:text-rose-400'
+                              ? 'border-emerald-500/25 bg-emerald-500/[0.07] text-emerald-600 dark:text-emerald-400'
+                              : 'border-[#E2E8F0] dark:border-[#1B2538] bg-[#F8FAFC] dark:bg-[#11192B] text-[#475569] dark:text-[#94A3B8]'
                         }`}
                         aria-hidden="true"
                       >
                         {tx.isPending ? (
-                          <Clock className="w-4 h-4" />
+                          <Clock className="w-3.5 h-3.5" />
                         ) : tx.type === 'income' ? (
-                          <ArrowDownLeft className="w-4 h-4" />
+                          <ArrowDownLeft className="w-3.5 h-3.5" />
                         ) : (
-                          <ArrowUpRight className="w-4 h-4" />
+                          <ArrowUpRight className="w-3.5 h-3.5" />
                         )}
                       </span>
                       <div className="min-w-0">
@@ -1176,7 +1179,7 @@ export const OverviewView = memo(function OverviewView({
               className="w-full px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <span className="w-8 h-8 rounded-lg bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <span className="w-8 h-8 rounded-lg border border-[#E2E8F0] dark:border-[#233049] bg-[#F8FAFC] dark:bg-[#11192B] text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
                   <PiggyBank className="w-4 h-4" />
                 </span>
                 <div className="min-w-0">
@@ -1198,7 +1201,7 @@ export const OverviewView = memo(function OverviewView({
               className="w-full px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2.5 min-w-0">
-                <span className="w-8 h-8 rounded-lg bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                <span className="w-8 h-8 rounded-lg border border-[#E2E8F0] dark:border-[#233049] bg-[#F8FAFC] dark:bg-[#11192B] text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
                   <HandCoins className="w-4 h-4" />
                 </span>
                 <div className="min-w-0">

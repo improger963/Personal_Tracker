@@ -13,7 +13,6 @@ import {
   Plus,
   Repeat,
   Search,
-  Sparkles,
   Timer,
   Trash2,
 } from 'lucide-react';
@@ -327,7 +326,7 @@ export const PlannerView = memo(function PlannerView({
       {
         id: 'habits' as const,
         label: 'Սովորություններ',
-        icon: Sparkles,
+        icon: Flame,
         count: habits.length,
       },
       {
@@ -897,7 +896,7 @@ export const PlannerView = memo(function PlannerView({
                 {habits.length === 0 ? (
                   <div className="p-5 sm:p-6">
                     <EmptyStatePlaceholder
-                      icon={Sparkles}
+                      icon={Flame}
                       title="Սովորությունների ցանկը դատարկ է"
                       description="Ստեղծեք ամենօրյա սովորություն և հետևեք շաբաթական առաջընթացին։"
                       actionLabel="+ Ավելացնել սովորություն"

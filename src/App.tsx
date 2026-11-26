@@ -2367,7 +2367,7 @@ export default function App() {
   const totalBalance = cycleFin.cycleEndBalance;
 
   return (
-    <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F4F6FA] dark:bg-[#080C14] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
+    <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F5F6F8] dark:bg-[#070B12] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
       <TopRouteProgressBar active={isRouteTransitioning} />
 
       <TopNav

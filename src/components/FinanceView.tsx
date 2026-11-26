@@ -28,7 +28,7 @@ import {
   calcDeltaPct,
 } from './finance/financeShared';
 import { CardTransferModal } from './finance/CardTransferModal';
-import { SubPageTabs } from './layout/PagePrimitives';
+import { MonthCycleNav, SubPageTabs } from './layout/PagePrimitives';
 import { PageSkeleton } from './ui/Skeleton';
 import { scrollToTopInstant } from '../utils/scroll';
 import { INTERNAL_TRANSFER_CATEGORY } from '../utils/cardBalances';
@@ -50,6 +50,14 @@ import {
   shiftMonthKey,
 } from '../utils/financialCycle';
 import { getBillFrequency } from '../utils/notifications';
+import { useLocalStorage } from '../hooks/useLocalStorage';
+import {
+  RecurringBillSuggestion,
+  buildRecurringBillFromSuggestion,
+  detectFrequentUncategorizedExpenses,
+} from '../utils/recurringBills';
+import { computeBudgetForecast } from '../utils/budgetForecast';
+import { BudgetForecastWarningStrip } from './finance/BudgetForecastCard';
 
 const loadLedgerPage = () =>
   import('./finance/TransactionsLedgerPage').then((m) => ({
@@ -79,6 +87,10 @@ const loadAnalyticsPage = () =>
   import('./finance/AnalyticsAndReportsPage').then((m) => ({
     default: m.AnalyticsAndReportsPage,
   }));
+const loadSpendingTrendLineCard = () =>
+  import('./finance/SpendingTrendLineCard').then((m) => ({
+    default: m.SpendingTrendLineCard,
+  }));
 
 const TransactionsLedgerPage = lazy(loadLedgerPage);
 const CardsSection = lazy(loadCardsPage);
@@ -87,6 +99,7 @@ const RecurringBillsPage = lazy(loadBillsPage);
 const SavingsGoalsPage = lazy(loadGoalsPage);
 const DebtsPage = lazy(loadDebtsPage);
 const AnalyticsAndReportsPage = lazy(loadAnalyticsPage);
+const SpendingTrendLineCard = lazy(loadSpendingTrendLineCard);
 
 interface FinanceViewProps {
   activePage: FinancePageTab;
@@ -222,6 +235,63 @@ export const FinanceView = memo(function FinanceView({
   const [transferModalState, setTransferModalState] = useState<{
     fromCardId?: string;
   } | null>(null);
+  const [dismissedBillSuggestionKeys, setDismissedBillSuggestionKeys] =
+    useLocalStorage<string[]>('pa_dismissed_bill_suggestions_v1', []);
+  const [prefillBillSuggestion, setPrefillBillSuggestion] =
+    useState<RecurringBillSuggestion | null>(null);
+
+  const billSuggestions = useMemo(
+    () =>
+      detectFrequentUncategorizedExpenses(transactions, recurringBills, {
+        dismissedKeys: dismissedBillSuggestionKeys,
+      }),
+    [transactions, recurringBills, dismissedBillSuggestionKeys]
+  );
+
+  const handleDismissBillSuggestion = (key: string) => {
+    setDismissedBillSuggestionKeys((prev) =>
+      prev.includes(key) ? prev : [...prev, key]
+    );
+  };
+
+  const handleConvertSuggestionToBill = (
+    suggestion: RecurringBillSuggestion,
+    overrides?: {
+      title?: string;
+      amount?: number;
+      category?: string;
+      frequency?: 'monthly' | 'daily';
+      dayOfMonth?: number;
+      categorizeMatchingTransactions?: boolean;
+    }
+  ) => {
+    const targetCategory =
+      overrides?.category?.trim() || suggestion.suggestedCategory;
+    if (
+      overrides?.categorizeMatchingTransactions !== false &&
+      targetCategory !== 'Այլ' &&
+      onAutoCategorizeTransactions &&
+      suggestion.matchingTransactionIds.length > 0
+    ) {
+      onAutoCategorizeTransactions(
+        suggestion.matchingTransactionIds.map((id) => ({
+          id,
+          category: targetCategory,
+        }))
+      );
+    }
+    onAddRecurringBill(
+      buildRecurringBillFromSuggestion(suggestion, {
+        ...overrides,
+        category: targetCategory,
+      })
+    );
+  };
+
+  const handleOpenSuggestionInBills = (suggestion: RecurringBillSuggestion) => {
+    setPrefillBillSuggestion(suggestion);
+    onSelectPage('bills');
+  };
 
   // Idle-prefetch all finance sub-page chunks for instant tab switches
   useEffect(() => {
@@ -233,6 +303,7 @@ export const FinanceView = memo(function FinanceView({
       void loadGoalsPage();
       void loadDebtsPage();
       void loadAnalyticsPage();
+      void loadSpendingTrendLineCard();
     };
     const win = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
@@ -280,6 +351,29 @@ export const FinanceView = memo(function FinanceView({
         todayISO
       ),
     [transactions, selectedMonth, effectivePayday, todayISO]
+  );
+
+  const currentCycleForecast = useMemo(
+    () =>
+      computeBudgetForecast({
+        budgets,
+        transactions,
+        effectivePayday,
+        todayISO,
+      }),
+    [budgets, transactions, effectivePayday, todayISO]
+  );
+
+  const selectedCycleForecast = useMemo(
+    () =>
+      computeBudgetForecast({
+        budgets,
+        transactions,
+        effectivePayday,
+        todayISO,
+        cycleKey: selectedMonth,
+      }),
+    [budgets, transactions, effectivePayday, todayISO, selectedMonth]
   );
 
   const {
@@ -735,6 +829,107 @@ export const FinanceView = memo(function FinanceView({
         ariaLabel="Ֆինանսների ենթաբաժիններ"
       />
 
+      {/* Cycle Summary Card */}
+      <section
+        aria-label="Ընտրված ցիկլի ֆինանսական ամփոփում"
+        className="surface-card overflow-hidden"
+      >
+        <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0]/80 dark:border-[#1B2538] flex flex-wrap items-center justify-between gap-2.5">
+          <div className="min-w-0">
+            <h2 className="font-display text-sm sm:text-[15px] font-semibold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
+              Ցիկլի ֆինանսական ամփոփում
+            </h2>
+            <p className="text-[11px] sm:text-xs text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+              {cycleLabel} · {monthTransactions.length} գործարք
+            </p>
+          </div>
+          <MonthCycleNav
+            selectedMonth={selectedMonth}
+            payday={effectivePayday}
+            onShiftMonth={handleShiftMonth}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0]/80 dark:divide-[#1B2538]">
+          <div className="px-4 sm:px-6 py-4 min-w-0">
+            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
+              Ընդհանուր եկամուտ
+            </p>
+            <p className="mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive text-emerald-600 dark:text-emerald-400 truncate">
+              +{formatMoney(totalIncome, currency)}
+            </p>
+            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+              {incomeDeltaPct !== null
+                ? `${incomeDeltaPct >= 0 ? '+' : ''}${incomeDeltaPct}% նախորդ ցիկլից`
+                : 'Հաստատված մուտքեր'}
+            </p>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 min-w-0">
+            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
+              Ընդհանուր ծախսեր
+            </p>
+            <p className="mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive text-rose-600 dark:text-rose-400 truncate">
+              -{formatMoney(totalExpense, currency)}
+            </p>
+            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+              {cyclePendingExpense > 0
+                ? `Նախածախս՝ ${formatMoney(cyclePendingExpense, currency)}`
+                : expenseDeltaPct !== null
+                  ? `${expenseDeltaPct >= 0 ? '+' : ''}${expenseDeltaPct}% նախորդ ցիկլից`
+                  : 'Փաստացի ծախսեր'}
+            </p>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 min-w-0">
+            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
+              Զուտ խնայողություն
+            </p>
+            <p
+              className={`mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive truncate ${
+                netSavings > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : netSavings < 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-[#0F172A] dark:text-[#F8FAFC]'
+              }`}
+            >
+              {netSavings > 0 ? '+' : ''}
+              {formatMoney(netSavings, currency)}
+            </p>
+            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+              {savingsPct !== null
+                ? netSavings >= 0
+                  ? `Խնայողության մակարդակ՝ ${savingsPct}%`
+                  : `Եկամտից ${Math.abs(savingsPct)}% գերծախս`
+                : 'Եկամուտների և ծախսերի տարբերություն'}
+            </p>
+          </div>
+        </div>
+
+        <BudgetForecastWarningStrip
+          forecast={currentCycleForecast}
+          currency={currency}
+          showNavigateButton={activePage !== 'budgets'}
+          onOpenBudgetsPage={() => onSelectPage('budgets')}
+        />
+      </section>
+
+      {activePage === 'ledger' && (
+        <Suspense
+          fallback={
+            <div className="surface-card h-[300px] skeleton-shimmer rounded-2xl" />
+          }
+        >
+          <SpendingTrendLineCard
+            selectedMonth={selectedMonth}
+            effectivePayday={effectivePayday}
+            currency={currency}
+            transactions={transactions}
+          />
+        </Suspense>
+      )}
+
       <input
         ref={fileInputRef}
         type="file"
@@ -797,6 +992,10 @@ export const FinanceView = memo(function FinanceView({
                 isCurrentCycle={cycleMetrics.isCurrentCycle}
                 primaryIncome={primaryIncome}
                 onManualCreditPrimaryIncome={onManualCreditPrimaryIncome}
+                billSuggestions={billSuggestions}
+                onConvertSuggestionToBill={handleConvertSuggestionToBill}
+                onOpenSuggestionInBills={handleOpenSuggestionInBills}
+                onDismissBillSuggestion={handleDismissBillSuggestion}
               />
             )}
 
@@ -844,6 +1043,7 @@ export const FinanceView = memo(function FinanceView({
                 safeToSpend={safeToSpend}
                 budgets={budgets}
                 expenseByCategory={expenseByCategory}
+                budgetForecast={selectedCycleForecast}
                 onSaveBudget={onSaveBudget}
                 onDeleteBudget={onDeleteBudget}
               />
@@ -868,6 +1068,11 @@ export const FinanceView = memo(function FinanceView({
                 currentHHMM={currentHHMM}
                 monthTransactions={monthTransactions}
                 onAddTransaction={onAddTransaction}
+                billSuggestions={billSuggestions}
+                prefillSuggestion={prefillBillSuggestion}
+                onConsumePrefillSuggestion={() => setPrefillBillSuggestion(null)}
+                onConvertSuggestionToBill={handleConvertSuggestionToBill}
+                onDismissBillSuggestion={handleDismissBillSuggestion}
               />
             )}
 

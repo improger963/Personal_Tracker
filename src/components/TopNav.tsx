@@ -21,6 +21,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  Flame,
   HandCoins,
   LayoutDashboard,
   LogOut,
@@ -38,7 +39,6 @@ import {
   Search,
   SkipForward,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Sun,
   Target,
@@ -48,6 +48,7 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
+import { BrandMark } from './BrandMark';
 import {
   AppNotificationItem,
   Currency,
@@ -173,7 +174,7 @@ const PLANNER_SIDEBAR_ITEMS: {
   icon: typeof CheckSquare;
 }[] = [
   { id: 'tasks', label: 'Անելիքներ', icon: CheckSquare },
-  { id: 'habits', label: 'Սովորություններ', icon: Sparkles },
+  { id: 'habits', label: 'Սովորություններ', icon: Flame },
   { id: 'focus', label: 'Ֆոկուս թայմեր', icon: Timer },
 ];
 
@@ -389,7 +390,7 @@ export const TopNav = memo(function TopNav({
       {/* Desktop Left Workspace Rail (lg+) */}
       <aside
         aria-label="Աշխատանքային վահանակ"
-        className="hidden lg:flex lg:flex-col lg:justify-between lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto scroll-container border-r border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0C1220] px-3.5 py-5"
+        className="hidden lg:flex lg:flex-col lg:justify-between lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto scroll-container border-r border-[#E2E8F0]/85 dark:border-[#1B2538] bg-white dark:bg-[#0B111E] px-3.5 py-5"
       >
         <div className="space-y-5">
           <button
@@ -397,11 +398,11 @@ export const TopNav = memo(function TopNav({
             onClick={() => onSelectTab('overview')}
             className="w-full flex items-center gap-3 px-2 py-1 text-left cursor-pointer group"
           >
-            <span className="w-9 h-9 rounded-xl bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] flex items-center justify-center shadow-xs shrink-0 group-hover:scale-[1.03] transition-transform">
-              <Sparkles className="w-4 h-4" strokeWidth={2.2} />
+            <span className="w-9 h-9 rounded-xl bg-[#0F172A] dark:bg-[#1D4ED8] text-white flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] shrink-0 group-hover:scale-[1.03] transition-transform duration-150">
+              <BrandMark className="w-4.5 h-4.5" />
             </span>
             <span className="min-w-0">
-              <span className="block font-display text-base font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
+              <span className="block font-display text-[15px] font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
                 Անձնական Օգնական
               </span>
               <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
@@ -420,20 +421,17 @@ export const TopNav = memo(function TopNav({
                 onSelectFinancePage('ledger');
               }
             }}
-            className="p-3 rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E] border border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer space-y-1 group select-none"
+            className="p-3.5 rounded-xl bg-[#F8FAFC] dark:bg-[#101829] border border-[#E2E8F0]/90 dark:border-[#1B2538] hover:border-[#2563EB]/60 dark:hover:border-[#3B82F6]/60 transition-colors duration-150 cursor-pointer space-y-1.5 group select-none"
             title="Անցնել Ֆինանսական մատյան"
           >
             <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Իրական բալանս</span>
-              </span>
-              <span className="font-semibold text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
+              <span className="font-medium">Իրական բալանս</span>
+              <span className="font-semibold text-[#1D4ED8] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
                 <span>Մատյան</span>
                 <ArrowRight className="w-3 h-3" />
               </span>
             </div>
-            <p className="pa-sensitive font-mono text-lg font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+            <p className="pa-sensitive font-mono text-lg font-semibold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
               {formatMoney(totalBalance, currency)}
             </p>
           </div>
@@ -444,10 +442,10 @@ export const TopNav = memo(function TopNav({
               <button
                 type="button"
                 onClick={() => onSelectTab('overview')}
-                className={`relative w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                className={`relative w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
                   activeTab === 'overview'
-                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                 }`}
               >
                 <LayoutDashboard
@@ -460,7 +458,7 @@ export const TopNav = memo(function TopNav({
 
             {/* Finance Group */}
             <div className="space-y-1">
-              <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B]">
+              <p className="px-3 text-[11px] font-medium text-[#94A3B8] dark:text-[#64748B]">
                 Ֆինանսներ
               </p>
               <div className="space-y-0.5">
@@ -474,10 +472,10 @@ export const TopNav = memo(function TopNav({
                       type="button"
                       onClick={() => onSelectFinancePage(item.id)}
                       aria-current={isActive ? 'page' : undefined}
-                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
                         isActive
-                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                       }`}
                     >
                       <Icon
@@ -493,7 +491,7 @@ export const TopNav = memo(function TopNav({
 
             {/* Planner Group */}
             <div className="space-y-1">
-              <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B]">
+              <p className="px-3 text-[11px] font-medium text-[#94A3B8] dark:text-[#64748B]">
                 Օրակարգ
               </p>
               <div className="space-y-0.5">
@@ -513,10 +511,10 @@ export const TopNav = memo(function TopNav({
                           ? `${item.label} (${todayCount} այսօրվա անելիք)`
                           : item.label
                       }
-                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors cursor-pointer ${
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors duration-150 cursor-pointer ${
                         isActive
-                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                       }`}
                     >
                       <span className="flex items-center gap-2.5 min-w-0">
@@ -527,7 +525,7 @@ export const TopNav = memo(function TopNav({
                         <span className="text-[13px] truncate">{item.label}</span>
                       </span>
                       {showBadge && (
-                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[10px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none shrink-0">
+                        <span className="text-[11px] font-mono font-semibold tabular-nums text-[#1D4ED8] dark:text-[#60A5FA] shrink-0">
                           {todayCount > 99 ? '99+' : todayCount}
                         </span>
                       )}
@@ -542,10 +540,10 @@ export const TopNav = memo(function TopNav({
               <button
                 type="button"
                 onClick={() => onSelectTab('notes')}
-                className={`w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                className={`w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
                   activeTab === 'notes'
-                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                 }`}
               >
                 <NotebookPen
@@ -696,7 +694,7 @@ export const TopNav = memo(function TopNav({
 
       {/* Top Contextual Header + Main Content Column */}
       <div className="flex-1 min-w-0 flex flex-col pb-24 md:pb-12">
-        <header className="h-16 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-white/85 dark:bg-[#0C1220]/85 backdrop-blur-md sticky top-0 z-30">
+        <header className="h-15 sm:h-16 border-b border-[#E2E8F0]/85 dark:border-[#1B2538] bg-white/88 dark:bg-[#0B111E]/88 backdrop-blur-md sticky top-0 z-30">
           <div className="max-w-6xl mx-auto h-full px-3.5 sm:px-6 lg:px-8 flex items-center justify-between gap-3">
             {/* Left: Mobile/Tablet Brand OR Desktop Active Context */}
             <div className="flex items-center gap-2.5 min-w-0">
@@ -705,8 +703,8 @@ export const TopNav = memo(function TopNav({
                 onClick={() => onSelectTab('overview')}
                 className="lg:hidden flex items-center gap-2.5 min-w-0 cursor-pointer"
               >
-                <span className="w-8 h-8 rounded-xl bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4" strokeWidth={2.2} />
+                <span className="w-8 h-8 rounded-xl bg-[#0F172A] dark:bg-[#1D4ED8] text-white flex items-center justify-center shrink-0">
+                  <BrandMark className="w-4 h-4" />
                 </span>
                 <span className="font-display text-base font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
                   Անձնական Օգնական
@@ -762,7 +760,7 @@ export const TopNav = memo(function TopNav({
                     )}
                     <span className="relative z-10">{item.label}</span>
                     {showBadge && (
-                      <span className="relative z-10 min-w-[18px] h-[18px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[10px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none">
+                      <span className="relative z-10 text-[11px] font-mono font-semibold tabular-nums text-[#1D4ED8] dark:text-[#60A5FA]">
                         {todayCount > 99 ? '99+' : todayCount}
                       </span>
                     )}
@@ -1566,7 +1564,7 @@ export const TopNav = memo(function TopNav({
                                 <div key={group.title}>
                                   <div className="px-4 py-1.5 bg-[#F8FAFC] dark:bg-[#0B1120]/80 border-y border-[#F1F5F9] dark:border-[#1E293B] flex items-center justify-between">
                                     <span
-                                      className={`text-[10px] font-semibold uppercase tracking-wider ${
+                                      className={`text-[11px] font-semibold ${
                                         group.highlight
                                           ? 'text-rose-600 dark:text-rose-400'
                                           : 'text-[#64748B] dark:text-[#94A3B8]'
@@ -1745,7 +1743,7 @@ export const TopNav = memo(function TopNav({
                                                 </span>
                                                 <div className="min-w-0">
                                                   <p
-                                                    className={`text-[10px] font-bold uppercase tracking-wide ${
+                                                    className={`text-[11px] font-semibold ${
                                                       isExceeded
                                                         ? 'text-rose-600 dark:text-rose-400'
                                                         : 'text-amber-700 dark:text-amber-400'
@@ -2072,9 +2070,9 @@ export const TopNav = memo(function TopNav({
                 onOpenNewModal();
               }}
               aria-label="Նոր գրառում (արագ ավելացում)"
-              className="w-12 h-12 -mt-4 rounded-full bg-gradient-to-tr from-[#2563EB] to-[#38BDF8] dark:from-[#3B82F6] dark:to-[#60A5FA] text-white flex items-center justify-center shadow-lg shadow-blue-500/35 border-[2.5px] border-white dark:border-[#0C1220] active:scale-90 transition-transform cursor-pointer shrink-0"
+              className="w-12 h-12 -mt-4 rounded-full bg-[#0F172A] dark:bg-[#3B82F6] text-white dark:text-[#060B16] flex items-center justify-center shadow-[0_8px_20px_-4px_rgba(15,23,42,0.35)] dark:shadow-[0_8px_20px_-4px_rgba(59,130,246,0.4)] border-[2.5px] border-white dark:border-[#0B111E] active:scale-92 transition-transform duration-150 cursor-pointer shrink-0"
             >
-              <Plus className="w-6 h-6" strokeWidth={2.6} />
+              <Plus className="w-5.5 h-5.5" strokeWidth={2.5} />
             </button>
           </div>
 

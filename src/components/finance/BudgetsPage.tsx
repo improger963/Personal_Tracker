@@ -15,6 +15,8 @@ import {
   formatShortDate,
 } from '../../data/defaults';
 import { SafeToSpendMetrics, clampPayday } from '../../utils/financialCycle';
+import { BudgetForecastSummary } from '../../utils/budgetForecast';
+import { BudgetForecastSection } from './BudgetForecastCard';
 
 interface CycleDayMetrics {
   totalDays: number;
@@ -47,6 +49,7 @@ interface BudgetsPageProps {
   safeToSpend: SafeToSpendMetrics;
   budgets: BudgetLimit[];
   expenseByCategory: Record<string, number>;
+  budgetForecast?: BudgetForecastSummary;
   onSaveBudget: (category: string, limit: number) => void;
   onDeleteBudget: (category: string) => void;
 }
@@ -66,6 +69,7 @@ export function BudgetsPage({
   safeToSpend,
   budgets,
   expenseByCategory,
+  budgetForecast,
   onSaveBudget,
   onDeleteBudget,
 }: BudgetsPageProps) {
@@ -205,6 +209,14 @@ export function BudgetsPage({
           },
         ]}
       />
+
+      {budgetForecast && (
+        <BudgetForecastSection
+          forecast={budgetForecast}
+          currency={currency}
+          cycleLabel={cycleLabel}
+        />
+      )}
 
       {/* Primary Income & Payday Billing Cycle Configuration */}
       <SectionCard

@@ -181,11 +181,15 @@ export function CardsSection({
                 >
                   {/* Visual Card Face */}
                   <div
-                    className={`relative bg-gradient-to-br ${style.gradient} p-4 sm:p-5 flex flex-col justify-between gap-4 shadow-inner`}
+                    className={`relative overflow-hidden bg-gradient-to-br ${style.gradient} p-5 flex flex-col justify-between gap-4 ring-1 ring-inset ring-white/15`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-7 h-7 rounded-lg bg-white/15 backdrop-blur-xs flex items-center justify-center shrink-0">
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -top-12 -right-12 w-40 h-40 rounded-full bg-white/[0.08] blur-2xl"
+                    />
+                    <div className="relative flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="w-8 h-8 rounded-lg bg-white/12 border border-white/15 backdrop-blur-xs flex items-center justify-center shrink-0">
                           {card.cardType === 'cash' ? (
                             <Banknote className="w-4 h-4 text-white" />
                           ) : card.cardType === 'other' ? (
@@ -196,11 +200,11 @@ export function CardsSection({
                         </span>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-white/90">
+                            <span className="text-[11px] font-semibold tracking-wide text-white/85">
                               {typeMeta.shortLabel}
                             </span>
                             {card.isDefault && (
-                              <span className="text-[10px] font-semibold text-white/85">
+                              <span className="text-[11px] font-medium text-white/75">
                                 · Հիմնական
                               </span>
                             )}
@@ -244,23 +248,51 @@ export function CardsSection({
                       </div>
                     </div>
 
-                    <div className="flex items-end justify-between gap-2">
+                    <div className="relative flex items-end justify-between gap-2 pt-1">
                       <div className="min-w-0">
-                        <span className="block text-[10px] uppercase tracking-wider text-white/75">
+                        <span className="block text-[11px] text-white/70">
                           Ընթացիկ բալանս
                         </span>
-                        <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold tabular-nums text-white truncate">
+                        <p className="pa-sensitive mt-0.5 text-xl sm:text-2xl font-mono font-semibold tracking-tight tabular-nums text-white truncate">
                           {formatMoney(currentBalance, currency)}
                         </p>
                       </div>
-                      {card.last4 && (
-                        <span className="text-xs font-mono tracking-widest text-white/85 shrink-0 tabular-nums">
-                          •••• {card.last4}
-                        </span>
-                      )}
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        {card.cardType !== 'cash' && (
+                          <svg
+                            viewBox="0 0 32 24"
+                            className="w-7 h-5 text-amber-200/75"
+                            aria-hidden="true"
+                          >
+                            <rect
+                              x="1"
+                              y="1"
+                              width="30"
+                              height="22"
+                              rx="4"
+                              fill="currentColor"
+                              fillOpacity="0.22"
+                              stroke="currentColor"
+                              strokeOpacity="0.5"
+                              strokeWidth="1.2"
+                            />
+                            <path
+                              d="M1 9h10M21 9h10M1 15h10M21 15h10M11 1v22M21 1v22"
+                              stroke="currentColor"
+                              strokeOpacity="0.45"
+                              strokeWidth="1"
+                            />
+                          </svg>
+                        )}
+                        {card.last4 && (
+                          <span className="text-xs font-mono tracking-widest text-white/85 tabular-nums">
+                            •••• {card.last4}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="pa-sensitive pt-2 border-t border-white/15 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-white/85">
+                    <div className="pa-sensitive relative pt-2.5 border-t border-white/15 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-white/80">
                       <span>Սկիզբ՝ {formatMoney(card.initialBalance, currency)}</span>
                       <div className="flex items-center gap-2">
                         {totalIncome > 0 && (
@@ -279,7 +311,7 @@ export function CardsSection({
                   </div>
 
                   {/* Direct Manual Actions Bar */}
-                  <div className="p-3 flex items-center gap-1.5 bg-[#F8FAFC] dark:bg-[#0B1120]">
+                  <div className="p-3 flex items-center gap-1.5 bg-[#F8FAFC]/80 dark:bg-[#090F1B]">
                     <button
                       type="button"
                       onClick={() => onQuickCardIncome(card.id)}
