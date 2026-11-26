@@ -6,6 +6,8 @@ export type Currency = 'AMD';
 
 export type NavSection = 'overview' | 'finance' | 'planner' | 'notes';
 
+export type PlannerPageTab = 'tasks' | 'habits' | 'focus';
+
 export type TaskPriority = 'low' | 'medium' | 'high';
 
 export type TaskScheduleType = 'one_time' | 'daily' | 'recurring' | 'weekdays';

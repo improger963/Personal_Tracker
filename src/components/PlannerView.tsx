@@ -7,22 +7,32 @@ import {
   CalendarDays,
   Check,
   CheckSquare,
+  Clock,
   Flame,
   Pencil,
   Plus,
   Repeat,
   Search,
   Sparkles,
+  Timer,
   Trash2,
 } from 'lucide-react';
+import {
+  MetricStrip,
+  PageHeader,
+  PageShell,
+  SectionCard,
+  SubPageTabs,
+} from './layout/PagePrimitives';
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { FocusTimerCard } from './FocusTimerCard';
-import { scrollToTopInstant, scrollToTopSmooth } from '../utils/scroll';
+import { scrollToTopInstant } from '../utils/scroll';
 import {
   FocusGoal,
   FocusSession,
   Habit,
   NotificationSettings,
+  PlannerPageTab,
   Task,
   TaskPriority,
   TaskScheduleType,
@@ -45,6 +55,8 @@ import {
 } from '../utils/taskSchedule';
 
 interface PlannerViewProps {
+  activePage: PlannerPageTab;
+  onSelectPage: (page: PlannerPageTab) => void;
   tasks: Task[];
   onAddTask?: (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => void;
   onOpenNewTaskModal: () => void;
@@ -63,7 +75,9 @@ interface PlannerViewProps {
   soundEnabled: boolean;
   browserNotifications: boolean;
   notificationSettings?: NotificationSettings;
-  onCompleteFocusSession: (session: Omit<FocusSession, 'id' | 'completedAt'>) => void;
+  onCompleteFocusSession: (
+    session: Omit<FocusSession, 'id' | 'completedAt'>
+  ) => void;
 }
 
 type TaskSortMode = 'priority-desc' | 'priority-asc' | 'date-asc' | 'newest';
@@ -124,6 +138,8 @@ function calculateStreak(completedDates: string[], daysList: string[]): number {
 }
 
 export const PlannerView = memo(function PlannerView({
+  activePage,
+  onSelectPage,
   tasks,
   onAddTask,
   onOpenNewTaskModal,
@@ -145,7 +161,6 @@ export const PlannerView = memo(function PlannerView({
   onCompleteFocusSession,
 }: PlannerViewProps) {
   const prefersReducedMotion = useReducedMotion();
-  const [subTab, setSubTab] = useState<'tasks' | 'habits'>('tasks');
 
   // Inline rapid task composer state
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
@@ -169,14 +184,6 @@ export const PlannerView = memo(function PlannerView({
     setQuickTaskTime('');
   };
 
-  const handleSelectSubTab = (next: 'tasks' | 'habits') => {
-    if (next === subTab) {
-      scrollToTopSmooth();
-      return;
-    }
-    setSubTab(next);
-  };
-
   // Task filter & sort state
   const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [scope, setScope] = useState<TaskScopeMode>('all');
@@ -194,22 +201,60 @@ export const PlannerView = memo(function PlannerView({
     completedOneTimeCount,
     activeCount,
     overdueCount,
+    repeatingCount,
   } = useMemo(() => {
     let doneToday = 0;
     let doneOneTime = 0;
     let overdue = 0;
+    let repeating = 0;
     for (const t of tasks) {
       if (isTaskCompletedOnDate(t, todayISO)) doneToday++;
       if (t.completed && !isTaskRepeating(t)) doneOneTime++;
       if (isTaskOverdue(t, todayISO)) overdue++;
+      if (isTaskRepeating(t)) repeating++;
     }
     return {
       completedCount: doneToday,
       completedOneTimeCount: doneOneTime,
       activeCount: tasks.length - doneToday,
       overdueCount: overdue,
+      repeatingCount: repeating,
     };
   }, [tasks, todayISO]);
+
+  const { habitsDoneToday, weeklyRatePct, bestStreak } = useMemo(() => {
+    if (habits.length === 0) {
+      return { habitsDoneToday: 0, weeklyRatePct: 0, bestStreak: 0 };
+    }
+    let doneToday = 0;
+    let weeklyChecks = 0;
+    let maxStreak = 0;
+    const dateList = last7Days.map((d) => d.date);
+    for (const h of habits) {
+      if (h.completedDates.includes(todayISO)) doneToday++;
+      weeklyChecks += dateList.filter((d) => h.completedDates.includes(d)).length;
+      const streak = calculateStreak(h.completedDates, dateList);
+      if (streak > maxStreak) maxStreak = streak;
+    }
+    return {
+      habitsDoneToday: doneToday,
+      weeklyRatePct: Math.round((weeklyChecks / (habits.length * 7)) * 100),
+      bestStreak: maxStreak,
+    };
+  }, [habits, last7Days, todayISO]);
+
+  const { todayFocusMinutes, weekFocusMinutes } = useMemo(() => {
+    const weekSet = new Set(last7Days.map((d) => d.date));
+    let todayMin = 0;
+    let weekMin = 0;
+    for (const s of focusSessions) {
+      if (s.mode !== 'focus') continue;
+      const d = s.completedAt.slice(0, 10);
+      if (d === todayISO) todayMin += s.minutes;
+      if (weekSet.has(d)) weekMin += s.minutes;
+    }
+    return { todayFocusMinutes: todayMin, weekFocusMinutes: weekMin };
+  }, [focusSessions, last7Days, todayISO]);
 
   const filteredTasks = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -271,68 +316,43 @@ export const PlannerView = memo(function PlannerView({
     scheduleFilter !== 'all' ||
     Boolean(searchQuery);
 
+  const mobileTabItems = useMemo(
+    () => [
+      {
+        id: 'tasks' as const,
+        label: 'Անելիքներ',
+        icon: CheckSquare,
+        count: activeCount,
+      },
+      {
+        id: 'habits' as const,
+        label: 'Սովորություններ',
+        icon: Sparkles,
+        count: habits.length,
+      },
+      {
+        id: 'focus' as const,
+        label: 'Ֆոկուս և սեսիաներ',
+        icon: Timer,
+        count: focusSessions.length,
+      },
+    ],
+    [activeCount, habits.length, focusSessions.length]
+  );
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC]">
-            Պլանավորող և սովորություններ
-          </h1>
-          <p className="text-sm text-[#64748B] dark:text-[#94A3B8] tabular-nums">
-            {activeCount} ընթացիկ անելիք · {habits.length} ամենօրյա սովորություն
-            {overdueCount > 0 && (
-              <span className="text-rose-600 dark:text-rose-400 font-medium">
-                {' '}
-                · {overdueCount} ժամկետանց
-              </span>
-            )}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
-          <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
-            <button
-              type="button"
-              onClick={() => handleSelectSubTab('tasks')}
-              className={`min-h-[38px] px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                subTab === 'tasks'
-                  ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                  : 'text-[#64748B] dark:text-[#94A3B8]'
-              }`}
-            >
-              Անելիքներ
-            </button>
-            <button
-              type="button"
-              onClick={() => handleSelectSubTab('habits')}
-              className={`min-h-[38px] px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                subTab === 'habits'
-                  ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                  : 'text-[#64748B] dark:text-[#94A3B8]'
-              }`}
-            >
-              Սովորություններ
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={
-              subTab === 'tasks' ? onOpenNewTaskModal : onOpenNewHabitModal
-            }
-            className="min-h-[40px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-          >
-            <Plus className="w-4 h-4 shrink-0" />
-            <span>
-              {subTab === 'tasks' ? 'Նոր անելիք' : 'Նոր սովորություն'}
-            </span>
-          </button>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <SubPageTabs
+        mobileOnly
+        items={mobileTabItems}
+        activeId={activePage}
+        onSelect={onSelectPage}
+        ariaLabel="Օրակարգի ենթաբաժիններ"
+      />
 
       <AnimatePresence mode="wait" onExitComplete={scrollToTopInstant}>
         <motion.div
-          key={subTab}
+          key={activePage}
           initial={
             prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.996 }
           }
@@ -344,314 +364,350 @@ export const PlannerView = memo(function PlannerView({
             duration: prefersReducedMotion ? 0.04 : 0.18,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="space-y-6"
           style={{ willChange: 'transform, opacity' }}
         >
-          {/* TASKS TAB */}
-          {subTab === 'tasks' && (
-            <>
-              <FocusTimerCard
-                tasks={tasks}
-                focusGoal={focusGoal}
-                focusSessions={focusSessions}
-                soundEnabled={soundEnabled}
-                browserNotifications={browserNotifications}
-                notificationSettings={notificationSettings}
-                onCompleteSession={onCompleteFocusSession}
+          {/* PAGE 1: TASKS */}
+          {activePage === 'tasks' && (
+            <PageShell>
+              <PageHeader
+                title="Անելիքներ և ժամանակացույց"
+                subtitle={`${activeCount} ընթացիկ անելիք · ${overdueCount} ժամկետանց`}
+                actions={
+                  <button
+                    type="button"
+                    onClick={onOpenNewTaskModal}
+                    className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>Նոր անելիք</span>
+                  </button>
+                }
               />
 
-              <section className="surface-card overflow-hidden">
-              {onAddTask && (
-                <form
-                  onSubmit={handleQuickTaskSubmit}
-                  className="px-4 sm:px-6 py-3 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col sm:flex-row sm:items-center gap-2"
-                >
-                  <div className="flex-1 min-w-0 flex items-center gap-2">
-                    <Plus
-                      className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0"
-                      aria-hidden="true"
-                    />
-                    <input
-                      type="text"
-                      value={quickTaskTitle}
-                      onChange={(e) => setQuickTaskTitle(e.target.value)}
-                      placeholder="Արագ ավելացնել այսօրվա անելիքը (Enter)..."
-                      aria-label="Արագ ավելացնել անելիք"
-                      className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <select
-                      value={quickTaskPriority}
-                      onChange={(e) =>
-                        setQuickTaskPriority(e.target.value as TaskPriority)
-                      }
-                      aria-label="Անելիքի առաջնահերթություն"
-                      className="min-h-[38px] px-2.5 py-1.5 text-xs rounded-xl input-field cursor-pointer"
-                    >
-                      <option value="high">Կարևոր</option>
-                      <option value="medium">Միջին</option>
-                      <option value="low">Սովորական</option>
-                    </select>
-                    <input
-                      type="time"
-                      value={quickTaskTime}
-                      onChange={(e) => setQuickTaskTime(e.target.value)}
-                      aria-label="Հիշեցման ժամ"
-                      title="Ոչ պարտադիր ժամ"
-                      className="min-h-[38px] px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-xl input-field"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!quickTaskTitle.trim()}
-                      className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs font-semibold disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
-                    >
-                      Ավելացնել
-                    </button>
-                  </div>
-                </form>
-              )}
+              <MetricStrip
+                items={[
+                  {
+                    id: 'active',
+                    label: 'Ընթացիկ անելիքներ',
+                    value: String(activeCount),
+                    hint: `Ընդամենը՝ ${tasks.length}`,
+                  },
+                  {
+                    id: 'done-today',
+                    label: 'Կատարված այսօր',
+                    value: String(completedCount),
+                    tone: completedCount > 0 ? 'positive' : 'default',
+                  },
+                  {
+                    id: 'overdue',
+                    label: 'Ժամկետանց',
+                    value: String(overdueCount),
+                    tone: overdueCount > 0 ? 'negative' : 'default',
+                  },
+                  {
+                    id: 'repeating',
+                    label: 'Կրկնվող գրաֆիկ',
+                    value: String(repeatingCount),
+                    tone: 'accent',
+                    action: {
+                      label: 'Ֆոկուս →',
+                      onClick: () => onSelectPage('focus'),
+                    },
+                  },
+                ]}
+              />
 
-              <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-3">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
-                      {(
-                        [
-                          { id: 'all', label: 'Բոլորը' },
-                          { id: 'active', label: 'Ընթացիկ' },
-                          { id: 'completed', label: 'Կատարված' },
-                        ] as const
-                      ).map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setFilter(tab.id)}
-                          className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            filter === tab.id
-                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                              : 'text-[#64748B] dark:text-[#94A3B8]'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
-                      {(
-                        [
-                          { id: 'all', label: 'Ամբողջը' },
-                          { id: 'today', label: 'Այսօր' },
-                          { id: 'upcoming', label: 'Առաջիկա' },
-                          { id: 'overdue', label: 'Ժամկետանց' },
-                        ] as const
-                      ).map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setScope(item.id)}
-                          className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            scope === item.id
-                              ? 'bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] font-semibold shadow-xs'
-                              : item.id === 'overdue' && overdueCount > 0
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : 'text-[#64748B] dark:text-[#94A3B8]'
-                          }`}
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative flex-1 sm:flex-none sm:w-52 min-w-[160px]">
-                      <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <SectionCard noPadding>
+                {onAddTask && (
+                  <form
+                    onSubmit={handleQuickTaskSubmit}
+                    className="px-4 sm:px-6 py-3 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col sm:flex-row sm:items-center gap-2"
+                  >
+                    <div className="flex-1 min-w-0 flex items-center gap-2">
+                      <Plus
+                        className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0"
+                        aria-hidden="true"
+                      />
                       <input
                         type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Որոնել անելիք..."
-                        className="w-full min-h-[38px] pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-xl input-field"
+                        value={quickTaskTitle}
+                        onChange={(e) => setQuickTaskTitle(e.target.value)}
+                        placeholder="Արագ ավելացնել այսօրվա անելիքը (Enter)..."
+                        aria-label="Արագ ավելացնել անելիք"
+                        className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
                       />
                     </div>
-
-                    {completedOneTimeCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={onClearCompleted}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        value={quickTaskPriority}
+                        onChange={(e) =>
+                          setQuickTaskPriority(e.target.value as TaskPriority)
+                        }
+                        aria-label="Անելիքի առաջնահերթություն"
+                        className="min-h-[38px] px-2.5 py-1.5 text-xs rounded-xl input-field cursor-pointer"
                       >
-                        Մաքրել կատարվածները
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle max-w-full">
-                    <button
-                      type="button"
-                      onClick={() => setScheduleFilter('all')}
-                      className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                        scheduleFilter === 'all'
-                          ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                          : 'text-[#64748B] dark:text-[#94A3B8]'
-                      }`}
-                    >
-                      Բոլոր տեսակները
-                    </button>
-                    {TASK_SCHEDULE_OPTIONS.map((opt) => (
+                        <option value="high">Կարևոր</option>
+                        <option value="medium">Միջին</option>
+                        <option value="low">Սովորական</option>
+                      </select>
+                      <input
+                        type="time"
+                        value={quickTaskTime}
+                        onChange={(e) => setQuickTaskTime(e.target.value)}
+                        aria-label="Հիշեցման ժամ"
+                        title="Ոչ պարտադիր ժամ"
+                        className="min-h-[38px] px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-xl input-field"
+                      />
                       <button
-                        key={opt.id}
+                        type="submit"
+                        disabled={!quickTaskTitle.trim()}
+                        className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs font-semibold disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+                      >
+                        Ավելացնել
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-3">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
+                        {(
+                          [
+                            { id: 'all', label: 'Բոլորը' },
+                            { id: 'active', label: 'Ընթացիկ' },
+                            { id: 'completed', label: 'Կատարված' },
+                          ] as const
+                        ).map((tab) => (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setFilter(tab.id)}
+                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                              filter === tab.id
+                                ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                                : 'text-[#64748B] dark:text-[#94A3B8]'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
+                        {(
+                          [
+                            { id: 'all', label: 'Ամբողջը' },
+                            { id: 'today', label: 'Այսօր' },
+                            { id: 'upcoming', label: 'Առաջիկա' },
+                            { id: 'overdue', label: 'Ժամկետանց' },
+                          ] as const
+                        ).map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setScope(item.id)}
+                            className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                              scope === item.id
+                                ? 'bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] font-semibold shadow-xs'
+                                : item.id === 'overdue' && overdueCount > 0
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : 'text-[#64748B] dark:text-[#94A3B8]'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="relative flex-1 sm:flex-none sm:w-52 min-w-[160px]">
+                        <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Որոնել անելիք..."
+                          className="w-full min-h-[38px] pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-xl input-field"
+                        />
+                      </div>
+
+                      {completedOneTimeCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={onClearCompleted}
+                          className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          Մաքրել կատարվածները
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle max-w-full">
+                      <button
                         type="button"
-                        onClick={() => setScheduleFilter(opt.id)}
+                        onClick={() => setScheduleFilter('all')}
                         className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                          scheduleFilter === opt.id
+                          scheduleFilter === 'all'
                             ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
                             : 'text-[#64748B] dark:text-[#94A3B8]'
                         }`}
                       >
-                        {opt.shortLabel}
+                        Բոլոր տեսակները
                       </button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94A3B8]">
-                      <ArrowUpDown className="w-3.5 h-3.5" aria-hidden="true" />
-                      <span>Տեսակավորել․</span>
-                    </span>
-                    <div
-                      className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle max-w-full"
-                      role="group"
-                      aria-label="Անելիքների տեսակավորում"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSortBy('priority-desc')}
-                        aria-pressed={sortBy === 'priority-desc'}
-                        className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
-                          sortBy === 'priority-desc'
-                            ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                            : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                        }`}
-                      >
-                        <ArrowDown className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                        <span>Կարևորից</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortBy('priority-asc')}
-                        aria-pressed={sortBy === 'priority-asc'}
-                        className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
-                          sortBy === 'priority-asc'
-                            ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                            : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                        }`}
-                      >
-                        <ArrowUp className="w-3 h-3" />
-                        <span>Սովորականից</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortBy('date-asc')}
-                        aria-pressed={sortBy === 'date-asc'}
-                        className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                          sortBy === 'date-asc'
-                            ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                            : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                        }`}
-                      >
-                        Ըստ ժամկետի
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSortBy('newest')}
-                        aria-pressed={sortBy === 'newest'}
-                        className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                          sortBy === 'newest'
-                            ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                            : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                        }`}
-                      >
-                        Նորերը
-                      </button>
+                      {TASK_SCHEDULE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setScheduleFilter(opt.id)}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            scheduleFilter === opt.id
+                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                              : 'text-[#64748B] dark:text-[#94A3B8]'
+                          }`}
+                        >
+                          {opt.shortLabel}
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                </div>
-              </div>
 
-              {filteredTasks.length === 0 ? (
-                <div className="p-5 sm:p-6">
-                  <EmptyStatePlaceholder
-                    icon={CheckSquare}
-                    title={
-                      tasks.length === 0
-                        ? 'Դեռ անելիքներ չկան'
-                        : 'Ընտրված զտիչներով անելիքներ չեն գտնվել'
-                    }
-                    description={
-                      tasks.length === 0
-                        ? 'Ավելացրեք ձեր առաջին միանգամյա կամ կրկնվող անելիքը մեկ հպումով։'
-                        : 'Փորձեք մաքրել զտիչները կամ փոխել որոնման բառը։'
-                    }
-                    actionLabel={
-                      hasTaskFilters
-                        ? 'Մաքրել զտիչները'
-                        : '+ Ավելացնել անելիք'
-                    }
-                    onAction={
-                      hasTaskFilters
-                        ? () => {
-                            setFilter('all');
-                            setScope('all');
-                            setScheduleFilter('all');
-                            setSearchQuery('');
-                          }
-                        : onOpenNewTaskModal
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
-                  {filteredTasks.map((task) => {
-                    const taskPriority = task.priority ?? 'medium';
-                    const priorityMeta =
-                      PRIORITY_OPTIONS.find((p) => p.id === taskPriority) ??
-                      PRIORITY_OPTIONS[1];
-                    const schedule = getTaskScheduleType(task);
-                    const repeating = isTaskRepeating(task);
-                    const doneToday = isTaskCompletedOnDate(task, todayISO);
-                    const dueToday = isTaskDueOnDate(task, todayISO);
-                    const nextDue = getTaskNextDueDate(task, todayISO);
-                    const isOverdue = isTaskOverdue(task, todayISO);
-
-                    return (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94A3B8]">
+                        <ArrowUpDown className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Տեսակավորել․</span>
+                      </span>
                       <div
-                        key={task.id}
-                        className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors"
+                        className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle max-w-full"
+                        role="group"
+                        aria-label="Անելիքների տեսակավորում"
                       >
                         <button
                           type="button"
-                          onClick={() => onToggleTask(task.id)}
-                          className="flex-1 min-w-0 min-h-[44px] flex items-center gap-3.5 text-left cursor-pointer"
+                          onClick={() => setSortBy('priority-desc')}
+                          aria-pressed={sortBy === 'priority-desc'}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
+                            sortBy === 'priority-desc'
+                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                          }`}
                         >
-                          <span
-                            className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
-                              doneToday
-                                ? 'bg-[#2563EB] border-[#2563EB] dark:bg-[#3B82F6] dark:border-[#3B82F6] text-white dark:text-[#060B16]'
-                                : 'border-[#CBD5E1] dark:border-[#334155]'
-                            }`}
-                          >
-                            {doneToday && (
-                              <Check className="w-3 h-3" strokeWidth={2.7} />
-                            )}
-                          </span>
+                          <ArrowDown className="w-3 h-3 text-rose-600 dark:text-rose-400" />
+                          <span>Կարևորից</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSortBy('priority-asc')}
+                          aria-pressed={sortBy === 'priority-asc'}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
+                            sortBy === 'priority-asc'
+                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                          }`}
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                          <span>Սովորականից</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSortBy('date-asc')}
+                          aria-pressed={sortBy === 'date-asc'}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            sortBy === 'date-asc'
+                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                          }`}
+                        >
+                          Ըստ ժամկետի
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSortBy('newest')}
+                          aria-pressed={sortBy === 'newest'}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            sortBy === 'newest'
+                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                          }`}
+                        >
+                          Նորերը
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
+                {filteredTasks.length === 0 ? (
+                  <div className="p-5 sm:p-6">
+                    <EmptyStatePlaceholder
+                      icon={CheckSquare}
+                      title={
+                        tasks.length === 0
+                          ? 'Դեռ անելիքներ չկան'
+                          : 'Ընտրված զտիչներով անելիքներ չեն գտնվել'
+                      }
+                      description={
+                        tasks.length === 0
+                          ? 'Ավելացրեք ձեր առաջին միանգամյա կամ կրկնվող անելիքը մեկ հպումով։'
+                          : 'Փորձեք մաքրել զտիչները կամ փոխել որոնման բառը։'
+                      }
+                      actionLabel={
+                        hasTaskFilters
+                          ? 'Մաքրել զտիչները'
+                          : '+ Ավելացնել անելիք'
+                      }
+                      onAction={
+                        hasTaskFilters
+                          ? () => {
+                              setFilter('all');
+                              setScope('all');
+                              setScheduleFilter('all');
+                              setSearchQuery('');
+                            }
+                          : onOpenNewTaskModal
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                    {filteredTasks.map((task) => {
+                      const taskPriority = task.priority ?? 'medium';
+                      const priorityMeta =
+                        PRIORITY_OPTIONS.find((p) => p.id === taskPriority) ??
+                        PRIORITY_OPTIONS[1];
+                      const schedule = getTaskScheduleType(task);
+                      const repeating = isTaskRepeating(task);
+                      const doneToday = isTaskCompletedOnDate(task, todayISO);
+                      const dueToday = isTaskDueOnDate(task, todayISO);
+                      const nextDue = getTaskNextDueDate(task, todayISO);
+                      const isOverdue = isTaskOverdue(task, todayISO);
+
+                      return (
+                        <div
+                          key={task.id}
+                          className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onToggleTask(task.id)}
+                            className="flex-1 min-w-0 min-h-[44px] flex items-center gap-3.5 text-left cursor-pointer"
+                          >
+                            <span
+                              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                                doneToday
+                                  ? 'bg-[#2563EB] border-[#2563EB] dark:bg-[#3B82F6] dark:border-[#3B82F6] text-white dark:text-[#060B16]'
+                                  : 'border-[#CBD5E1] dark:border-[#334155]'
+                              }`}
+                            >
+                              {doneToday && (
+                                <Check className="w-3 h-3" strokeWidth={2.7} />
+                              )}
+                            </span>
+
+                            <div className="min-w-0 flex-1">
                               <p
                                 className={`text-sm break-words ${
                                   doneToday
@@ -661,260 +717,197 @@ export const PlannerView = memo(function PlannerView({
                               >
                                 {task.title}
                               </p>
-                              <span
-                                className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                                  repeating
-                                    ? 'bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA]'
-                                    : 'bg-[#F1F5F9] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8]'
-                                }`}
-                              >
-                                {schedule === 'weekdays' ? (
-                                  <CalendarDays className="w-2.5 h-2.5" />
-                                ) : repeating ? (
-                                  <Repeat className="w-2.5 h-2.5" />
-                                ) : null}
-                                <span>{getTaskScheduleLabel(task)}</span>
-                              </span>
-                            </div>
-                            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex flex-wrap items-center gap-1.5 mt-0.5 tabular-nums">
-                              <span
-                                className={`inline-flex items-center gap-1.5 ${
-                                  !doneToday ? priorityMeta.textClass : ''
-                                } ${
-                                  !doneToday && taskPriority === 'high'
-                                    ? 'font-semibold'
-                                    : ''
-                                }`}
-                              >
+                              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex flex-wrap items-center gap-1.5 mt-0.5 tabular-nums">
                                 <span
-                                  className={`w-1.5 h-1.5 rounded-full ${priorityMeta.dotClass}`}
-                                  aria-hidden="true"
-                                />
-                                <span>{PRIORITY_LABELS[taskPriority]}</span>
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              {repeating ? (
-                                <span
-                                  className={
-                                    dueToday
-                                      ? 'text-[#2563EB] dark:text-[#60A5FA] font-medium'
+                                  className={`inline-flex items-center gap-1.5 ${
+                                    !doneToday ? priorityMeta.textClass : ''
+                                  } ${
+                                    !doneToday && taskPriority === 'high'
+                                      ? 'font-semibold'
                                       : ''
-                                  }
-                                >
-                                  {dueToday
-                                    ? 'Այսօր'
-                                    : nextDue
-                                      ? `Հաջորդը՝ ${formatShortDate(nextDue)}`
-                                      : `Սկիզբ՝ ${formatShortDate(task.date)}`}
-                                </span>
-                              ) : (
-                                <span
-                                  className={
-                                    isOverdue
-                                      ? 'text-rose-600 dark:text-rose-400 font-medium'
-                                      : ''
-                                  }
-                                >
-                                  {formatShortDate(task.date)}
-                                </span>
-                              )}
-                              {isOverdue && (
-                                <>
-                                  <span aria-hidden="true">·</span>
-                                  <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                                    Ժամկետանց
-                                  </span>
-                                </>
-                              )}
-                              {task.dueTime && (
-                                <>
-                                  <span aria-hidden="true">·</span>
-                                  <span className="font-mono">{task.dueTime}</span>
-                                </>
-                              )}
-                              {doneToday && (
-                                <>
-                                  <span aria-hidden="true">·</span>
-                                  <span className="text-emerald-600 dark:text-emerald-400">
-                                    {repeating ? 'Կատարված է այսօր' : 'Կատարված'}
-                                  </span>
-                                </>
-                              )}
-                            </p>
-                          </div>
-                        </button>
-
-                        <div className="pl-8 sm:pl-0 flex items-center justify-between sm:justify-end gap-1.5 shrink-0">
-                          <select
-                            value={taskPriority}
-                            onChange={(e) =>
-                              onUpdateTaskPriority(
-                                task.id,
-                                e.target.value as TaskPriority
-                              )
-                            }
-                            aria-label={`Փոխել ${task.title} առաջնահերթությունը`}
-                            className="min-h-[34px] px-2.5 py-1 text-xs rounded-lg input-field cursor-pointer"
-                          >
-                            <option value="high">Կարևոր</option>
-                            <option value="medium">Միջին</option>
-                            <option value="low">Սովորական</option>
-                          </select>
-
-                          <button
-                            type="button"
-                            onClick={() => onEditTask(task)}
-                            aria-label={`Խմբագրել ${task.title}`}
-                            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-colors cursor-pointer shrink-0"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => onDeleteTask(task.id)}
-                            aria-label={`Ջնջել ${task.title}`}
-                            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              </section>
-            </>
-          )}
-
-          {/* HABITS TAB */}
-          {subTab === 'habits' && (
-            <section className="surface-card overflow-hidden">
-              {habits.length === 0 ? (
-                <div className="p-5 sm:p-6">
-                  <EmptyStatePlaceholder
-                    icon={Sparkles}
-                    title="Սովորությունների ցանկը դատարկ է"
-                    description="Ստեղծեք ամենօրյա սովորություն և հետևեք շաբաթական առաջընթացին։"
-                    actionLabel="+ Ավելացնել սովորություն"
-                    onAction={onOpenNewHabitModal}
-                  />
-                </div>
-              ) : (
-                <>
-                  {/* Mobile Card Layout */}
-                  <div className="sm:hidden divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
-                    {habits.map((habit) => {
-                      const streak = calculateStreak(
-                        habit.completedDates,
-                        last7Days.map((d) => d.date)
-                      );
-                      const weeklyDone = last7Days.filter((d) =>
-                        habit.completedDates.includes(d.date)
-                      ).length;
-
-                      return (
-                        <div key={habit.id} className="p-4 space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] break-words">
-                                {habit.title}
-                              </p>
-                              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums mt-0.5">
-                                <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                <span>Սերիա՝ {streak} օր</span>
-                                <span aria-hidden="true">·</span>
-                                <span>{weeklyDone}/7 այս շաբաթ</span>
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => onEditHabit(habit)}
-                                aria-label={`Խմբագրել ${habit.title}`}
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteHabit(habit.id)}
-                                aria-label={`Ջնջել ${habit.title}`}
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-7 gap-1 text-center">
-                            {last7Days.map((d) => {
-                              const done = habit.completedDates.includes(d.date);
-                              return (
-                                <div
-                                  key={d.date}
-                                  className="flex flex-col items-center gap-1.5"
+                                  }`}
                                 >
                                   <span
-                                    className={`text-[10px] leading-tight ${
-                                      d.date === todayISO
-                                        ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
-                                        : 'text-[#64748B] dark:text-[#94A3B8]'
-                                    }`}
+                                    className={`w-1.5 h-1.5 rounded-full ${priorityMeta.dotClass}`}
+                                    aria-hidden="true"
+                                  />
+                                  <span>{PRIORITY_LABELS[taskPriority]}</span>
+                                </span>
+                                <span aria-hidden="true">·</span>
+                                <span
+                                  className={`inline-flex items-center gap-1 ${
+                                    repeating
+                                      ? 'text-[#2563EB] dark:text-[#60A5FA] font-medium'
+                                      : ''
+                                  }`}
+                                >
+                                  {schedule === 'weekdays' ? (
+                                    <CalendarDays className="w-3 h-3" />
+                                  ) : repeating ? (
+                                    <Repeat className="w-3 h-3" />
+                                  ) : null}
+                                  <span>{getTaskScheduleLabel(task)}</span>
+                                </span>
+                                <span aria-hidden="true">·</span>
+                                {repeating ? (
+                                  <span
+                                    className={
+                                      dueToday
+                                        ? 'text-[#2563EB] dark:text-[#60A5FA] font-medium'
+                                        : ''
+                                    }
                                   >
-                                    {d.weekday}
-                                    <span className="block font-mono tabular-nums">
-                                      {d.dayNum}
-                                    </span>
+                                    {dueToday
+                                      ? 'Այսօր'
+                                      : nextDue
+                                        ? `Հաջորդը՝ ${formatShortDate(nextDue)}`
+                                        : `Սկիզբ՝ ${formatShortDate(task.date)}`}
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => onToggleHabitDate(habit.id, d.date)}
-                                    aria-label={`${habit.title} - ${d.date}`}
-                                    aria-pressed={done}
-                                    className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
-                                      done
-                                        ? 'bg-emerald-600 border-emerald-600 text-white dark:bg-emerald-500 dark:border-emerald-500'
-                                        : d.date === todayISO
-                                          ? 'border-[#2563EB] dark:border-[#3B82F6] hover:bg-[#2563EB]/10'
-                                          : 'border-[#CBD5E1] dark:border-[#26334D] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B]'
-                                    }`}
+                                ) : (
+                                  <span
+                                    className={
+                                      isOverdue
+                                        ? 'text-rose-600 dark:text-rose-400 font-medium'
+                                        : ''
+                                    }
                                   >
-                                    {done && <Check className="w-4 h-4" strokeWidth={2.5} />}
-                                  </button>
-                                </div>
-                              );
-                            })}
+                                    {formatShortDate(task.date)}
+                                  </span>
+                                )}
+                                {isOverdue && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                                      Ժամկետանց
+                                    </span>
+                                  </>
+                                )}
+                                {task.dueTime && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="font-mono">{task.dueTime}</span>
+                                  </>
+                                )}
+                                {doneToday && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="text-emerald-600 dark:text-emerald-400">
+                                      {repeating ? 'Կատարված է այսօր' : 'Կատարված'}
+                                    </span>
+                                  </>
+                                )}
+                              </p>
+                            </div>
+                          </button>
+
+                          <div className="pl-8 sm:pl-0 flex items-center justify-between sm:justify-end gap-1.5 shrink-0">
+                            <select
+                              value={taskPriority}
+                              onChange={(e) =>
+                                onUpdateTaskPriority(
+                                  task.id,
+                                  e.target.value as TaskPriority
+                                )
+                              }
+                              aria-label={`Փոխել ${task.title} առաջնահերթությունը`}
+                              className="min-h-[34px] px-2.5 py-1 text-xs rounded-lg input-field cursor-pointer"
+                            >
+                              <option value="high">Կարևոր</option>
+                              <option value="medium">Միջին</option>
+                              <option value="low">Սովորական</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              onClick={() => onEditTask(task)}
+                              aria-label={`Խմբագրել ${task.title}`}
+                              className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-colors cursor-pointer shrink-0"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onDeleteTask(task.id)}
+                              aria-label={`Ջնջել ${task.title}`}
+                              className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                )}
+              </SectionCard>
+            </PageShell>
+          )}
 
-                  {/* Tablet & Desktop Table Layout */}
-                  <div className="hidden sm:block">
-                    <div className="px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] grid grid-cols-12 items-center gap-2 text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
-                      <div className="col-span-5">Սովորություն</div>
-                      <div className="col-span-6 grid grid-cols-7 gap-1 text-center">
-                        {last7Days.map((d) => (
-                          <div
-                            key={d.date}
-                            className={
-                              d.date === todayISO
-                                ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
-                                : ''
-                            }
-                          >
-                            <div>{d.weekday}</div>
-                            <div className="font-mono tabular-nums">{d.dayNum}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="col-span-1 text-right">Գործող.</div>
-                    </div>
+          {/* PAGE 2: HABITS */}
+          {activePage === 'habits' && (
+            <PageShell>
+              <PageHeader
+                title="Ամենօրյա սովորություններ"
+                subtitle={`${habits.length} սովորություն · վերջին 7 օրվա առաջընթաց`}
+                actions={
+                  <button
+                    type="button"
+                    onClick={onOpenNewHabitModal}
+                    className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>Նոր սովորություն</span>
+                  </button>
+                }
+              />
 
-                    <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+              <MetricStrip
+                items={[
+                  {
+                    id: 'total-habits',
+                    label: 'Սովորություններ',
+                    value: String(habits.length),
+                  },
+                  {
+                    id: 'done-today',
+                    label: 'Այսօր կատարված',
+                    value: `${habitsDoneToday}/${habits.length}`,
+                    tone:
+                      habits.length > 0 && habitsDoneToday === habits.length
+                        ? 'positive'
+                        : 'accent',
+                  },
+                  {
+                    id: 'weekly-rate',
+                    label: 'Շաբաթական տեմպ',
+                    value: `${weeklyRatePct}%`,
+                    tone: weeklyRatePct >= 70 ? 'positive' : 'default',
+                  },
+                  {
+                    id: 'best-streak',
+                    label: 'Լավագույն սերիա',
+                    value: `${bestStreak} օր`,
+                    tone: bestStreak >= 3 ? 'warning' : 'default',
+                  },
+                ]}
+              />
+
+              <SectionCard noPadding>
+                {habits.length === 0 ? (
+                  <div className="p-5 sm:p-6">
+                    <EmptyStatePlaceholder
+                      icon={Sparkles}
+                      title="Սովորությունների ցանկը դատարկ է"
+                      description="Ստեղծեք ամենօրյա սովորություն և հետևեք շաբաթական առաջընթացին։"
+                      actionLabel="+ Ավելացնել սովորություն"
+                      onAction={onOpenNewHabitModal}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    {/* Mobile Card Layout */}
+                    <div className="sm:hidden divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
                       {habits.map((habit) => {
                         const streak = calculateStreak(
                           habit.completedDates,
@@ -925,74 +918,297 @@ export const PlannerView = memo(function PlannerView({
                         ).length;
 
                         return (
-                          <div
-                            key={habit.id}
-                            className="px-6 py-3.5 grid grid-cols-12 items-center gap-2 hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors"
-                          >
-                            <div className="col-span-5 min-w-0 pr-2">
-                              <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
-                                {habit.title}
-                              </p>
-                              <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums mt-0.5">
-                                <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                <span>Սերիա՝ {streak} օր</span>
-                                <span aria-hidden="true">·</span>
-                                <span>{weeklyDone}/7 այս շաբաթ</span>
-                                <span aria-hidden="true">·</span>
-                                <span>Ընդ. {habit.completedDates.length}</span>
-                              </p>
+                          <div key={habit.id} className="p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] break-words">
+                                  {habit.title}
+                                </p>
+                                <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums mt-0.5">
+                                  <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span>Սերիա՝ {streak} օր</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>{weeklyDone}/7 այս շաբաթ</span>
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => onEditHabit(habit)}
+                                  aria-label={`Խմբագրել ${habit.title}`}
+                                  className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteHabit(habit.id)}
+                                  aria-label={`Ջնջել ${habit.title}`}
+                                  className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
 
-                            <div className="col-span-6 grid grid-cols-7 gap-1 justify-items-center">
+                            <div className="grid grid-cols-7 gap-1 text-center">
                               {last7Days.map((d) => {
                                 const done = habit.completedDates.includes(d.date);
                                 return (
-                                  <button
+                                  <div
                                     key={d.date}
-                                    type="button"
-                                    onClick={() => onToggleHabitDate(habit.id, d.date)}
-                                    aria-label={`${habit.title} - ${d.date}`}
-                                    aria-pressed={done}
-                                    className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
-                                      done
-                                        ? 'bg-emerald-600 border-emerald-600 text-white dark:bg-emerald-500 dark:border-emerald-500'
-                                        : d.date === todayISO
-                                          ? 'border-[#2563EB] dark:border-[#3B82F6] hover:bg-[#2563EB]/10'
-                                          : 'border-[#CBD5E1] dark:border-[#26334D] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B]'
-                                    }`}
+                                    className="flex flex-col items-center gap-1.5"
                                   >
-                                    {done && <Check className="w-4 h-4" strokeWidth={2.5} />}
-                                  </button>
+                                    <span
+                                      className={`text-[10px] leading-tight ${
+                                        d.date === todayISO
+                                          ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                                          : 'text-[#64748B] dark:text-[#94A3B8]'
+                                      }`}
+                                    >
+                                      {d.weekday}
+                                      <span className="block font-mono tabular-nums">
+                                        {d.dayNum}
+                                      </span>
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onToggleHabitDate(habit.id, d.date)
+                                      }
+                                      aria-label={`${habit.title} - ${d.date}`}
+                                      aria-pressed={done}
+                                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+                                        done
+                                          ? 'bg-emerald-600 border-emerald-600 text-white dark:bg-emerald-500 dark:border-emerald-500'
+                                          : d.date === todayISO
+                                            ? 'border-[#2563EB] dark:border-[#3B82F6] hover:bg-[#2563EB]/10'
+                                            : 'border-[#CBD5E1] dark:border-[#26334D] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B]'
+                                      }`}
+                                    >
+                                      {done && (
+                                        <Check className="w-4 h-4" strokeWidth={2.5} />
+                                      )}
+                                    </button>
+                                  </div>
                                 );
                               })}
-                            </div>
-
-                            <div className="col-span-1 flex justify-end gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => onEditHabit(habit)}
-                                aria-label={`Խմբագրել ${habit.title}`}
-                                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteHabit(habit.id)}
-                                aria-label={`Ջնջել ${habit.title}`}
-                                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
                             </div>
                           </div>
                         );
                       })}
                     </div>
+
+                    {/* Tablet & Desktop Table Layout */}
+                    <div className="hidden sm:block">
+                      <div className="px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] grid grid-cols-12 items-center gap-2 text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                        <div className="col-span-5">Սովորություն</div>
+                        <div className="col-span-6 grid grid-cols-7 gap-1 text-center">
+                          {last7Days.map((d) => (
+                            <div
+                              key={d.date}
+                              className={
+                                d.date === todayISO
+                                  ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                                  : ''
+                              }
+                            >
+                              <div>{d.weekday}</div>
+                              <div className="font-mono tabular-nums">
+                                {d.dayNum}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="col-span-1 text-right">Գործող.</div>
+                      </div>
+
+                      <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                        {habits.map((habit) => {
+                          const streak = calculateStreak(
+                            habit.completedDates,
+                            last7Days.map((d) => d.date)
+                          );
+                          const weeklyDone = last7Days.filter((d) =>
+                            habit.completedDates.includes(d.date)
+                          ).length;
+
+                          return (
+                            <div
+                              key={habit.id}
+                              className="px-6 py-3.5 grid grid-cols-12 items-center gap-2 hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors"
+                            >
+                              <div className="col-span-5 min-w-0 pr-2">
+                                <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                                  {habit.title}
+                                </p>
+                                <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums mt-0.5">
+                                  <Flame className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                  <span>Սերիա՝ {streak} օր</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>{weeklyDone}/7 այս շաբաթ</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>Ընդ. {habit.completedDates.length}</span>
+                                </p>
+                              </div>
+
+                              <div className="col-span-6 grid grid-cols-7 gap-1 justify-items-center">
+                                {last7Days.map((d) => {
+                                  const done = habit.completedDates.includes(d.date);
+                                  return (
+                                    <button
+                                      key={d.date}
+                                      type="button"
+                                      onClick={() =>
+                                        onToggleHabitDate(habit.id, d.date)
+                                      }
+                                      aria-label={`${habit.title} - ${d.date}`}
+                                      aria-pressed={done}
+                                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+                                        done
+                                          ? 'bg-emerald-600 border-emerald-600 text-white dark:bg-emerald-500 dark:border-emerald-500'
+                                          : d.date === todayISO
+                                            ? 'border-[#2563EB] dark:border-[#3B82F6] hover:bg-[#2563EB]/10'
+                                            : 'border-[#CBD5E1] dark:border-[#26334D] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B]'
+                                      }`}
+                                    >
+                                      {done && (
+                                        <Check className="w-4 h-4" strokeWidth={2.5} />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="col-span-1 flex justify-end gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => onEditHabit(habit)}
+                                  aria-label={`Խմբագրել ${habit.title}`}
+                                  className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteHabit(habit.id)}
+                                  aria-label={`Ջնջել ${habit.title}`}
+                                  className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </SectionCard>
+            </PageShell>
+          )}
+
+          {/* PAGE 3: FOCUS TIMER & SESSIONS */}
+          {activePage === 'focus' && (
+            <PageShell>
+              <PageHeader
+                title="Ֆոկուս թայմեր և սեսիաներ"
+                subtitle={
+                  focusGoal
+                    ? `Օրվա գլխավոր նպատակ՝ ${focusGoal.title}`
+                    : 'Պոմոդորո սեսիաներ, ֆոնային հնչյուններ և կենտրոնացման վիճակագրություն'
+                }
+              />
+
+              <MetricStrip
+                items={[
+                  {
+                    id: 'today-focus',
+                    label: 'Այսօրվա ֆոկուս',
+                    value: `${todayFocusMinutes} ր`,
+                    hint: 'Օրական թիրախ՝ 90 ր',
+                    tone: todayFocusMinutes >= 90 ? 'positive' : 'accent',
+                  },
+                  {
+                    id: 'week-focus',
+                    label: 'Շաբաթական ֆոկուս',
+                    value: `${weekFocusMinutes} ր`,
+                    hint: 'Վերջին 7 օրում',
+                  },
+                  {
+                    id: 'sessions-count',
+                    label: 'Ավարտված սեսիաներ',
+                    value: String(focusSessions.length),
+                    tone: 'default',
+                  },
+                  {
+                    id: 'daily-goal',
+                    label: 'Օրվա նպատակ',
+                    value: focusGoal
+                      ? focusGoal.completed
+                        ? 'Կատարված'
+                        : 'Ընթացքում'
+                      : 'Սահմանված չէ',
+                    hint: focusGoal ? focusGoal.title : 'Կարգավորեք Ընդհանուր էջում',
+                    tone: focusGoal?.completed ? 'positive' : 'default',
+                  },
+                ]}
+              />
+
+              <FocusTimerCard
+                tasks={tasks}
+                focusGoal={focusGoal}
+                focusSessions={focusSessions}
+                soundEnabled={soundEnabled}
+                browserNotifications={browserNotifications}
+                notificationSettings={notificationSettings}
+                onCompleteSession={onCompleteFocusSession}
+              />
+
+              <SectionCard
+                title="Վերջին ֆոկուս սեսիաները"
+                subtitle={`Գրանցված է ${focusSessions.length} սեսիա`}
+                icon={Clock}
+                noPadding
+              >
+                {focusSessions.length === 0 ? (
+                  <div className="p-5 sm:p-6">
+                    <EmptyStatePlaceholder
+                      compact
+                      icon={Timer}
+                      title="Ավարտված սեսիաներ դեռ չկան"
+                      description="Սկսեք ձեր առաջին ֆոկուս սեսիան վերևի թայմերով՝ կենտրոնացման պատմությունը կառուցելու համար։"
+                    />
                   </div>
-                </>
-              )}
-            </section>
+                ) : (
+                  <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                    {focusSessions.slice(0, 8).map((s) => (
+                      <div
+                        key={s.id}
+                        className="px-4 sm:px-6 py-3 flex items-center justify-between gap-3 text-xs sm:text-sm"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                            {s.label || (s.mode === 'break' ? 'Ընդմիջում' : 'Կենտրոնացման սեսիա')}
+                          </p>
+                          <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                            {s.mode === 'break' ? 'Ընդմիջում' : 'Ֆոկուս'} ·{' '}
+                            {formatShortDate(s.completedAt.slice(0, 10))} ·{' '}
+                            <span className="font-mono">
+                              {s.completedAt.slice(11, 16)}
+                            </span>
+                          </p>
+                        </div>
+                        <span className="font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums shrink-0">
+                          {s.minutes} ր
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+            </PageShell>
           )}
         </motion.div>
       </AnimatePresence>

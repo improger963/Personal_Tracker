@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  BarChart3,
+  CalendarClock,
   CalendarDays,
   CheckSquare,
   Command,
@@ -9,6 +11,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  HandCoins,
   LayoutDashboard,
   Moon,
   NotebookPen,
@@ -18,6 +21,8 @@ import {
   Search,
   Sparkles,
   Sun,
+  Target,
+  Timer,
   Wallet,
   X,
 } from 'lucide-react';
@@ -27,11 +32,13 @@ import {
   DebtItem,
   NavSection,
   Note,
+  PlannerPageTab,
   SavingsGoal,
   Task,
   TaskPriority,
   Transaction,
 } from '../types';
+import { FinancePageTab } from './finance/financeShared';
 import { formatMoney, formatShortDate } from '../data/defaults';
 import { computeCardStats } from '../utils/cardBalances';
 import { SmartParsedAction, parseSmartCommand } from '../utils/smartCommandParser';
@@ -51,6 +58,8 @@ interface CommandPaletteModalProps {
   onToggleTheme: () => void;
   onTogglePrivacy: () => void;
   onNavigate: (tab: NavSection) => void;
+  onNavigateFinance: (page: FinancePageTab) => void;
+  onNavigatePlanner: (page: PlannerPageTab) => void;
   onOpenNewModal: (mode: QuickModalMode) => void;
   onEditTransaction: (tx: Transaction) => void;
   onEditTask: (task: Task) => void;
@@ -95,6 +104,8 @@ export function CommandPaletteModal({
   onToggleTheme,
   onTogglePrivacy,
   onNavigate,
+  onNavigateFinance,
+  onNavigatePlanner,
   onOpenNewModal,
   onEditTransaction,
   onEditTask,
@@ -261,7 +272,7 @@ export function CommandPaletteModal({
       {
         id: 'nav-overview',
         label: 'Բացել «Ընդհանուր» էջը',
-        subtitle: 'Ամփոփ պատկեր, ֆոկուս և արագ մուտք',
+        subtitle: 'Ամփոփ պատկեր, բալանս և օրվա ռիթմ',
         icon: LayoutDashboard,
         iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
         onRun: () => {
@@ -270,24 +281,112 @@ export function CommandPaletteModal({
         },
       },
       {
-        id: 'nav-finance',
-        label: 'Բացել «Ֆինանսներ» էջը',
-        subtitle: 'Մատյան, բյուջեներ, քարտեր, նպատակներ և վերլուծություն',
-        icon: Wallet,
+        id: 'nav-fin-ledger',
+        label: 'Ֆինանսներ · Գործարքների մատյան',
+        subtitle: 'Մուտքեր, ելքեր և քաղվածք',
+        icon: Receipt,
         iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
         onRun: () => {
-          onNavigate('finance');
+          onNavigateFinance('ledger');
           onClose();
         },
       },
       {
-        id: 'nav-planner',
-        label: 'Բացել «Անելիքներ» էջը',
-        subtitle: 'Օրակարգ, սովորություններ և ֆոկուս թայմեր',
+        id: 'nav-fin-cards',
+        label: 'Ֆինանսներ · Քարտեր և դրամապանակներ',
+        subtitle: 'Հաշիվների մնացորդներ և ներքին փոխանցումներ',
+        icon: CreditCard,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('cards');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-fin-budgets',
+        label: 'Ֆինանսներ · Բյուջե և աշխատավարձային ցիկլ',
+        subtitle: 'Կատեգորիաների սահմանաչափեր և Safe-to-Spend',
+        icon: Target,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('budgets');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-fin-bills',
+        label: 'Ֆինանսներ · Կրկնվող վճարներ',
+        subtitle: 'Ամսական, ամենօրյա և պլանային վճարումներ',
+        icon: CalendarClock,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('bills');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-fin-goals',
+        label: 'Ֆինանսներ · Խնայողության նպատակներ',
+        subtitle: 'Գանձանակներ և կանխատեսման հաշվիչ',
+        icon: PiggyBank,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('goals');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-fin-debts',
+        label: 'Ֆինանսներ · Պարտքեր և փոխառություններ',
+        subtitle: 'Տրված և վերցված գումարների վերահսկում',
+        icon: HandCoins,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('debts');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-fin-analytics',
+        label: 'Ֆինանսներ · Վերլուծություն և հաշվետվություններ',
+        subtitle: 'Դինամիկա, AI խորհուրդներ, 50/30/20 և PDF արտահանում',
+        icon: BarChart3,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigateFinance('analytics');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-plan-tasks',
+        label: 'Օրակարգ · Անելիքներ',
+        subtitle: 'Առաջադրանքներ և ժամանակացույց',
         icon: CalendarDays,
         iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
         onRun: () => {
-          onNavigate('planner');
+          onNavigatePlanner('tasks');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-plan-habits',
+        label: 'Օրակարգ · Սովորություններ',
+        subtitle: '7-օրյա մատրից և սերիաներ',
+        icon: Sparkles,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigatePlanner('habits');
+          onClose();
+        },
+      },
+      {
+        id: 'nav-plan-focus',
+        label: 'Օրակարգ · Ֆոկուս թայմեր',
+        subtitle: 'Պոմոդորո և կենտրոնացման սեսիաներ',
+        icon: Timer,
+        iconClass: 'bg-slate-500/12 text-[#475569] dark:text-[#94A3B8]',
+        onRun: () => {
+          onNavigatePlanner('focus');
           onClose();
         },
       },
@@ -343,7 +442,7 @@ export function CommandPaletteModal({
           icon: CreditCard,
           iconClass: 'bg-[#2563EB]/12 text-[#2563EB] dark:text-[#60A5FA]',
           onRun: () => {
-            onNavigate('finance');
+            onNavigateFinance('cards');
             onClose();
           },
         });
@@ -434,7 +533,7 @@ export function CommandPaletteModal({
           icon: PiggyBank,
           iconClass: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
           onRun: () => {
-            onNavigate('finance');
+            onNavigateFinance('goals');
             onClose();
           },
         });
@@ -457,7 +556,7 @@ export function CommandPaletteModal({
           icon: Wallet,
           iconClass: 'bg-rose-500/12 text-rose-600 dark:text-rose-400',
           onRun: () => {
-            onNavigate('finance');
+            onNavigateFinance('debts');
             onClose();
           },
         });
@@ -484,6 +583,8 @@ export function CommandPaletteModal({
     onEditTransaction,
     onExportJSON,
     onNavigate,
+    onNavigateFinance,
+    onNavigatePlanner,
     onOpenNewModal,
     onTogglePrivacy,
     onToggleTheme,

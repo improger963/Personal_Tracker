@@ -10,6 +10,11 @@ import {
   ShoppingBag,
   Trash2,
 } from 'lucide-react';
+import {
+  MetricStrip,
+  PageHeader,
+  PageShell,
+} from './layout/PagePrimitives';
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { Note } from '../types';
 import {
@@ -47,6 +52,22 @@ export const NotesView = memo(function NotesView({
 
   const todayISO = getTodayISO();
 
+  const { pinnedCount, remindersCount, checklistNotesCount } = useMemo(() => {
+    let pinned = 0;
+    let reminders = 0;
+    let checklists = 0;
+    for (const n of notes) {
+      if (n.pinned) pinned++;
+      if (n.reminderDate) reminders++;
+      if ((n.checklist?.length ?? 0) > 0) checklists++;
+    }
+    return {
+      pinnedCount: pinned,
+      remindersCount: reminders,
+      checklistNotesCount: checklists,
+    };
+  }, [notes]);
+
   const filteredNotes = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return [...notes]
@@ -75,26 +96,49 @@ export const NotesView = memo(function NotesView({
   const hasFilters = filterMode !== 'all' || Boolean(searchQuery);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC]">
-            Անձնական նշումներ և հիշեցումներ
-          </h1>
-          <p className="text-sm text-[#64748B] dark:text-[#94A3B8]">
-            Մտքեր, գնումների ցուցակներ և կարևոր հիշեցումներ մեկ տեղում
-          </p>
-        </div>
+    <PageShell>
+      <PageHeader
+        title="Անձնական նշումներ և հիշեցումներ"
+        subtitle="Մտքեր, գնումների ցուցակներ և կարևոր հիշեցումներ մեկ տեղում"
+        actions={
+          <button
+            type="button"
+            onClick={onOpenNewNoteModal}
+            className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Նոր նշում</span>
+          </button>
+        }
+      />
 
-        <button
-          type="button"
-          onClick={onOpenNewNoteModal}
-          className="min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 self-start sm:self-auto whitespace-nowrap shrink-0"
-        >
-          <Plus className="w-4 h-4 shrink-0" />
-          <span>Նոր նշում</span>
-        </button>
-      </div>
+      <MetricStrip
+        items={[
+          {
+            id: 'total-notes',
+            label: 'Ընդհանուր նշումներ',
+            value: String(notes.length),
+          },
+          {
+            id: 'pinned-notes',
+            label: 'Ամրացված',
+            value: String(pinnedCount),
+            tone: pinnedCount > 0 ? 'accent' : 'default',
+          },
+          {
+            id: 'reminder-notes',
+            label: 'Ակտիվ հիշեցումներ',
+            value: String(remindersCount),
+            tone: remindersCount > 0 ? 'warning' : 'default',
+          },
+          {
+            id: 'checklist-notes',
+            label: 'Գնումների ցուցակներ',
+            value: String(checklistNotesCount),
+            tone: 'positive',
+          },
+        ]}
+      />
 
       {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -192,9 +236,9 @@ export const NotesView = memo(function NotesView({
               >
                 <div className="space-y-3 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] break-words min-w-0">
+                    <h2 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] break-words min-w-0">
                       {note.title}
-                    </h4>
+                    </h2>
                     <div className="flex items-center gap-0.5 shrink-0">
                       <button
                         type="button"
@@ -355,6 +399,6 @@ export const NotesView = memo(function NotesView({
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 });

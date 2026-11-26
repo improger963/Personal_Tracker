@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   AudioLines,
+  BarChart3,
   Bell,
   BellRing,
   CalendarClock,
@@ -16,6 +17,7 @@ import {
   Cloud,
   CloudOff,
   Command,
+  CreditCard,
   Download,
   Eye,
   EyeOff,
@@ -26,8 +28,10 @@ import {
   MicOff,
   Moon,
   NotebookPen,
+  PiggyBank,
   Play,
   Plus,
+  Receipt,
   RefreshCw,
   Repeat,
   RotateCcw,
@@ -37,6 +41,8 @@ import {
   Sparkles,
   Square,
   Sun,
+  Target,
+  Timer,
   Volume2,
   VolumeX,
   Wallet,
@@ -51,8 +57,10 @@ import {
   NotificationSettings,
   NotificationSoundPreset,
   NotificationVoiceMode,
+  PlannerPageTab,
   Task,
 } from '../types';
+import { FinancePageTab } from './finance/financeShared';
 import { formatMoney } from '../data/defaults';
 import { formatCycleLabel } from '../utils/financialCycle';
 import { triggerHaptic } from '../utils/haptics';
@@ -71,6 +79,10 @@ export type CloudSyncStatus = 'idle' | 'syncing' | 'synced' | 'offline' | 'error
 interface TopNavProps {
   activeTab: NavSection;
   onSelectTab: (tab: NavSection) => void;
+  financePage: FinancePageTab;
+  onSelectFinancePage: (page: FinancePageTab) => void;
+  plannerPage: PlannerPageTab;
+  onSelectPlannerPage: (page: PlannerPageTab) => void;
   onOpenNewModal: () => void;
   todayTasks: Task[];
   onToggleTask: (id: string) => void;
@@ -129,8 +141,8 @@ const NAV_ITEMS: {
   },
   {
     id: 'planner',
-    label: 'Անելիքներ',
-    subtitle: 'Օրակարգ և սովորություններ',
+    label: 'Օրակարգ',
+    subtitle: 'Անելիքներ և ֆոկուս',
     icon: CheckSquare,
   },
   {
@@ -141,11 +153,39 @@ const NAV_ITEMS: {
   },
 ];
 
+const FINANCE_SIDEBAR_ITEMS: {
+  id: FinancePageTab;
+  label: string;
+  icon: typeof Receipt;
+}[] = [
+  { id: 'ledger', label: 'Գործարքներ', icon: Receipt },
+  { id: 'cards', label: 'Քարտեր', icon: CreditCard },
+  { id: 'budgets', label: 'Բյուջե և Ցիկլ', icon: Target },
+  { id: 'bills', label: 'Վճարներ', icon: CalendarClock },
+  { id: 'goals', label: 'Նպատակներ', icon: PiggyBank },
+  { id: 'debts', label: 'Պարտքեր', icon: HandCoins },
+  { id: 'analytics', label: 'Վերլուծություն', icon: BarChart3 },
+];
+
+const PLANNER_SIDEBAR_ITEMS: {
+  id: PlannerPageTab;
+  label: string;
+  icon: typeof CheckSquare;
+}[] = [
+  { id: 'tasks', label: 'Անելիքներ', icon: CheckSquare },
+  { id: 'habits', label: 'Սովորություններ', icon: Sparkles },
+  { id: 'focus', label: 'Ֆոկուս թայմեր', icon: Timer },
+];
+
 type NotifFilter = 'all' | 'payments' | 'schedule';
 
 export const TopNav = memo(function TopNav({
   activeTab,
   onSelectTab,
+  financePage,
+  onSelectFinancePage,
+  plannerPage,
+  onSelectPlannerPage,
   onOpenNewModal,
   todayTasks,
   onToggleTask,
@@ -265,8 +305,17 @@ export const TopNav = memo(function TopNav({
       };
     }, [notifications, notifFilter]);
 
-  const activeMeta =
-    NAV_ITEMS.find((n) => n.id === activeTab) ?? NAV_ITEMS[0];
+  const activeBreadcrumbLabel = useMemo(() => {
+    if (activeTab === 'finance') {
+      const sub = FINANCE_SIDEBAR_ITEMS.find((i) => i.id === financePage);
+      return sub ? `Ֆինանսներ · ${sub.label}` : 'Ֆինանսներ';
+    }
+    if (activeTab === 'planner') {
+      const sub = PLANNER_SIDEBAR_ITEMS.find((i) => i.id === plannerPage);
+      return sub ? `Օրակարգ · ${sub.label}` : 'Օրակարգ';
+    }
+    return NAV_ITEMS.find((n) => n.id === activeTab)?.label ?? 'Ընդհանուր';
+  }, [activeTab, financePage, plannerPage]);
 
   useEffect(() => {
     if (!remindersOpen && !accountMenuOpen) return;
@@ -340,9 +389,9 @@ export const TopNav = memo(function TopNav({
       {/* Desktop Left Workspace Rail (lg+) */}
       <aside
         aria-label="Աշխատանքային վահանակ"
-        className="hidden lg:flex lg:flex-col lg:justify-between lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh border-r border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0C1220] px-4 py-5"
+        className="hidden lg:flex lg:flex-col lg:justify-between lg:w-64 lg:shrink-0 lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto scroll-container border-r border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0C1220] px-3.5 py-5"
       >
-        <div className="space-y-6">
+        <div className="space-y-5">
           <button
             type="button"
             onClick={() => onSelectTab('overview')}
@@ -365,88 +414,147 @@ export const TopNav = memo(function TopNav({
           <div
             role="button"
             tabIndex={0}
-            onClick={() => onSelectTab('finance')}
+            onClick={() => onSelectFinancePage('ledger')}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
-                onSelectTab('finance');
+                onSelectFinancePage('ledger');
               }
             }}
-            className="p-3.5 rounded-2xl bg-gradient-to-br from-[#F8FAFC] to-[#EFF6FF] dark:from-[#0F172A] dark:to-[#172554]/40 border border-[#CBD5E1]/80 dark:border-[#1E293B] shadow-xs hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-all cursor-pointer space-y-1.5 group select-none"
+            className="p-3 rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E] border border-[#E2E8F0] dark:border-[#1E293B] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer space-y-1 group select-none"
             title="Անցնել Ֆինանսական մատյան"
           >
-            <div className="flex items-center justify-between text-xs text-[#64748B] dark:text-[#94A3B8]">
+            <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
               <span className="flex items-center gap-1.5 font-medium">
                 <Wallet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                 <span>Իրական բալանս</span>
               </span>
-              <span className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
+              <span className="font-semibold text-[#2563EB] dark:text-[#60A5FA] group-hover:translate-x-0.5 transition-transform inline-flex items-center gap-0.5">
                 <span>Մատյան</span>
                 <ArrowRight className="w-3 h-3" />
               </span>
             </div>
-            <div className="flex items-baseline justify-between gap-1">
-              <p className="pa-sensitive font-mono text-xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
-                {formatMoney(totalBalance, currency)}
-              </p>
-            </div>
+            <p className="pa-sensitive font-mono text-lg font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+              {formatMoney(totalBalance, currency)}
+            </p>
           </div>
 
-          <nav className="space-y-1" aria-label="Հիմնական նավիգացիա">
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              const showBadge = item.id === 'planner' && todayCount > 0;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelectTab(item.id)}
-                  aria-label={
-                    showBadge
-                      ? `${item.label} (${todayCount} այսօրվա անելիք)`
-                      : item.label
-                  }
-                  className={`relative w-full min-h-[46px] px-3 py-2.5 rounded-xl flex items-center justify-between gap-2.5 text-left transition-colors cursor-pointer ${
-                    isActive
-                      ? 'text-[#1D4ED8] dark:text-[#60A5FA]'
-                      : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                  }`}
-                >
-                  {isActive && (
-                    <motion.span
-                      layoutId="nav-sidebar-active"
-                      transition={
-                        prefersReducedMotion
-                          ? { duration: 0.01 }
-                          : { type: 'spring', stiffness: 420, damping: 34 }
+          <nav className="space-y-4" aria-label="Հիմնական նավիգացիա">
+            {/* Overview */}
+            <div>
+              <button
+                type="button"
+                onClick={() => onSelectTab('overview')}
+                className={`relative w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                  activeTab === 'overview'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                }`}
+              >
+                <LayoutDashboard
+                  className="w-4 h-4 shrink-0"
+                  strokeWidth={activeTab === 'overview' ? 2.2 : 1.85}
+                />
+                <span className="text-sm truncate">Ընդհանուր</span>
+              </button>
+            </div>
+
+            {/* Finance Group */}
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B]">
+                Ֆինանսներ
+              </p>
+              <div className="space-y-0.5">
+                {FINANCE_SIDEBAR_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    activeTab === 'finance' && financePage === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelectFinancePage(item.id)}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                      }`}
+                    >
+                      <Icon
+                        className="w-4 h-4 shrink-0"
+                        strokeWidth={isActive ? 2.2 : 1.85}
+                      />
+                      <span className="text-[13px] truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Planner Group */}
+            <div className="space-y-1">
+              <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8] dark:text-[#64748B]">
+                Օրակարգ
+              </p>
+              <div className="space-y-0.5">
+                {PLANNER_SIDEBAR_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  const isActive =
+                    activeTab === 'planner' && plannerPage === item.id;
+                  const showBadge = item.id === 'tasks' && todayCount > 0;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelectPlannerPage(item.id)}
+                      aria-current={isActive ? 'page' : undefined}
+                      aria-label={
+                        showBadge
+                          ? `${item.label} (${todayCount} այսօրվա անելիք)`
+                          : item.label
                       }
-                      className="absolute inset-0 rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/65 border border-[#BFDBFE]/60 dark:border-[#1E3A8A]/60"
-                      aria-hidden="true"
-                    />
-                  )}
-                  <span className="relative z-10 flex items-center gap-3 min-w-0">
-                    <Icon
-                      className="w-[18px] h-[18px] shrink-0"
-                      strokeWidth={isActive ? 2.2 : 1.85}
-                    />
-                    <span className="min-w-0">
-                      <span
-                        className={`block text-sm truncate ${
-                          isActive ? 'font-semibold' : 'font-medium'
-                        }`}
-                      >
-                        {item.label}
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <Icon
+                          className="w-4 h-4 shrink-0"
+                          strokeWidth={isActive ? 2.2 : 1.85}
+                        />
+                        <span className="text-[13px] truncate">{item.label}</span>
                       </span>
-                    </span>
-                  </span>
-                  {showBadge && (
-                    <span className="relative z-10 min-w-[20px] h-[20px] px-1.5 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none shrink-0">
-                      {todayCount > 99 ? '99+' : todayCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+                      {showBadge && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-[10px] font-mono font-bold tabular-nums inline-flex items-center justify-center leading-none shrink-0">
+                          {todayCount > 99 ? '99+' : todayCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <button
+                type="button"
+                onClick={() => onSelectTab('notes')}
+                className={`w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors cursor-pointer ${
+                  activeTab === 'notes'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/65 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                }`}
+              >
+                <NotebookPen
+                  className="w-4 h-4 shrink-0"
+                  strokeWidth={activeTab === 'notes' ? 2.2 : 1.85}
+                />
+                <span className="text-sm truncate">Նշումներ</span>
+              </button>
+            </div>
           </nav>
         </div>
 
@@ -608,7 +716,7 @@ export const TopNav = memo(function TopNav({
               <div className="hidden lg:block min-w-0">
                 <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-2 truncate">
                   <span className="font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-                    {activeMeta.label}
+                    {activeBreadcrumbLabel}
                   </span>
                   <span aria-hidden="true">·</span>
                   <span>{editorialDate}</span>
@@ -1618,10 +1726,10 @@ export const TopNav = memo(function TopNav({
                                         return (
                                           <div
                                             key={item.id}
-                                            className={`px-4 py-3 space-y-2.5 transition-colors border-l-2 ${
+                                            className={`px-4 py-3 space-y-2.5 transition-colors ${
                                               isExceeded
-                                                ? 'bg-rose-500/[0.06] border-rose-500 dark:bg-rose-950/20'
-                                                : 'bg-amber-500/[0.08] border-amber-500 dark:bg-amber-950/25'
+                                                ? 'bg-rose-500/[0.06] dark:bg-rose-950/20'
+                                                : 'bg-amber-500/[0.07] dark:bg-amber-950/20'
                                             }`}
                                           >
                                             <div className="flex items-start justify-between gap-2.5">
@@ -1636,22 +1744,16 @@ export const TopNav = memo(function TopNav({
                                                   <AlertTriangle className="w-3.5 h-3.5" />
                                                 </span>
                                                 <div className="min-w-0">
-                                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span
-                                                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                                        isExceeded
-                                                          ? 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
-                                                          : 'bg-amber-500/20 text-amber-800 dark:text-amber-300'
-                                                      }`}
-                                                    >
-                                                      {isExceeded ? 'Գերազանցված բյուջե' : '80% շեմի ահազանգ'}
-                                                    </span>
-                                                    {item.ratio !== undefined && (
-                                                      <span className="text-[10px] font-mono font-semibold text-[#64748B] dark:text-[#94A3B8]">
-                                                        {item.ratio}%
-                                                      </span>
-                                                    )}
-                                                  </div>
+                                                  <p
+                                                    className={`text-[10px] font-bold uppercase tracking-wide ${
+                                                      isExceeded
+                                                        ? 'text-rose-600 dark:text-rose-400'
+                                                        : 'text-amber-700 dark:text-amber-400'
+                                                    }`}
+                                                  >
+                                                    {isExceeded ? 'Գերազանցված բյուջե' : '80% շեմի ահազանգ'}
+                                                    {item.ratio !== undefined ? ` · ${item.ratio}%` : ''}
+                                                  </p>
                                                   <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate mt-0.5">
                                                     {item.title}
                                                   </p>
@@ -1698,7 +1800,7 @@ export const TopNav = memo(function TopNav({
                                                 type="button"
                                                 onClick={() => {
                                                   setRemindersOpen(false);
-                                                  onSelectTab('finance');
+                                                  onSelectFinancePage('budgets');
                                                 }}
                                                 className="min-h-[26px] px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 text-[11px] font-semibold cursor-pointer transition-colors"
                                               >
@@ -1713,10 +1815,10 @@ export const TopNav = memo(function TopNav({
                                         return (
                                           <div
                                             key={item.id}
-                                            className={`px-4 py-3 space-y-2 transition-colors border-l-2 ${
+                                            className={`px-4 py-3 space-y-2 transition-colors ${
                                               isOverdue
-                                                ? 'bg-rose-500/[0.06] border-rose-500 dark:bg-rose-950/20'
-                                                : 'bg-[#EFF6FF]/50 border-[#2563EB] dark:bg-[#172554]/25'
+                                                ? 'bg-rose-500/[0.06] dark:bg-rose-950/20'
+                                                : 'bg-[#EFF6FF]/50 dark:bg-[#172554]/25'
                                             }`}
                                           >
                                             <div className="flex items-start justify-between gap-2.5">
@@ -1758,16 +1860,8 @@ export const TopNav = memo(function TopNav({
                                               <button
                                                 type="button"
                                                 onClick={() => {
-                                                  try {
-                                                    localStorage.setItem(
-                                                      'pa_finance_active_page',
-                                                      'goals_debts'
-                                                    );
-                                                  } catch {
-                                                    // ignore
-                                                  }
                                                   setRemindersOpen(false);
-                                                  onSelectTab('finance');
+                                                  onSelectFinancePage('debts');
                                                 }}
                                                 className="min-h-[26px] px-2.5 py-1 rounded-lg bg-[#2563EB]/12 hover:bg-[#2563EB]/20 text-[#2563EB] dark:text-[#60A5FA] text-[11px] font-semibold cursor-pointer transition-colors"
                                               >
@@ -1841,7 +1935,7 @@ export const TopNav = memo(function TopNav({
                             type="button"
                             onClick={() => {
                               setRemindersOpen(false);
-                              onSelectTab('finance');
+                              onSelectFinancePage('bills');
                             }}
                             className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] inline-flex items-center gap-1 hover:underline cursor-pointer"
                           >
@@ -1852,7 +1946,7 @@ export const TopNav = memo(function TopNav({
                             type="button"
                             onClick={() => {
                               setRemindersOpen(false);
-                              onSelectTab('planner');
+                              onSelectPlannerPage('tasks');
                             }}
                             className="text-xs font-semibold text-[#475569] dark:text-[#CBD5E1] inline-flex items-center gap-1 hover:underline cursor-pointer"
                           >
@@ -1901,59 +1995,6 @@ export const TopNav = memo(function TopNav({
             </div>
           </div>
         </header>
-
-        {/* Mobile & Tablet Sticky Real Balance Sub-Bar (< lg) */}
-        <div className="lg:hidden sticky top-16 z-20 px-3.5 sm:px-6 py-2.5 bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-md border-b border-[#E2E8F0] dark:border-[#1E293B] shadow-xs flex items-center justify-between gap-3 select-none">
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelectTab('finance')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                onSelectTab('finance');
-              }
-            }}
-            className="flex items-center gap-2.5 min-w-0 cursor-pointer group"
-            title="Անցնել Ֆինանսական մատյան"
-          >
-            <span className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-              <Wallet className="w-4 h-4" />
-            </span>
-            <div className="min-w-0">
-              <span className="block text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8] leading-none">
-                Իրական բալանս
-              </span>
-              <span className="pa-sensitive block font-mono text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums tracking-tight leading-tight mt-0.5 truncate">
-                {formatMoney(totalBalance, currency)}
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            {activeTab !== 'finance' ? (
-              <button
-                type="button"
-                onClick={() => onSelectTab('finance')}
-                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#2563EB]/10 hover:bg-[#2563EB]/20 dark:bg-[#3B82F6]/15 dark:hover:bg-[#3B82F6]/25 text-[#2563EB] dark:text-[#60A5FA] text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <span>Մատյան</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('medium');
-                  onOpenNewModal();
-                }}
-                className="min-h-[32px] px-2.5 py-1 rounded-lg bg-[#2563EB] dark:bg-[#3B82F6] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Գործարք</span>
-              </button>
-            )}
-          </div>
-        </div>
 
         {children}
 

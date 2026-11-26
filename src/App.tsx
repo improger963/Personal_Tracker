@@ -1,9 +1,13 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import { CloudSyncStatus, TopNav } from './components/TopNav';
-import type { QuickModalState } from './components/QuickAddModal';
+import type { QuickModalMode, QuickModalState } from './components/QuickAddModal';
+import {
+  FinancePageTab,
+  normalizeFinancePageTab,
+} from './components/finance/financeShared';
 import { NotificationAlerts } from './components/NotificationAlerts';
 import {
   PageSkeleton,
@@ -122,6 +126,7 @@ import {
   NavSection,
   Note,
   NotificationSettings,
+  PlannerPageTab,
   PrimaryIncomeConfig,
   RecurringBill,
   SavingsGoal,
@@ -158,6 +163,18 @@ function getTodayEditorialDate(): string {
 export default function App() {
   const prefersReducedMotion = useReducedMotion();
   const [activeTab, setActiveTab] = useState<NavSection>('overview');
+  const [rawFinancePage, setRawFinancePage] = useLocalStorage<string>(
+    'pa_finance_active_page',
+    'ledger'
+  );
+  const financePage = useMemo(
+    () => normalizeFinancePageTab(rawFinancePage),
+    [rawFinancePage]
+  );
+  const [plannerPage, setPlannerPage] = useLocalStorage<PlannerPageTab>(
+    'pa_planner_active_page',
+    'tasks'
+  );
   const [isRouteTransitioning, setIsRouteTransitioning] = useState(false);
   const routeTimerRef = useRef<number | null>(null);
   const [todayKey, setTodayKey] = useState<string>(getTodayISO);
@@ -165,20 +182,53 @@ export default function App() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [isDark, setIsDark] = useLocalStorage<boolean>('pa_theme_dark', true);
 
-  const handleSelectTab = useCallback((tab: NavSection) => {
-    setActiveTab((prev) => {
-      if (tab === prev) {
-        scrollToTopSmooth();
-        return prev;
-      }
-      setIsRouteTransitioning(true);
-      if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
-      routeTimerRef.current = window.setTimeout(() => {
-        setIsRouteTransitioning(false);
-      }, 280);
-      return tab;
-    });
+  const triggerRouteTransition = useCallback(() => {
+    setIsRouteTransitioning(true);
+    if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
+    routeTimerRef.current = window.setTimeout(() => {
+      setIsRouteTransitioning(false);
+    }, 280);
   }, []);
+
+  const handleSelectTab = useCallback(
+    (tab: NavSection) => {
+      setActiveTab((prev) => {
+        if (tab === prev) {
+          scrollToTopSmooth();
+          return prev;
+        }
+        triggerRouteTransition();
+        return tab;
+      });
+    },
+    [triggerRouteTransition]
+  );
+
+  const handleSelectFinancePage = useCallback(
+    (page: FinancePageTab) => {
+      if (activeTab === 'finance' && financePage === page) {
+        scrollToTopSmooth();
+        return;
+      }
+      setRawFinancePage(page);
+      setActiveTab('finance');
+      triggerRouteTransition();
+    },
+    [activeTab, financePage, setRawFinancePage, triggerRouteTransition]
+  );
+
+  const handleSelectPlannerPage = useCallback(
+    (page: PlannerPageTab) => {
+      if (activeTab === 'planner' && plannerPage === page) {
+        scrollToTopSmooth();
+        return;
+      }
+      setPlannerPage(page);
+      setActiveTab('planner');
+      triggerRouteTransition();
+    },
+    [activeTab, plannerPage, setPlannerPage, triggerRouteTransition]
+  );
 
   useEffect(() => {
     return () => {
@@ -2122,12 +2172,22 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const defaultModalMode: 'transaction' | 'task' | 'note' =
-    activeTab === 'planner'
-      ? 'task'
-      : activeTab === 'notes'
-        ? 'note'
-        : 'transaction';
+  const defaultModalMode: QuickModalMode =
+    activeTab === 'finance'
+      ? financePage === 'cards'
+        ? 'card'
+        : financePage === 'goals'
+          ? 'goal'
+          : financePage === 'debts'
+            ? 'debt'
+            : 'transaction'
+      : activeTab === 'planner'
+        ? plannerPage === 'habits'
+          ? 'habit'
+          : 'task'
+        : activeTab === 'notes'
+          ? 'note'
+          : 'transaction';
 
   const todayISO = todayKey;
   const todayPendingTasks = useMemo(() => {
@@ -2313,6 +2373,10 @@ export default function App() {
       <TopNav
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
+        financePage={financePage}
+        onSelectFinancePage={handleSelectFinancePage}
+        plannerPage={plannerPage}
+        onSelectPlannerPage={handleSelectPlannerPage}
         onOpenNewModal={handleOpenDefaultModal}
         todayTasks={todayPendingTasks}
         onToggleTask={handleToggleTask}
@@ -2350,36 +2414,6 @@ export default function App() {
         currency="AMD"
       >
         <main className="flex-1 w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 min-w-0">
-          {/* Mobile & Tablet Preferences Strip (< lg) */}
-          <div className="lg:hidden flex flex-wrap items-center justify-between gap-2.5 pb-4 mb-5 border-b border-[#E2E8F0] dark:border-[#1E293B]">
-            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
-              {editorialDate}
-            </p>
-            {(activeTab === 'overview' || activeTab === 'finance') && (
-              <div className="inline-flex items-center border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl bg-white dark:bg-[#0F172A]">
-                <button
-                  type="button"
-                  onClick={() => setSelectedMonth(shiftMonthKey(selectedMonth, -1))}
-                  aria-label="Նախորդ հաշվարկային ամիս"
-                  className="min-h-[34px] min-w-[34px] flex items-center justify-center text-[#64748B] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] rounded-l-xl transition-colors cursor-pointer"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <span className="px-2.5 text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums whitespace-nowrap">
-                  {formatCycleLabel(selectedMonth, effectivePayday)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedMonth(shiftMonthKey(selectedMonth, 1))}
-                  aria-label="Հաջորդ հաշվարկային ամիս"
-                  className="min-h-[34px] min-w-[34px] flex items-center justify-center text-[#64748B] dark:text-[#94A3B8] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] rounded-r-xl transition-colors cursor-pointer"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-
           <AnimatePresence mode="wait" onExitComplete={scrollToTopInstant}>
             <motion.div
               key={activeTab}
@@ -2400,10 +2434,23 @@ export default function App() {
               }}
               style={{ willChange: 'transform, opacity' }}
             >
-              <Suspense fallback={<PageSkeleton variant={activeTab} />}>
+              <Suspense
+                fallback={
+                  <PageSkeleton
+                    variant={
+                      activeTab === 'finance'
+                        ? financePage
+                        : activeTab === 'planner'
+                          ? plannerPage
+                          : activeTab
+                    }
+                  />
+                }
+              >
                 {activeTab === 'overview' && (
                   <OverviewView
                     selectedMonth={selectedMonth}
+                    onShiftMonth={handleShiftMonth}
                     primaryIncome={primaryIncome}
                     transactions={transactions}
                     cards={cards}
@@ -2415,19 +2462,15 @@ export default function App() {
                     safeToSpend={safeToSpend}
                     savingsGoals={savingsGoals}
                     debts={debts}
-                    focusSessions={focusSessions}
-                    soundEnabled={notificationSettings.soundEnabled}
-                    browserNotifications={notificationSettings.browserNotifications}
-                    notificationSettings={notificationSettings}
-                    onCompleteFocusSession={handleCompleteFocusSession}
                     onSaveFocusGoal={handleSaveFocusGoal}
                     onToggleFocusGoal={handleToggleFocusGoal}
                     onClearFocusGoal={handleClearFocusGoal}
                     onToggleTask={handleToggleTask}
                     onToggleHabitDate={handleToggleHabitDate}
                     onNavigate={handleSelectTab}
+                    onNavigateFinance={handleSelectFinancePage}
+                    onNavigatePlanner={handleSelectPlannerPage}
                     onOpenNewModal={handleOpenOverviewModal}
-                    onQuickCardTransaction={handleQuickCardTransaction}
                     onConfirmPreExpense={handleConfirmPreExpense}
                     onAddTransaction={handleAddTransaction}
                     onOpenTransactionWithPrefill={(prefill) =>
@@ -2438,6 +2481,8 @@ export default function App() {
 
                 {activeTab === 'finance' && (
                   <FinanceView
+                    activePage={financePage}
+                    onSelectPage={handleSelectFinancePage}
                     selectedMonth={selectedMonth}
                     onChangeMonth={setSelectedMonth}
                     primaryIncome={primaryIncome}
@@ -2503,6 +2548,8 @@ export default function App() {
 
                 {activeTab === 'planner' && (
                   <PlannerView
+                    activePage={plannerPage}
+                    onSelectPage={handleSelectPlannerPage}
                     tasks={tasks}
                     onOpenNewTaskModal={() => setModalState({ mode: 'task' })}
                     onAddTask={handleAddTask}
@@ -2670,6 +2717,8 @@ export default function App() {
             onToggleTheme={handleToggleTheme}
             onTogglePrivacy={() => setIsPrivacyMode((prev) => !prev)}
             onNavigate={handleSelectTab}
+            onNavigateFinance={handleSelectFinancePage}
+            onNavigatePlanner={handleSelectPlannerPage}
             onOpenNewModal={(mode) => setModalState({ mode })}
             onEditTransaction={(tx) =>
               setModalState({ mode: 'transaction', editing: tx })

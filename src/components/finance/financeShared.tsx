@@ -7,8 +7,27 @@ export type FinancePageTab =
   | 'ledger'
   | 'cards'
   | 'budgets'
-  | 'goals_debts'
+  | 'bills'
+  | 'goals'
+  | 'debts'
   | 'analytics';
+
+export function normalizeFinancePageTab(value?: string | null): FinancePageTab {
+  if (value === 'goals_debts') return 'goals';
+  if (
+    value === 'ledger' ||
+    value === 'cards' ||
+    value === 'budgets' ||
+    value === 'bills' ||
+    value === 'goals' ||
+    value === 'debts' ||
+    value === 'analytics'
+  ) {
+    return value;
+  }
+  return 'ledger';
+}
+
 export type TxSortMode = 'date-desc' | 'amount-desc' | 'amount-asc';
 
 export const DONUT_COLORS = [

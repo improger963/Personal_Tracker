@@ -3,6 +3,7 @@ import { AnimatePresence } from 'motion/react';
 import {
   CheckSquare,
   Clock,
+  Download,
   Plus,
   Receipt,
   Search,
@@ -10,6 +11,12 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import {
+  MetricStrip,
+  MonthCycleNav,
+  PageHeader,
+  PageShell,
+} from '../layout/PagePrimitives';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import { SwipeableTransactionRow } from './SwipeableTransactionRow';
 import {
@@ -31,6 +38,7 @@ import {
 import { TxSortMode } from './financeShared';
 import { findAutoCategorizableTransactions } from '../../utils/transactionAutoCategory';
 import { formatCardLabel } from '../../utils/cardBalances';
+import { formatCycleLabel } from '../../utils/financialCycle';
 
 const ALL_CATEGORIES = Array.from(
   new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])
@@ -38,6 +46,7 @@ const ALL_CATEGORIES = Array.from(
 
 interface TransactionsLedgerPageProps {
   selectedMonth: string;
+  onShiftMonth: (delta: number) => void;
   effectivePayday: number;
   currency: Currency;
   cards: BankCard[];
@@ -55,6 +64,7 @@ interface TransactionsLedgerPageProps {
   onBulkDeleteTransactions?: (ids: string[]) => void;
   onBulkAssignCard?: (ids: string[], cardId: string | undefined) => void;
   onConfirmPreExpense: (id: string) => void;
+  onExportCSV: () => void;
   realBalance: number;
   totalIncome: number;
   totalExpense: number;
@@ -69,6 +79,9 @@ interface TransactionsLedgerPageProps {
 }
 
 export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
+  selectedMonth,
+  onShiftMonth,
+  effectivePayday,
   currency,
   cards,
   filterCardId,
@@ -83,6 +96,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   onBulkDeleteTransactions,
   onBulkAssignCard,
   onConfirmPreExpense,
+  onExportCSV,
   realBalance,
   totalIncome,
   totalExpense,
@@ -96,11 +110,12 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   onManualCreditPrimaryIncome,
 }: TransactionsLedgerPageProps) {
   const todayISO = getTodayISO();
+  const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
+
   const [openSwipeTxId, setOpenSwipeTxId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // Filtering & Sorting state
   const [filterType, setFilterType] = useState<'all' | TransactionType | 'pending'>('all');
   const [filterIncomeKind, setFilterIncomeKind] = useState<'all' | IncomeKind>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -110,7 +125,6 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   const [filterDateTo, setFilterDateTo] = useState('');
   const [txSort, setTxSort] = useState<TxSortMode>('date-desc');
 
-  // Search state & real-time suggestions
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
@@ -264,96 +278,89 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   );
 
   return (
-    <div className="space-y-6">
-      {/* Compact Quick Summary Strip */}
-      <section className="surface-card p-4 sm:p-5">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0] dark:divide-[#1E293B]">
-          <div className="min-w-0">
-            <span className="text-[11px] font-medium text-[#2563EB] dark:text-[#60A5FA]">
-              Իրական բալանս
-            </span>
-            <p
-              className={`pa-sensitive text-xl sm:text-2xl font-display font-bold tabular-nums truncate mt-0.5 ${
-                realBalance >= 0
-                  ? 'text-[#0F172A] dark:text-[#F8FAFC]'
-                  : 'text-rose-600 dark:text-rose-400'
-              }`}
+    <PageShell>
+      <PageHeader
+        title="Գործարքների մատյան"
+        subtitle={`Մուտքեր, ելքեր, նախածախսեր և արագ որոնում · ${cycleLabel}`}
+        actions={
+          <>
+            <MonthCycleNav
+              selectedMonth={selectedMonth}
+              payday={effectivePayday}
+              onShiftMonth={onShiftMonth}
+            />
+            <button
+              type="button"
+              onClick={onExportCSV}
+              disabled={allTransactions.length === 0}
+              className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] inline-flex items-center gap-1.5 hover:border-[#2563EB] dark:hover:border-[#3B82F6] disabled:opacity-40 transition-colors cursor-pointer whitespace-nowrap"
             >
-              {realBalance > 0 ? '+' : ''}
-              {formatMoney(realBalance, currency)}
-            </p>
-          </div>
+              <Download className="w-3.5 h-3.5" />
+              <span>CSV</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenNewTransactionModal}
+              className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+            >
+              <Plus className="w-4 h-4 shrink-0" />
+              <span>Նոր գործարք</span>
+            </button>
+          </>
+        }
+      />
 
-          <div className="min-w-0 sm:pl-4 pt-3 sm:pt-0">
-            <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
-              Ամսվա եկամուտ
-            </span>
-            <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums truncate mt-0.5">
-              +{formatMoney(totalIncome, currency)}
-            </p>
-            {incomeDeltaPct !== null && (
-              <span
-                className={`text-[10px] font-medium tabular-nums ${
-                  incomeDeltaPct >= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
-              >
-                {incomeDeltaPct >= 0 ? '+' : ''}
-                {incomeDeltaPct}% նախ. ցիկլից
-              </span>
-            )}
-          </div>
-
-          <div className="min-w-0 sm:pl-4 pt-3 sm:pt-0">
-            <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
-              Ամսվա ծախս
-            </span>
-            <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold text-rose-600 dark:text-rose-400 tabular-nums truncate mt-0.5">
-              -{formatMoney(totalExpense, currency)}
-            </p>
-            {pendingExpense > 0 ? (
-              <p className="pa-sensitive text-[10px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1 tabular-nums mt-0.5 truncate">
-                <Clock className="w-2.5 h-2.5 shrink-0" />
-                <span>Սպասվող նախածախս՝ {formatMoney(pendingExpense, currency)}</span>
-              </p>
-            ) : expenseDeltaPct !== null ? (
-              <span
-                className={`text-[10px] font-medium tabular-nums ${
-                  expenseDeltaPct <= 0
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-rose-600 dark:text-rose-400'
-                }`}
-              >
-                {expenseDeltaPct >= 0 ? '+' : ''}
-                {expenseDeltaPct}% նախ. ցիկլից
-              </span>
-            ) : null}
-          </div>
-
-          <div className="min-w-0 sm:pl-4 pt-3 sm:pt-0 flex flex-col justify-between">
-            <div>
-              <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
-                Նախորդ մնացորդ
-              </span>
-              <p className="pa-sensitive text-base sm:text-lg font-mono font-semibold tabular-nums truncate text-[#475569] dark:text-[#CBD5E1] mt-0.5">
-                {openingBalance > 0 ? '+' : ''}
-                {formatMoney(openingBalance, currency)}
-              </p>
-            </div>
-            {isCurrentCycle && primaryIncome.enabled && !hasCurrentPrimaryCredited && (
-              <button
-                type="button"
-                onClick={onManualCreditPrimaryIncome}
-                className="mt-1.5 self-start text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Գրանցել աշխատավարձը</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
+      <MetricStrip
+        items={[
+          {
+            id: 'ledger-balance',
+            label: 'Իրական բալանս',
+            value: `${realBalance > 0 ? '+' : ''}${formatMoney(realBalance, currency)}`,
+            hint: `${monthTransactions.length} գործարք ցիկլում`,
+            tone: realBalance >= 0 ? 'accent' : 'negative',
+            sensitive: true,
+          },
+          {
+            id: 'ledger-income',
+            label: 'Ամսվա եկամուտ',
+            value: `+${formatMoney(totalIncome, currency)}`,
+            hint:
+              incomeDeltaPct !== null
+                ? `${incomeDeltaPct >= 0 ? '+' : ''}${incomeDeltaPct}% նախ. ցիկլից`
+                : undefined,
+            tone: 'positive',
+            sensitive: true,
+          },
+          {
+            id: 'ledger-expense',
+            label: 'Ամսվա ծախս',
+            value: `-${formatMoney(totalExpense, currency)}`,
+            hint:
+              pendingExpense > 0
+                ? `Նախածախս՝ ${formatMoney(pendingExpense, currency)}`
+                : expenseDeltaPct !== null
+                  ? `${expenseDeltaPct >= 0 ? '+' : ''}${expenseDeltaPct}% նախ. ցիկլից`
+                  : undefined,
+            tone: 'negative',
+            sensitive: true,
+          },
+          {
+            id: 'ledger-opening',
+            label: 'Նախորդ մնացորդ',
+            value: `${openingBalance > 0 ? '+' : ''}${formatMoney(openingBalance, currency)}`,
+            sensitive: true,
+            action:
+              isCurrentCycle &&
+              primaryIncome.enabled &&
+              !hasCurrentPrimaryCredited
+                ? {
+                    label: '+ Գրանցել աշխատավարձը',
+                    onClick: onManualCreditPrimaryIncome,
+                  }
+                : undefined,
+          },
+        ]}
+      />
 
       {/* Full-Width Transactions Ledger */}
       <section className="surface-card overflow-hidden">
@@ -413,15 +420,6 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                     <span>{selectionMode ? 'Ավարտել' : 'Ընտրել'}</span>
                   </button>
                 )}
-
-              <button
-                type="button"
-                onClick={onOpenNewTransactionModal}
-                className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span>Նոր գործարք</span>
-              </button>
             </div>
           </div>
 
@@ -469,7 +467,6 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               <option value="amount-asc">Գումար՝ փոքրից մեծ</option>
             </select>
 
-            {/* Search Bar with Real-time Suggestions */}
             <div className="relative flex-1 min-w-[200px] sm:max-w-xs ml-auto">
               <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -570,7 +567,6 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
             </div>
           </div>
 
-          {/* Income Kind sub-filter if income selected */}
           {filterType === 'income' && (
             <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle self-start">
               <button
@@ -865,6 +861,6 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
           </>
         )}
       </section>
-    </div>
+    </PageShell>
   );
 });
