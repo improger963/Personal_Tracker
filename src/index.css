@@ -165,3 +165,23 @@ html.dark .skeleton-shimmer::after {
     display: none;
   }
 }
+
+/* Skip layout/paint cost for off-screen list items */
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
+/* Global Privacy Shield mode: blur monetary amounts until hovered or focused */
+html.pa-privacy .pa-sensitive {
+  filter: blur(7px);
+  user-select: none;
+  transition: filter 160ms ease;
+}
+
+html.pa-privacy .pa-sensitive:hover,
+html.pa-privacy button:focus-visible .pa-sensitive,
+html.pa-privacy a:focus-visible .pa-sensitive {
+  filter: blur(0);
+}
+

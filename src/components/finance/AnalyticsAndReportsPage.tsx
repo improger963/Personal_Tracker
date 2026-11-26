@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Bar,
@@ -13,10 +13,12 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  CalendarDays,
   FileDown,
   FileText,
   PieChart as PieChartIcon,
   Repeat,
+  SlidersHorizontal,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
@@ -27,8 +29,14 @@ import {
   IncomeKind,
   Transaction,
 } from '../../types';
-import { formatMoney, formatShortDate } from '../../data/defaults';
+import {
+  formatMoney,
+  formatShortDate,
+  getTodayISO,
+} from '../../data/defaults';
 import { formatCycleLabel } from '../../utils/financialCycle';
+import { INTERNAL_TRANSFER_CATEGORY } from '../../utils/cardBalances';
+import { classify503020Category } from '../../utils/smartCommandParser';
 import {
   buildMonthlySummaryStats,
   downloadMonthlySummaryPDF,
@@ -157,6 +165,118 @@ export function AnalyticsAndReportsPage({
   const prefersReducedMotion = useReducedMotion();
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const todayISO = getTodayISO();
+
+  // Cycle Daily Spend Heatmap Calendar state & computations
+  const [selectedHeatmapDay, setSelectedHeatmapDay] = useState<string | null>(
+    null
+  );
+
+  const cycleCalendarData = useMemo(() => {
+    const startParts = cycleMetrics.startDate.split('-').map(Number);
+    const endParts = cycleMetrics.endDate.split('-').map(Number);
+    const startDt = new Date(
+      startParts[0],
+      (startParts[1] || 1) - 1,
+      startParts[2] || 1
+    );
+    const endDt = new Date(
+      endParts[0],
+      (endParts[1] || 1) - 1,
+      endParts[2] || 1
+    );
+
+    const byDate = new Map<
+      string,
+      { spent: number; income: number; txs: Transaction[] }
+    >();
+    for (const tx of monthTransactions) {
+      if (tx.category === INTERNAL_TRANSFER_CATEGORY) continue;
+      const entry = byDate.get(tx.date) ?? { spent: 0, income: 0, txs: [] };
+      if (tx.type === 'expense' && !tx.isPending) {
+        entry.spent += tx.amount;
+      } else if (tx.type === 'income') {
+        entry.income += tx.amount;
+      }
+      entry.txs.push(tx);
+      byDate.set(tx.date, entry);
+    }
+
+    const days: Array<{
+      date: string;
+      dayNum: number;
+      spent: number;
+      income: number;
+      txs: Transaction[];
+    }> = [];
+    let maxDailySpent = 0;
+    const cursor = new Date(startDt);
+    let guard = 0;
+    while (cursor <= endDt && guard < 40) {
+      guard += 1;
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, '0');
+      const d = String(cursor.getDate()).padStart(2, '0');
+      const iso = `${y}-${m}-${d}`;
+      const info = byDate.get(iso);
+      const spent = info?.spent ?? 0;
+      if (spent > maxDailySpent) maxDailySpent = spent;
+      days.push({
+        date: iso,
+        dayNum: cursor.getDate(),
+        spent,
+        income: info?.income ?? 0,
+        txs: info?.txs ?? [],
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    // Monday-first weekday offset (Mon = 0 .. Sun = 6)
+    const firstJsDay = startDt.getDay();
+    const leadingEmpty = (firstJsDay + 6) % 7;
+
+    return { days, maxDailySpent, leadingEmpty };
+  }, [cycleMetrics.startDate, cycleMetrics.endDate, monthTransactions]);
+
+  const activeHeatmapDayObj = useMemo(() => {
+    if (cycleCalendarData.days.length === 0) return null;
+    if (selectedHeatmapDay) {
+      const found = cycleCalendarData.days.find(
+        (d) => d.date === selectedHeatmapDay
+      );
+      if (found) return found;
+    }
+    const todayInCycle = cycleCalendarData.days.find(
+      (d) => d.date === todayISO
+    );
+    if (todayInCycle) return todayInCycle;
+    const maxDay = [...cycleCalendarData.days].sort((a, b) => b.spent - a.spent)[0];
+    return maxDay ?? cycleCalendarData.days[0];
+  }, [cycleCalendarData.days, selectedHeatmapDay, todayISO]);
+
+  // 50 / 30 / 20 Actual Allocation derived strictly from cycle transactions
+  const rule503020 = useMemo(() => {
+    let needs = 0;
+    let wants = 0;
+    for (const tx of expenseTransactions) {
+      if (tx.isPending || tx.category === INTERNAL_TRANSFER_CATEGORY) continue;
+      const bucket = classify503020Category(tx.category);
+      if (bucket === 'needs') needs += tx.amount;
+      else if (bucket === 'wants') wants += tx.amount;
+    }
+    const savingsActual = Math.max(0, totalIncome - (needs + wants));
+    const denominator = totalIncome > 0 ? totalIncome : Math.max(1, needs + wants);
+    return {
+      needs,
+      wants,
+      savingsActual,
+      needsPct: Math.round((needs / denominator) * 100),
+      wantsPct: Math.round((wants / denominator) * 100),
+      savingsPctActual:
+        totalIncome > 0 ? Math.round((savingsActual / totalIncome) * 100) : 0,
+      hasData: needs > 0 || wants > 0 || totalIncome > 0,
+    };
+  }, [expenseTransactions, totalIncome]);
 
   const handleExportSummaryText = () => {
     const stats = buildMonthlySummaryStats({
@@ -791,7 +911,7 @@ export function AnalyticsAndReportsPage({
                   <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate max-w-[100px]">
                     {hoveredCategory ?? 'Ընդհանուր'}
                   </span>
-                  <span className="text-sm font-bold font-mono tabular-nums text-[#0F172A] dark:text-[#F8FAFC] mt-0.5">
+                  <span className="pa-sensitive text-sm font-bold font-mono tabular-nums text-[#0F172A] dark:text-[#F8FAFC] mt-0.5">
                     {formatMoney(
                       hoveredCategory
                         ? expenseByCategory[hoveredCategory] ?? 0
@@ -830,7 +950,7 @@ export function AnalyticsAndReportsPage({
                       />
                       <span>{seg.category}</span>
                     </span>
-                    <span className="font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] text-xs sm:text-sm">
+                    <span className="pa-sensitive font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] text-xs sm:text-sm">
                       {formatMoney(seg.amount, currency)}{' '}
                       <span className="text-[#94A3B8]">({seg.pct}%)</span>
                     </span>
@@ -846,7 +966,7 @@ export function AnalyticsAndReportsPage({
               <h4 className="font-display text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Եկամտի կառուցվածք
               </h4>
-              <span className="text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+              <span className="pa-sensitive text-xs font-mono font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
                 +{formatMoney(totalIncome, currency)}
               </span>
             </div>
@@ -869,7 +989,7 @@ export function AnalyticsAndReportsPage({
                         <span className="font-medium text-[#334155] dark:text-[#CBD5E1]">
                           {item.label}
                         </span>
-                        <span className="font-mono text-[#475569] dark:text-[#CBD5E1]">
+                        <span className="pa-sensitive font-mono text-[#475569] dark:text-[#CBD5E1]">
                           <span className={`font-semibold ${item.textClass}`}>
                             {formatMoney(item.amount, currency)}
                           </span>{' '}
@@ -888,6 +1008,243 @@ export function AnalyticsAndReportsPage({
               </div>
             )}
           </div>
+        </section>
+      </div>
+
+      {/* 5. Cycle Daily Spend Heatmap & 50/30/20 Rule Analysis */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-start">
+        {/* Daily Spend Heatmap Calendar */}
+        <section className="lg:col-span-7 surface-card p-5 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                <CalendarDays className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  Ցիկլի օրական ծախսերի քարտեզ
+                </h3>
+                <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+                  Սեղմեք ցանկացած օրվա վրա՝ տվյալ օրվա գործարքները տեսնելու համար
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px] text-[#64748B] dark:text-[#94A3B8]">
+              <span>Քիչ</span>
+              <span className="w-3 h-3 rounded bg-[#F1F5F9] dark:bg-[#1E293B]" />
+              <span className="w-3 h-3 rounded bg-amber-300/60 dark:bg-amber-500/35" />
+              <span className="w-3 h-3 rounded bg-orange-400/75 dark:bg-orange-500/55" />
+              <span className="w-3 h-3 rounded bg-rose-500/85 dark:bg-rose-500/75" />
+              <span>Շատ</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-semibold text-[#94A3B8] uppercase">
+            {['Երկ', 'Երք', 'Չոր', 'Հինգ', 'Ուրբ', 'Շաբ', 'Կիր'].map((wd) => (
+              <div key={wd} className="py-1">
+                {wd}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5">
+            {Array.from({ length: cycleCalendarData.leadingEmpty }).map((_, i) => (
+              <div key={`empty-${i}`} className="h-10 sm:h-11" aria-hidden="true" />
+            ))}
+            {cycleCalendarData.days.map((day) => {
+              const ratio =
+                cycleCalendarData.maxDailySpent > 0
+                  ? day.spent / cycleCalendarData.maxDailySpent
+                  : 0;
+              const isSelected = activeHeatmapDayObj?.date === day.date;
+              const isToday = day.date === todayISO;
+              const heatClass =
+                day.spent <= 0
+                  ? 'bg-[#F8FAFC] dark:bg-[#0B1120] border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8]'
+                  : ratio >= 0.72
+                    ? 'bg-rose-500/20 dark:bg-rose-500/25 border-rose-500/45 text-rose-800 dark:text-rose-200'
+                    : ratio >= 0.36
+                      ? 'bg-orange-500/18 dark:bg-orange-500/22 border-orange-500/40 text-orange-800 dark:text-orange-200'
+                      : 'bg-amber-400/18 dark:bg-amber-500/18 border-amber-400/40 text-amber-800 dark:text-amber-200';
+
+              return (
+                <button
+                  key={day.date}
+                  type="button"
+                  onClick={() => setSelectedHeatmapDay(day.date)}
+                  title={`${formatShortDate(day.date)} · Ծախս՝ ${formatMoney(day.spent, currency)}`}
+                  className={`h-10 sm:h-11 rounded-xl border flex flex-col items-center justify-center text-[11px] font-mono tabular-nums transition-all cursor-pointer ${heatClass} ${
+                    isSelected
+                      ? 'ring-2 ring-[#2563EB] dark:ring-[#3B82F6] font-bold'
+                      : isToday
+                        ? 'ring-1 ring-[#2563EB]/50'
+                        : ''
+                  }`}
+                >
+                  <span>{day.dayNum}</span>
+                  {day.spent > 0 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-current opacity-75 mt-0.5" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeHeatmapDayObj && (
+            <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-3.5 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  {formatShortDate(activeHeatmapDayObj.date)}
+                  {activeHeatmapDayObj.date === todayISO ? ' (Այսօր)' : ''}
+                </span>
+                <div className="flex items-center gap-3 font-mono tabular-nums">
+                  {activeHeatmapDayObj.income > 0 && (
+                    <span className="pa-sensitive text-emerald-600 dark:text-emerald-400 font-semibold">
+                      +{formatMoney(activeHeatmapDayObj.income, currency)}
+                    </span>
+                  )}
+                  <span className="pa-sensitive text-rose-600 dark:text-rose-400 font-semibold">
+                    -{formatMoney(activeHeatmapDayObj.spent, currency)}
+                  </span>
+                </div>
+              </div>
+              {activeHeatmapDayObj.txs.length === 0 ? (
+                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Այս օրը գրանցված գործարքներ չկան։
+                </p>
+              ) : (
+                <div className="divide-y divide-[#E2E8F0] dark:divide-[#1E293B]">
+                  {activeHeatmapDayObj.txs.slice(0, 5).map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="py-1.5 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <span className="truncate text-[#334155] dark:text-[#CBD5E1]">
+                        {tx.title}{' '}
+                        <span className="text-[#94A3B8]">· {tx.category}</span>
+                      </span>
+                      <span
+                        className={`pa-sensitive font-mono font-semibold tabular-nums shrink-0 ${
+                          tx.type === 'income'
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                        }`}
+                      >
+                        {tx.type === 'income' ? '+' : '-'}
+                        {formatMoney(tx.amount, currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* 50 / 30 / 20 Allocation Analysis */}
+        <section className="lg:col-span-5 surface-card p-5 sm:p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="w-8 h-8 rounded-xl bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <SlidersHorizontal className="w-4 h-4" />
+            </span>
+            <div>
+              <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                50 / 30 / 20 բաշխման վերլուծություն
+              </h3>
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+                Հիմնական կարիքներ, ցանկություններ և խնայողություն
+              </p>
+            </div>
+          </div>
+
+          {!rule503020.hasData ? (
+            <EmptyStatePlaceholder
+              compact
+              icon={SlidersHorizontal}
+              title="Բաշխման տվյալներ դեռ չկան"
+              description="Եկամուտների և ծախսերի գրանցումից հետո այստեղ կտեսնեք 50/30/20 համամասնությունը։"
+            />
+          ) : (
+            <div className="space-y-4">
+              {[
+                {
+                  id: 'needs',
+                  label: 'Անհրաժեշտ կարիքներ',
+                  desc: 'Սնունդ, տրանսպորտ, կոմունալ, բնակարան, առողջություն',
+                  amount: rule503020.needs,
+                  actualPct: rule503020.needsPct,
+                  targetPct: 50,
+                  barClass:
+                    rule503020.needsPct > 60
+                      ? 'bg-amber-500'
+                      : 'bg-[#2563EB] dark:bg-[#3B82F6]',
+                },
+                {
+                  id: 'wants',
+                  label: 'Ցանկություններ և գնումներ',
+                  desc: 'Գնումներ, ժամանց և այլ ոչ պարտադիր ծախսեր',
+                  amount: rule503020.wants,
+                  actualPct: rule503020.wantsPct,
+                  targetPct: 30,
+                  barClass:
+                    rule503020.wantsPct > 35 ? 'bg-rose-500' : 'bg-purple-500',
+                },
+                {
+                  id: 'savings',
+                  label: 'Մաքուր խնայողություն',
+                  desc: 'Եկամտից մնացած չծախսված հատվածը',
+                  amount: rule503020.savingsActual,
+                  actualPct: rule503020.savingsPctActual,
+                  targetPct: 20,
+                  barClass:
+                    rule503020.savingsPctActual >= 20
+                      ? 'bg-emerald-500'
+                      : 'bg-amber-500',
+                },
+              ].map((row) => (
+                <div key={row.id} className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                        {row.label}
+                      </p>
+                      <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
+                        {row.desc}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0 tabular-nums">
+                      <span className="font-mono text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+                        {row.actualPct}%
+                      </span>
+                      <span className="text-[11px] text-[#94A3B8] ml-1">
+                        / {row.targetPct}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden relative">
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${row.barClass}`}
+                      style={{ width: `${Math.min(100, row.actualPct)}%` }}
+                    />
+                  </div>
+                  <p className="pa-sensitive text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                    {formatMoney(row.amount, currency)}
+                    {totalIncome > 0 && (
+                      <span className="text-[#94A3B8]">
+                        {' '}
+                        (թիրախ՝{' '}
+                        {formatMoney(
+                          Math.round((totalIncome * row.targetPct) / 100),
+                          currency
+                        )}
+                        )
+                      </span>
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
     </div>

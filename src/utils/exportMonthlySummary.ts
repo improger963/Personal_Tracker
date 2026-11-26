@@ -1,4 +1,3 @@
-import { jsPDF } from 'jspdf';
 import { BudgetLimit, Currency, IncomeKind, Transaction } from '../types';
 import {
   INCOME_KIND_LABELS,
@@ -762,6 +761,7 @@ export async function downloadMonthlySummaryPDF(
     });
   }
 
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

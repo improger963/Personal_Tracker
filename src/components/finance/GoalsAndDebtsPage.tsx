@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Calculator,
   Calendar,
   Check,
   CheckCircle2,
@@ -15,7 +16,12 @@ import {
 } from 'lucide-react';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import { Currency, DebtDirection, DebtItem, SavingsGoal } from '../../types';
-import { formatMoney, formatShortDate, getTodayISO } from '../../data/defaults';
+import {
+  ARMENIAN_MONTHS,
+  formatMoney,
+  formatShortDate,
+  getTodayISO,
+} from '../../data/defaults';
 import { daysBetweenISO } from '../../utils/financialCycle';
 
 interface GoalsAndDebtsPageProps {
@@ -73,6 +79,7 @@ export function GoalsAndDebtsPage({
   const [debtPayModal, setDebtPayModal] = useState<DebtItem | null>(null);
   const [debtPayAmount, setDebtPayAmount] = useState('');
   const [debtRecordLedger, setDebtRecordLedger] = useState(true);
+  const [monthlyPace, setMonthlyPace] = useState<number>(50000);
 
   const totalSavedInGoals = useMemo(
     () => savingsGoals.reduce((sum, g) => sum + g.currentAmount, 0),
@@ -98,6 +105,26 @@ export function GoalsAndDebtsPage({
       netPosition: activeLent - activeBorrowed,
     };
   }, [debts]);
+
+  const activeGoalsNeedTotal = useMemo(
+    () =>
+      savingsGoals.reduce(
+        (sum, g) => sum + Math.max(0, g.targetAmount - g.currentAmount),
+        0
+      ),
+    [savingsGoals]
+  );
+
+  const formatProjectedMonth = (monthsAhead: number) => {
+    const now = new Date();
+    const target = new Date(
+      now.getFullYear(),
+      now.getMonth() + monthsAhead,
+      1
+    );
+    const mName = ARMENIAN_MONTHS[target.getMonth()] ?? '';
+    return `${mName} ${target.getFullYear()}`;
+  };
 
   const filteredDebts = useMemo(() => {
     return [...debts]
@@ -166,11 +193,14 @@ export function GoalsAndDebtsPage({
               </h2>
               <p className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
                 Կուտակված՝{' '}
-                <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                <strong className="pa-sensitive font-mono text-emerald-600 dark:text-emerald-400">
                   {formatMoney(totalSavedInGoals, currency)}
                 </strong>{' '}
-                {totalTargetInGoals > 0 &&
-                  `/ ${formatMoney(totalTargetInGoals, currency)} նպատակից`}
+                {totalTargetInGoals > 0 && (
+                  <span className="pa-sensitive">
+                    / {formatMoney(totalTargetInGoals, currency)} նպատակից
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -327,6 +357,107 @@ export function GoalsAndDebtsPage({
         )}
       </section>
 
+      {/* SECTION 1.5: PAYOFF & SAVINGS FORECASTER */}
+      {(activeGoalsNeedTotal > 0 || debtTotals.activeBorrowed > 0) && (
+        <section className="surface-card p-5 sm:p-6 space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
+                <Calculator className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  Կուտակման և պարտքերի մարման հաշվիչ
+                </h2>
+                <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+                  Ընտրեք ամսական հատկացումը՝ տեսնելու մոտավոր ավարտի ամիսը
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[25000, 50000, 100000, 150000].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setMonthlyPace(preset)}
+                  className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-xs font-mono tabular-nums transition-colors cursor-pointer ${
+                    monthlyPace === preset
+                      ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                      : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                  }`}
+                >
+                  {formatMoney(preset, currency)}
+                </button>
+              ))}
+              <input
+                type="number"
+                min="1000"
+                step="5000"
+                value={monthlyPace}
+                onChange={(e) =>
+                  setMonthlyPace(Math.max(1000, Number(e.target.value) || 0))
+                }
+                aria-label="Ամսական հատկացում"
+                className="w-28 min-h-[34px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {activeGoalsNeedTotal > 0 && (
+              <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                    Բոլոր գանձանակների լրացում
+                  </span>
+                  <span className="pa-sensitive font-mono text-[#64748B] dark:text-[#94A3B8]">
+                    մնացել է {formatMoney(activeGoalsNeedTotal, currency)}
+                  </span>
+                </div>
+                {(() => {
+                  const months = Math.max(
+                    1,
+                    Math.ceil(activeGoalsNeedTotal / Math.max(1, monthlyPace))
+                  );
+                  return (
+                    <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                      ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
+
+            {debtTotals.activeBorrowed > 0 && (
+              <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                    Վերցված պարտքերի լրիվ մարում
+                  </span>
+                  <span className="pa-sensitive font-mono text-[#64748B] dark:text-[#94A3B8]">
+                    մնացել է {formatMoney(debtTotals.activeBorrowed, currency)}
+                  </span>
+                </div>
+                {(() => {
+                  const months = Math.max(
+                    1,
+                    Math.ceil(
+                      debtTotals.activeBorrowed / Math.max(1, monthlyPace)
+                    )
+                  );
+                  return (
+                    <p className="text-sm font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums">
+                      ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {/* SECTION 2: DEBTS & IOUs ("Պարտքեր և փոխառություններ") */}
       <section className="surface-card overflow-hidden">
         <div className="px-5 py-4 sm:px-6 border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -361,7 +492,7 @@ export function GoalsAndDebtsPage({
               <p className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                 Ինձ են պարտք (ակտիվ)
               </p>
-              <p className="mt-0.5 text-base font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+              <p className="pa-sensitive mt-0.5 text-base font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
                 +{formatMoney(debtTotals.activeLent, currency)}
               </p>
             </div>
@@ -373,7 +504,7 @@ export function GoalsAndDebtsPage({
               <p className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                 Ես եմ պարտք (ակտիվ)
               </p>
-              <p className="mt-0.5 text-base font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
+              <p className="pa-sensitive mt-0.5 text-base font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400">
                 -{formatMoney(debtTotals.activeBorrowed, currency)}
               </p>
             </div>

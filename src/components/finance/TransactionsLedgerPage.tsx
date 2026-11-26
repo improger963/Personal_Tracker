@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import {
+  CheckSquare,
   Clock,
   Plus,
   Receipt,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
@@ -30,6 +32,10 @@ import { TxSortMode } from './financeShared';
 import { findAutoCategorizableTransactions } from '../../utils/transactionAutoCategory';
 import { formatCardLabel } from '../../utils/cardBalances';
 
+const ALL_CATEGORIES = Array.from(
+  new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])
+);
+
 interface TransactionsLedgerPageProps {
   selectedMonth: string;
   effectivePayday: number;
@@ -45,6 +51,9 @@ interface TransactionsLedgerPageProps {
     updates: Array<{ id: string; category: string; incomeKind?: IncomeKind }>
   ) => void;
   onDeleteTransaction: (id: string) => void;
+  onDuplicateTransaction?: (tx: Transaction) => void;
+  onBulkDeleteTransactions?: (ids: string[]) => void;
+  onBulkAssignCard?: (ids: string[], cardId: string | undefined) => void;
   onConfirmPreExpense: (id: string) => void;
   realBalance: number;
   totalIncome: number;
@@ -59,7 +68,7 @@ interface TransactionsLedgerPageProps {
   onManualCreditPrimaryIncome: () => void;
 }
 
-export function TransactionsLedgerPage({
+export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   currency,
   cards,
   filterCardId,
@@ -70,6 +79,9 @@ export function TransactionsLedgerPage({
   onEditTransaction,
   onAutoCategorizeTransactions,
   onDeleteTransaction,
+  onDuplicateTransaction,
+  onBulkDeleteTransactions,
+  onBulkAssignCard,
   onConfirmPreExpense,
   realBalance,
   totalIncome,
@@ -85,6 +97,8 @@ export function TransactionsLedgerPage({
 }: TransactionsLedgerPageProps) {
   const todayISO = getTodayISO();
   const [openSwipeTxId, setOpenSwipeTxId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   // Filtering & Sorting state
   const [filterType, setFilterType] = useState<'all' | TransactionType | 'pending'>('all');
@@ -100,13 +114,12 @@ export function TransactionsLedgerPage({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
 
-  const allCategories = Array.from(
-    new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])
-  );
+  const allCategories = ALL_CATEGORIES;
 
-  const pendingCount = monthTransactions.filter(
-    (t) => t.type === 'expense' && t.isPending
-  ).length;
+  const pendingCount = useMemo(
+    () => monthTransactions.filter((t) => t.type === 'expense' && t.isPending).length,
+    [monthTransactions]
+  );
 
   const searchSuggestions = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -174,58 +187,80 @@ export function TransactionsLedgerPage({
     setSearchQuery('');
   };
 
-  const filteredTransactions = [...monthTransactions]
-    .filter((t) => {
-      if (filterType === 'all') return true;
-      if (filterType === 'pending') return t.type === 'expense' && t.isPending;
-      return t.type === filterType;
-    })
-    .filter((t) => {
-      if (filterType !== 'income' || filterIncomeKind === 'all') return true;
-      return getTransactionIncomeKind(t) === filterIncomeKind;
-    })
-    .filter((t) =>
-      filterCategory === 'all' ? true : t.category === filterCategory
-    )
-    .filter((t) => {
-      if (filterCardId === 'all') return true;
-      if (filterCardId === 'unassigned') return !t.cardId;
-      return t.cardId === filterCardId;
-    })
-    .filter((t) => {
-      if (filterDateMode === 'specific' && filterDateSpecific) {
-        return t.date === filterDateSpecific;
-      }
-      if (filterDateMode === 'range') {
-        if (filterDateFrom && t.date < filterDateFrom) return false;
-        if (filterDateTo && t.date > filterDateTo) return false;
-      }
-      return true;
-    })
-    .filter((t) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase().trim();
-      const titleMatch = t.title.toLowerCase().includes(q);
-      const catMatch = t.category.toLowerCase().includes(q);
-      const linkedCard = t.cardId ? cardsById.get(t.cardId) : undefined;
-      const cardMatch = linkedCard
-        ? formatCardLabel(linkedCard).toLowerCase().includes(q)
-        : false;
-      const amountStr = String(t.amount);
-      const amountMatch =
-        amountStr.includes(q) ||
-        (Number(q) > 0 && Math.abs(t.amount - Number(q)) < 1);
-      return titleMatch || catMatch || cardMatch || amountMatch;
-    })
-    .sort((a, b) => {
-      if (txSort === 'amount-desc') return b.amount - a.amount;
-      if (txSort === 'amount-asc') return a.amount - b.amount;
-      return b.date.localeCompare(a.date);
-    });
+  const filteredTransactions = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    const numericQ = q ? Number(q) : NaN;
+    return monthTransactions
+      .filter((t) => {
+        if (filterType === 'all') return true;
+        if (filterType === 'pending') return t.type === 'expense' && t.isPending;
+        if (t.type !== filterType) return false;
+        return true;
+      })
+      .filter((t) => {
+        if (filterType !== 'income' || filterIncomeKind === 'all') return true;
+        return getTransactionIncomeKind(t) === filterIncomeKind;
+      })
+      .filter((t) =>
+        filterCategory === 'all' ? true : t.category === filterCategory
+      )
+      .filter((t) => {
+        if (filterCardId === 'all') return true;
+        if (filterCardId === 'unassigned') return !t.cardId;
+        return t.cardId === filterCardId;
+      })
+      .filter((t) => {
+        if (filterDateMode === 'specific' && filterDateSpecific) {
+          return t.date === filterDateSpecific;
+        }
+        if (filterDateMode === 'range') {
+          if (filterDateFrom && t.date < filterDateFrom) return false;
+          if (filterDateTo && t.date > filterDateTo) return false;
+        }
+        return true;
+      })
+      .filter((t) => {
+        if (!q) return true;
+        if (t.title.toLowerCase().includes(q)) return true;
+        if (t.category.toLowerCase().includes(q)) return true;
+        const linkedCard = t.cardId ? cardsById.get(t.cardId) : undefined;
+        if (linkedCard && formatCardLabel(linkedCard).toLowerCase().includes(q)) {
+          return true;
+        }
+        const amountStr = String(t.amount);
+        return (
+          amountStr.includes(q) ||
+          (numericQ > 0 && Math.abs(t.amount - numericQ) < 1)
+        );
+      })
+      .sort((a, b) => {
+        if (txSort === 'amount-desc') return b.amount - a.amount;
+        if (txSort === 'amount-asc') return a.amount - b.amount;
+        return b.date.localeCompare(a.date);
+      });
+  }, [
+    monthTransactions,
+    filterType,
+    filterIncomeKind,
+    filterCategory,
+    filterCardId,
+    filterDateMode,
+    filterDateSpecific,
+    filterDateFrom,
+    filterDateTo,
+    searchQuery,
+    cardsById,
+    txSort,
+  ]);
 
-  const filteredNet = filteredTransactions.reduce(
-    (sum, t) => sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
-    0
+  const filteredNet = useMemo(
+    () =>
+      filteredTransactions.reduce(
+        (sum, t) =>
+          sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
+        0
+      ),
+    [filteredTransactions]
   );
 
   return (
@@ -238,7 +273,7 @@ export function TransactionsLedgerPage({
               Իրական բալանս
             </span>
             <p
-              className={`text-xl sm:text-2xl font-display font-bold tabular-nums truncate mt-0.5 ${
+              className={`pa-sensitive text-xl sm:text-2xl font-display font-bold tabular-nums truncate mt-0.5 ${
                 realBalance >= 0
                   ? 'text-[#0F172A] dark:text-[#F8FAFC]'
                   : 'text-rose-600 dark:text-rose-400'
@@ -253,7 +288,7 @@ export function TransactionsLedgerPage({
             <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
               Ամսվա եկամուտ
             </span>
-            <p className="text-xl sm:text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums truncate mt-0.5">
+            <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold text-emerald-600 dark:text-emerald-400 tabular-nums truncate mt-0.5">
               +{formatMoney(totalIncome, currency)}
             </p>
             {incomeDeltaPct !== null && (
@@ -274,11 +309,11 @@ export function TransactionsLedgerPage({
             <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
               Ամսվա ծախս
             </span>
-            <p className="text-xl sm:text-2xl font-mono font-bold text-rose-600 dark:text-rose-400 tabular-nums truncate mt-0.5">
+            <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold text-rose-600 dark:text-rose-400 tabular-nums truncate mt-0.5">
               -{formatMoney(totalExpense, currency)}
             </p>
             {pendingExpense > 0 ? (
-              <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1 tabular-nums mt-0.5 truncate">
+              <p className="pa-sensitive text-[10px] font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1 tabular-nums mt-0.5 truncate">
                 <Clock className="w-2.5 h-2.5 shrink-0" />
                 <span>Սպասվող նախածախս՝ {formatMoney(pendingExpense, currency)}</span>
               </p>
@@ -301,7 +336,7 @@ export function TransactionsLedgerPage({
               <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                 Նախորդ մնացորդ
               </span>
-              <p className="text-base sm:text-lg font-mono font-semibold tabular-nums truncate text-[#475569] dark:text-[#CBD5E1] mt-0.5">
+              <p className="pa-sensitive text-base sm:text-lg font-mono font-semibold tabular-nums truncate text-[#475569] dark:text-[#CBD5E1] mt-0.5">
                 {openingBalance > 0 ? '+' : ''}
                 {formatMoney(openingBalance, currency)}
               </p>
@@ -357,14 +392,37 @@ export function TransactionsLedgerPage({
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={onOpenNewTransactionModal}
-              className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <Plus className="w-4 h-4 shrink-0" />
-              <span>Նոր գործարք</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {filteredTransactions.length > 0 &&
+                (onBulkDeleteTransactions || onBulkAssignCard) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectionMode((prev) => {
+                        if (prev) setSelectedIds([]);
+                        return !prev;
+                      });
+                    }}
+                    className={`min-h-[38px] px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      selectionMode
+                        ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#1D4ED8] dark:text-[#60A5FA]'
+                        : 'border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                    }`}
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>{selectionMode ? 'Ավարտել' : 'Ընտրել'}</span>
+                  </button>
+                )}
+
+              <button
+                type="button"
+                onClick={onOpenNewTransactionModal}
+                className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>Նոր գործարք</span>
+              </button>
+            </div>
           </div>
 
           {/* Filters & Search */}
@@ -627,6 +685,85 @@ export function TransactionsLedgerPage({
           </div>
         )}
 
+        {/* Bulk Multi-Select Action Bar */}
+        {selectionMode && filteredTransactions.length > 0 && (
+          <div className="px-4 sm:px-6 py-2.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-[#EFF6FF]/85 dark:bg-[#172554]/50 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#1E3A8A] dark:text-[#BFDBFE] tabular-nums">
+              <span>Ընտրված՝ {selectedIds.length}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedIds.length === filteredTransactions.length) {
+                    setSelectedIds([]);
+                  } else {
+                    setSelectedIds(filteredTransactions.map((t) => t.id));
+                  }
+                }}
+                className="text-[11px] font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+              >
+                {selectedIds.length === filteredTransactions.length
+                  ? 'Հանել բոլորը'
+                  : `Ընտրել բոլորը (${filteredTransactions.length})`}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {cards.length > 0 && onBulkAssignCard && selectedIds.length > 0 && (
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    onBulkAssignCard(
+                      selectedIds,
+                      val === '__none__' ? undefined : val
+                    );
+                    e.target.value = '';
+                  }}
+                  aria-label="Կապել ընտրված գործարքները քարտի հետ"
+                  className="min-h-[32px] px-2.5 py-1 text-xs rounded-lg input-field"
+                >
+                  <option value="" disabled>
+                    Կապել քարտի հետ…
+                  </option>
+                  {cards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {formatCardLabel(c)}
+                    </option>
+                  ))}
+                  <option value="__none__">Հեռացնել քարտից</option>
+                </select>
+              )}
+
+              {onBulkDeleteTransactions && selectedIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onBulkDeleteTransactions(selectedIds);
+                    setSelectedIds([]);
+                    setSelectionMode(false);
+                  }}
+                  className="min-h-[32px] px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Ջնջել ({selectedIds.length})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedIds([]);
+                  setSelectionMode(false);
+                }}
+                className="min-h-[32px] px-2.5 py-1 rounded-lg border border-[#CBD5E1] dark:border-[#334155] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] cursor-pointer"
+              >
+                Չեղարկել
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Transactions Rows */}
         {filteredTransactions.length === 0 ? (
           <div className="p-5 sm:p-6">
@@ -659,7 +796,11 @@ export function TransactionsLedgerPage({
         ) : (
           <>
             <div className="sm:hidden px-3.5 py-2 border-b border-[#F1F5F9] dark:border-[#1E293B] bg-[#F8FAFC]/75 dark:bg-[#0B1120]/60 flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
-              <span>Սեղմեք՝ խմբագրելու · Սահեցրեք ձախ՝ ջնջելու</span>
+              <span>
+                {selectionMode
+                  ? 'Ընտրեք գործարքները խմբային գործողության համար'
+                  : 'Սեղմեք՝ խմբագրելու · Սահեցրեք ձախ՝ ջնջելու'}
+              </span>
             </div>
 
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
@@ -673,6 +814,15 @@ export function TransactionsLedgerPage({
                     todayISO={todayISO}
                     isEditing={false}
                     isOpen={openSwipeTxId === tx.id}
+                    selectionMode={selectionMode}
+                    isSelected={selectedIds.includes(tx.id)}
+                    onToggleSelect={(id) =>
+                      setSelectedIds((prev) =>
+                        prev.includes(id)
+                          ? prev.filter((item) => item !== id)
+                          : [...prev, id]
+                      )
+                    }
                     onOpenChange={setOpenSwipeTxId}
                     onStartSwipe={(id) => {
                       setOpenSwipeTxId((prev) =>
@@ -680,6 +830,7 @@ export function TransactionsLedgerPage({
                       );
                     }}
                     onEdit={onEditTransaction}
+                    onDuplicate={onDuplicateTransaction}
                     onDelete={(id) => {
                       setOpenSwipeTxId((prev) => (prev === id ? null : prev));
                       onDeleteTransaction(id);
@@ -706,7 +857,7 @@ export function TransactionsLedgerPage({
                   </>
                 )}
               </div>
-              <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+              <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Զուտ (փաստացի)՝ {filteredNet > 0 ? '+' : ''}
                 {formatMoney(filteredNet, currency)}
               </span>
@@ -716,4 +867,4 @@ export function TransactionsLedgerPage({
       </section>
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   Check,
   CheckSquare,
@@ -12,7 +12,12 @@ import {
 } from 'lucide-react';
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { Note } from '../types';
-import { formatReminderLabel, getTodayISO } from '../data/defaults';
+import {
+  formatMoney,
+  formatReminderLabel,
+  getTodayISO,
+} from '../data/defaults';
+import { extractChecklistAmounts } from '../utils/smartCommandParser';
 
 interface NotesViewProps {
   notes: Note[];
@@ -22,10 +27,10 @@ interface NotesViewProps {
   onDeleteNote: (id: string) => void;
   onConvertToTask: (note: Note) => void;
   onToggleChecklistItem: (noteId: string, itemId: string) => void;
-  onLogShoppingExpense: (note: Note) => void;
+  onLogShoppingExpense: (note: Note, estimatedTotal?: number) => void;
 }
 
-export function NotesView({
+export const NotesView = memo(function NotesView({
   notes,
   onOpenNewNoteModal,
   onEditNote,
@@ -42,28 +47,30 @@ export function NotesView({
 
   const todayISO = getTodayISO();
 
-  const filteredNotes = [...notes]
-    .filter((n) => {
-      if (filterMode === 'pinned') return n.pinned;
-      if (filterMode === 'reminders') return Boolean(n.reminderDate);
-      return true;
-    })
-    .filter((n) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      const inChecklist = (n.checklist ?? []).some((c) =>
-        c.text.toLowerCase().includes(q)
-      );
-      return (
-        n.title.toLowerCase().includes(q) ||
-        n.content.toLowerCase().includes(q) ||
-        inChecklist
-      );
-    })
-    .sort((a, b) => {
-      if (a.pinned !== b.pinned) return Number(b.pinned) - Number(a.pinned);
-      return b.updatedAt.localeCompare(a.updatedAt);
-    });
+  const filteredNotes = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return [...notes]
+      .filter((n) => {
+        if (filterMode === 'pinned') return n.pinned;
+        if (filterMode === 'reminders') return Boolean(n.reminderDate);
+        return true;
+      })
+      .filter((n) => {
+        if (!q) return true;
+        const inChecklist = (n.checklist ?? []).some((c) =>
+          c.text.toLowerCase().includes(q)
+        );
+        return (
+          n.title.toLowerCase().includes(q) ||
+          n.content.toLowerCase().includes(q) ||
+          inChecklist
+        );
+      })
+      .sort((a, b) => {
+        if (a.pinned !== b.pinned) return Number(b.pinned) - Number(a.pinned);
+        return b.updatedAt.localeCompare(a.updatedAt);
+      });
+  }, [notes, filterMode, searchQuery]);
 
   const hasFilters = filterMode !== 'all' || Boolean(searchQuery);
 
@@ -165,11 +172,19 @@ export function NotesView({
               checklist.length > 0
                 ? Math.round((doneCount / checklist.length) * 100)
                 : 0;
+            const { totalEstimated, uncheckedEstimated, matchedCount } =
+              extractChecklistAmounts(checklist);
+            const expensePrefillAmount =
+              uncheckedEstimated > 0
+                ? uncheckedEstimated
+                : totalEstimated > 0
+                  ? totalEstimated
+                  : undefined;
 
             return (
               <article
                 key={note.id}
-                className={`surface-card p-5 min-w-0 flex flex-col justify-between gap-4 transition-colors ${
+                className={`surface-card content-auto p-5 min-w-0 flex flex-col justify-between gap-4 transition-colors ${
                   note.pinned
                     ? 'border-[#BFDBFE] dark:border-[#1E3A8A]'
                     : ''
@@ -232,13 +247,20 @@ export function NotesView({
                   {/* Interactive Checklist on Card */}
                   {checklist.length > 0 && (
                     <div className="space-y-2 pt-1">
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
                         <span>
                           Կատարված՝ {doneCount}/{checklist.length}
                         </span>
-                        <span className="font-mono font-semibold">
-                          {checklistPct}%
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {matchedCount > 0 && (
+                            <span className="pa-sensitive font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                              ≈ {formatMoney(totalEstimated)}
+                            </span>
+                          )}
+                          <span className="font-mono font-semibold">
+                            {checklistPct}%
+                          </span>
+                        </div>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
                         <div
@@ -307,12 +329,18 @@ export function NotesView({
                     {checklist.length > 0 && (
                       <button
                         type="button"
-                        onClick={() => onLogShoppingExpense(note)}
+                        onClick={() =>
+                          onLogShoppingExpense(note, expensePrefillAmount)
+                        }
                         className="min-h-[28px] px-2.5 py-1 rounded-lg bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#DBEAFE] dark:hover:bg-[#172554] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
                         title="Բացել ծախսի գրանցումը այս ցուցակի վերնագրով"
                       >
                         <ShoppingBag className="w-3 h-3" />
-                        <span>Գրանցել որպես ծախս</span>
+                        <span>
+                          {expensePrefillAmount
+                            ? `Գրանցել (${formatMoney(expensePrefillAmount)})`
+                            : 'Գրանցել որպես ծախս'}
+                        </span>
                       </button>
                     )}
                     {note.pinned && (
@@ -329,4 +357,4 @@ export function NotesView({
       )}
     </div>
   );
-}
+});

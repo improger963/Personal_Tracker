@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   ArrowDown,
@@ -46,6 +46,7 @@ import {
 
 interface PlannerViewProps {
   tasks: Task[];
+  onAddTask?: (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => void;
   onOpenNewTaskModal: () => void;
   onEditTask: (task: Task) => void;
   onToggleTask: (id: string) => void;
@@ -122,8 +123,9 @@ function calculateStreak(completedDates: string[], daysList: string[]): number {
   return streak;
 }
 
-export function PlannerView({
+export const PlannerView = memo(function PlannerView({
   tasks,
+  onAddTask,
   onOpenNewTaskModal,
   onEditTask,
   onToggleTask,
@@ -145,6 +147,28 @@ export function PlannerView({
   const prefersReducedMotion = useReducedMotion();
   const [subTab, setSubTab] = useState<'tasks' | 'habits'>('tasks');
 
+  // Inline rapid task composer state
+  const [quickTaskTitle, setQuickTaskTitle] = useState('');
+  const [quickTaskPriority, setQuickTaskPriority] =
+    useState<TaskPriority>('medium');
+  const [quickTaskTime, setQuickTaskTime] = useState('');
+
+  const handleQuickTaskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddTask) return;
+    const trimmed = quickTaskTitle.trim();
+    if (!trimmed) return;
+    onAddTask({
+      title: trimmed,
+      priority: quickTaskPriority,
+      date: getTodayISO(),
+      dueTime: quickTaskTime || undefined,
+      scheduleType: 'one_time',
+    });
+    setQuickTaskTitle('');
+    setQuickTaskTime('');
+  };
+
   const handleSelectSubTab = (next: 'tasks' | 'habits') => {
     if (next === subTab) {
       scrollToTopSmooth();
@@ -162,71 +186,84 @@ export function PlannerView({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<TaskSortMode>('priority-desc');
 
-  const last7Days = getLastNDaysISO(7);
   const todayISO = getTodayISO();
+  const last7Days = useMemo(() => getLastNDaysISO(7), [todayISO]);
 
-  const completedCount = tasks.filter((t) =>
-    isTaskCompletedOnDate(t, todayISO)
-  ).length;
-  const completedOneTimeCount = tasks.filter(
-    (t) => t.completed && !isTaskRepeating(t)
-  ).length;
-  const activeCount = tasks.length - completedCount;
-  const overdueCount = tasks.filter((t) => isTaskOverdue(t, todayISO)).length;
+  const {
+    completedCount,
+    completedOneTimeCount,
+    activeCount,
+    overdueCount,
+  } = useMemo(() => {
+    let doneToday = 0;
+    let doneOneTime = 0;
+    let overdue = 0;
+    for (const t of tasks) {
+      if (isTaskCompletedOnDate(t, todayISO)) doneToday++;
+      if (t.completed && !isTaskRepeating(t)) doneOneTime++;
+      if (isTaskOverdue(t, todayISO)) overdue++;
+    }
+    return {
+      completedCount: doneToday,
+      completedOneTimeCount: doneOneTime,
+      activeCount: tasks.length - doneToday,
+      overdueCount: overdue,
+    };
+  }, [tasks, todayISO]);
 
-  const filteredTasks = [...tasks]
-    .filter((t) => {
-      const doneToday = isTaskCompletedOnDate(t, todayISO);
-      if (filter === 'active') return !doneToday;
-      if (filter === 'completed') return doneToday;
-      return true;
-    })
-    .filter((t) => {
-      if (scope === 'today') return isTaskDueOnDate(t, todayISO);
-      if (scope === 'upcoming') return isTaskUpcoming(t, todayISO);
-      if (scope === 'overdue') return isTaskOverdue(t, todayISO);
-      return true;
-    })
-    .filter((t) =>
-      scheduleFilter === 'all' ? true : getTaskScheduleType(t) === scheduleFilter
-    )
-    .filter((t) => {
-      if (!searchQuery.trim()) return true;
-      return t.title.toLowerCase().includes(searchQuery.trim().toLowerCase());
-    })
-    .sort((a, b) => {
-      const doneA = isTaskCompletedOnDate(a, todayISO);
-      const doneB = isTaskCompletedOnDate(b, todayISO);
-      if (doneA !== doneB) {
-        return Number(doneA) - Number(doneB);
-      }
+  const filteredTasks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return [...tasks]
+      .filter((t) => {
+        const doneToday = isTaskCompletedOnDate(t, todayISO);
+        if (filter === 'active') return !doneToday;
+        if (filter === 'completed') return doneToday;
+        return true;
+      })
+      .filter((t) => {
+        if (scope === 'today') return isTaskDueOnDate(t, todayISO);
+        if (scope === 'upcoming') return isTaskUpcoming(t, todayISO);
+        if (scope === 'overdue') return isTaskOverdue(t, todayISO);
+        return true;
+      })
+      .filter((t) =>
+        scheduleFilter === 'all' ? true : getTaskScheduleType(t) === scheduleFilter
+      )
+      .filter((t) => (!q ? true : t.title.toLowerCase().includes(q)))
+      .sort((a, b) => {
+        const doneA = isTaskCompletedOnDate(a, todayISO);
+        const doneB = isTaskCompletedOnDate(b, todayISO);
+        if (doneA !== doneB) {
+          return Number(doneA) - Number(doneB);
+        }
 
-      const pA = PRIORITY_RANK[a.priority ?? 'medium'];
-      const pB = PRIORITY_RANK[b.priority ?? 'medium'];
-      const nextA = getTaskNextDueDate(a, todayISO) ?? a.date;
-      const nextB = getTaskNextDueDate(b, todayISO) ?? b.date;
+        const pA = PRIORITY_RANK[a.priority ?? 'medium'];
+        const pB = PRIORITY_RANK[b.priority ?? 'medium'];
+        const nextA = getTaskNextDueDate(a, todayISO) ?? a.date;
+        const nextB = getTaskNextDueDate(b, todayISO) ?? b.date;
 
-      if (sortBy === 'priority-desc') {
-        if (pA !== pB) return pA - pB;
-        return `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
-          `${nextB} ${b.dueTime ?? '99:99'}`
-        );
-      }
-      if (sortBy === 'priority-asc') {
-        if (pA !== pB) return pB - pA;
-        return `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
-          `${nextB} ${b.dueTime ?? '99:99'}`
-        );
-      }
-      if (sortBy === 'date-asc') {
-        const cmp = `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
-          `${nextB} ${b.dueTime ?? '99:99'}`
-        );
-        if (cmp !== 0) return cmp;
-        return pA - pB;
-      }
-      return b.createdAt.localeCompare(a.createdAt);
-    });
+        if (sortBy === 'priority-desc') {
+          if (pA !== pB) return pA - pB;
+          return `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
+            `${nextB} ${b.dueTime ?? '99:99'}`
+          );
+        }
+        if (sortBy === 'priority-asc') {
+          if (pA !== pB) return pB - pA;
+          return `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
+            `${nextB} ${b.dueTime ?? '99:99'}`
+          );
+        }
+        if (sortBy === 'date-asc') {
+          const cmp = `${nextA} ${a.dueTime ?? '99:99'}`.localeCompare(
+            `${nextB} ${b.dueTime ?? '99:99'}`
+          );
+          if (cmp !== 0) return cmp;
+          return pA - pB;
+        }
+        return b.createdAt.localeCompare(a.createdAt);
+      });
+  }, [tasks, todayISO, filter, scope, scheduleFilter, searchQuery, sortBy]);
 
   const hasTaskFilters =
     filter !== 'all' ||
@@ -324,6 +361,57 @@ export function PlannerView({
               />
 
               <section className="surface-card overflow-hidden">
+              {onAddTask && (
+                <form
+                  onSubmit={handleQuickTaskSubmit}
+                  className="px-4 sm:px-6 py-3 bg-[#F8FAFC] dark:bg-[#0B1120] border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col sm:flex-row sm:items-center gap-2"
+                >
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <Plus
+                      className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0"
+                      aria-hidden="true"
+                    />
+                    <input
+                      type="text"
+                      value={quickTaskTitle}
+                      onChange={(e) => setQuickTaskTitle(e.target.value)}
+                      placeholder="Արագ ավելացնել այսօրվա անելիքը (Enter)..."
+                      aria-label="Արագ ավելացնել անելիք"
+                      className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <select
+                      value={quickTaskPriority}
+                      onChange={(e) =>
+                        setQuickTaskPriority(e.target.value as TaskPriority)
+                      }
+                      aria-label="Անելիքի առաջնահերթություն"
+                      className="min-h-[38px] px-2.5 py-1.5 text-xs rounded-xl input-field cursor-pointer"
+                    >
+                      <option value="high">Կարևոր</option>
+                      <option value="medium">Միջին</option>
+                      <option value="low">Սովորական</option>
+                    </select>
+                    <input
+                      type="time"
+                      value={quickTaskTime}
+                      onChange={(e) => setQuickTaskTime(e.target.value)}
+                      aria-label="Հիշեցման ժամ"
+                      title="Ոչ պարտադիր ժամ"
+                      className="min-h-[38px] px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-xl input-field"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!quickTaskTitle.trim()}
+                      className="min-h-[38px] px-3.5 py-1.5 rounded-xl btn-primary text-xs font-semibold disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      Ավելացնել
+                    </button>
+                  </div>
+                </form>
+              )}
+
               <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-3">
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -910,4 +998,4 @@ export function PlannerView({
       </AnimatePresence>
     </div>
   );
-}
+});

@@ -6,7 +6,9 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Pause,
   Pencil,
+  Play,
   Plus,
   Repeat,
   SkipForward,
@@ -77,6 +79,7 @@ interface BudgetsAndBillsPageProps {
     updates: Omit<RecurringBill, 'id'>
   ) => void;
   onDeleteRecurringBill: (id: string) => void;
+  onToggleBillActive?: (id: string) => void;
   onPayAllRecurringBills: (bills: RecurringBill[], monthKey: string) => void;
   onConfirmBillSlot: (billId: string, slotKey: string, dateISO: string) => void;
   onSkipBillSlot: (billId: string, slotKey: string) => void;
@@ -104,6 +107,7 @@ export function BudgetsAndBillsPage({
   onAddRecurringBill,
   onUpdateRecurringBill,
   onDeleteRecurringBill,
+  onToggleBillActive,
   onPayAllRecurringBills,
   onConfirmBillSlot,
   onSkipBillSlot,
@@ -342,6 +346,7 @@ export function BudgetsAndBillsPage({
 
   const unpaidBills = recurringBills.filter(
     (bill) =>
+      bill.active !== false &&
       getBillFrequency(bill) === 'monthly' &&
       !monthTransactions.some(
         (tx) =>
@@ -349,6 +354,18 @@ export function BudgetsAndBillsPage({
           tx.title.toLowerCase() === bill.title.toLowerCase()
       )
   );
+
+  const monthlyActiveBills = recurringBills.filter(
+    (bill) => bill.active !== false && getBillFrequency(bill) === 'monthly'
+  );
+  const monthlyFixedTotal = monthlyActiveBills.reduce(
+    (sum, b) => sum + (b.amount || 0),
+    0
+  );
+  const monthlyIncomeSharePct =
+    primaryIncome.enabled && primaryIncome.amount > 0 && monthlyFixedTotal > 0
+      ? Math.round((monthlyFixedTotal / primaryIncome.amount) * 100)
+      : null;
 
   const filteredRecurringBills = recurringBills.filter((bill) =>
     billFilter === 'all' ? true : getBillFrequency(bill) === billFilter
@@ -369,7 +386,7 @@ export function BudgetsAndBillsPage({
                   <h2 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                     Հիմնական եկամուտ՝ {primaryIncome.title}
                   </h2>
-                  <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  <span className="pa-sensitive font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
                     +{formatMoney(primaryIncome.amount, currency)}
                   </span>
                 </div>
@@ -651,7 +668,7 @@ export function BudgetsAndBillsPage({
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs sm:text-sm font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1]">
+                        <span className="pa-sensitive text-xs sm:text-sm font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1]">
                           {formatMoney(spent, currency)} /{' '}
                           {formatMoney(b.limit, currency)}
                         </span>
@@ -979,6 +996,33 @@ export function BudgetsAndBillsPage({
             )}
           </form>
 
+          {/* Monthly Fixed Commitments Audit Strip */}
+          {monthlyActiveBills.length > 0 && (
+            <div className="px-3.5 py-2.5 rounded-xl bg-[#F8FAFC] dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#1E293B] flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[#64748B] dark:text-[#94A3B8]">
+                  Ամսական պարտադիր ծախսեր ({monthlyActiveBills.length} ակտիվ)՝
+                </span>
+                <span className="pa-sensitive font-mono font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+                  {formatMoney(monthlyFixedTotal, currency)}
+                </span>
+              </div>
+              {monthlyIncomeSharePct !== null && (
+                <span
+                  className={`font-mono font-semibold px-2 py-0.5 rounded-md ${
+                    monthlyIncomeSharePct > 65
+                      ? 'bg-rose-500/12 text-rose-600 dark:text-rose-400'
+                      : monthlyIncomeSharePct > 45
+                        ? 'bg-amber-500/12 text-amber-700 dark:text-amber-300'
+                        : 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300'
+                  }`}
+                >
+                  Եկամտի {monthlyIncomeSharePct}%-ը
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Filter Tabs */}
           {recurringBills.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -1028,6 +1072,8 @@ export function BudgetsAndBillsPage({
               {filteredRecurringBills.map((bill) => {
                 const freq = getBillFrequency(bill);
 
+                const isPaused = bill.active === false;
+
                 if (freq === 'daily') {
                   const times = [...(bill.dailyTimes ?? ['10:00'])].sort();
                   const doneTodayCount = times.filter((t) =>
@@ -1037,7 +1083,9 @@ export function BudgetsAndBillsPage({
                   return (
                     <div
                       key={bill.id}
-                      className={`py-3.5 first:pt-1 last:pb-0 space-y-2.5 ${
+                      className={`py-3.5 first:pt-1 last:pb-0 space-y-2.5 transition-opacity ${
+                        isPaused ? 'opacity-60' : ''
+                      } ${
                         editingBillId === bill.id
                           ? 'bg-[#EFF6FF] dark:bg-[#172554]/30 -mx-2 px-2 rounded-xl'
                           : ''
@@ -1052,11 +1100,16 @@ export function BudgetsAndBillsPage({
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] tabular-nums">
                               Ամենօրյա · {times.length}×
                             </span>
+                            {isPaused && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#F1F5F9] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8]">
+                                Դադարեցված
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums mt-0.5">
                             <span>{bill.category}</span>
                             <span aria-hidden="true">·</span>
-                            <span className="font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
+                            <span className="pa-sensitive font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
                               {formatMoney(bill.amount, currency)}
                             </span>
                             <span aria-hidden="true">·</span>
@@ -1067,6 +1120,25 @@ export function BudgetsAndBillsPage({
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                          {onToggleBillActive && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleBillActive(bill.id)}
+                              title={isPaused ? 'Վերսկսել' : 'Դադարեցնել'}
+                              aria-label={
+                                isPaused
+                                  ? `Վերսկսել ${bill.title}`
+                                  : `Դադարեցնել ${bill.title}`
+                              }
+                              className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 cursor-pointer"
+                            >
+                              {isPaused ? (
+                                <Play className="w-3.5 h-3.5" />
+                              ) : (
+                                <Pause className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleStartEditBill(bill)}
@@ -1221,7 +1293,7 @@ export function BudgetsAndBillsPage({
                             , {sTime}
                           </span>
                           <span aria-hidden="true">·</span>
-                          <span className="font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
+                          <span className="pa-sensitive font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
                             {formatMoney(bill.amount, currency)}
                           </span>
                         </p>
@@ -1296,16 +1368,25 @@ export function BudgetsAndBillsPage({
                 return (
                   <div
                     key={bill.id}
-                    className={`py-3.5 first:pt-1 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    className={`py-3.5 first:pt-1 last:pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-opacity ${
+                      isPaused ? 'opacity-60' : ''
+                    } ${
                       editingBillId === bill.id
                         ? 'bg-[#EFF6FF] dark:bg-[#172554]/30 -mx-2 px-2 rounded-xl'
                         : ''
                     }`}
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
-                        {bill.title}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                          {bill.title}
+                        </p>
+                        {isPaused && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-[#F1F5F9] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8]">
+                            Դադարեցված
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5 tabular-nums flex-wrap">
                         <span>{bill.category}</span>
                         <span aria-hidden="true">·</span>
@@ -1317,7 +1398,7 @@ export function BudgetsAndBillsPage({
                           </>
                         )}
                         <span aria-hidden="true">·</span>
-                        <span className="font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
+                        <span className="pa-sensitive font-mono font-medium text-[#475569] dark:text-[#CBD5E1]">
                           {formatMoney(bill.amount, currency)}
                         </span>
                       </p>
@@ -1337,6 +1418,25 @@ export function BudgetsAndBillsPage({
                         >
                           <Repeat className="w-3.5 h-3.5" />
                           <span>Գրանցել վճարումը</span>
+                        </button>
+                      )}
+                      {onToggleBillActive && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleBillActive(bill.id)}
+                          title={isPaused ? 'Վերսկսել' : 'Դադարեցնել'}
+                          aria-label={
+                            isPaused
+                              ? `Վերսկսել ${bill.title}`
+                              : `Դադարեցնել ${bill.title}`
+                          }
+                          className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 cursor-pointer"
+                        >
+                          {isPaused ? (
+                            <Play className="w-4 h-4" />
+                          ) : (
+                            <Pause className="w-4 h-4" />
+                          )}
                         </button>
                       )}
                       <button

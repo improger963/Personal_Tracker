@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Clock,
   Coffee,
   Flame,
+  Minus,
   Pause,
   Play,
+  Plus,
   RotateCcw,
   Timer,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { FocusGoal, FocusSession, NotificationSettings, Task } from '../types';
 import { getLastNDaysISO, getTodayISO } from '../data/defaults';
@@ -41,6 +45,17 @@ interface PersistedTimerState {
 const TIMER_STORAGE_KEY = 'pa_focus_timer_v1';
 const TIMER_SYNC_EVENT = 'pa-focus-timer-sync';
 const LAST_COMPLETED_KEY = 'pa_focus_last_done_ms';
+const SOUNDSCAPE_STORAGE_KEY = 'pa_focus_soundscape';
+const DAILY_TARGET_MINUTES = 90;
+
+type SoundscapeMode = 'none' | 'brown' | 'rain' | 'pulse';
+
+const SOUNDSCAPE_OPTIONS: Array<{ id: SoundscapeMode; label: string }> = [
+  { id: 'none', label: 'Լռություն' },
+  { id: 'brown', label: 'Խորը ֆոն' },
+  { id: 'rain', label: 'Անձրև' },
+  { id: 'pulse', label: 'Ալֆա ռիթմ' },
+];
 
 const TIMER_PRESETS: Array<{
   minutes: number;
@@ -120,7 +135,7 @@ function formatMMSS(totalSec: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-export function FocusTimerCard({
+export const FocusTimerCard = memo(function FocusTimerCard({
   tasks,
   focusGoal,
   focusSessions,
@@ -131,8 +146,36 @@ export function FocusTimerCard({
   compact = false,
 }: FocusTimerCardProps) {
   const [timer, setTimer] = useState<PersistedTimerState>(loadTimerState);
+  const [soundscape, setSoundscape] = useState<SoundscapeMode>(() => {
+    try {
+      const saved = localStorage.getItem(SOUNDSCAPE_STORAGE_KEY);
+      if (
+        saved === 'brown' ||
+        saved === 'rain' ||
+        saved === 'pulse' ||
+        saved === 'none'
+      ) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'none';
+  });
+  const timerRef = useRef(timer);
+  timerRef.current = timer;
   const finishingRef = useRef(false);
+  const soundscapeCleanupRef = useRef<(() => void) | null>(null);
   const todayISO = getTodayISO();
+
+  const handleSelectSoundscape = (nextMode: SoundscapeMode) => {
+    setSoundscape(nextMode);
+    try {
+      localStorage.setItem(SOUNDSCAPE_STORAGE_KEY, nextMode);
+    } catch {
+      // ignore
+    }
+  };
 
   const pendingTasks = useMemo(
     () =>
@@ -246,14 +289,16 @@ export function FocusTimerCard({
     };
   }, []);
 
-  // Countdown tick
+  // Countdown tick without recreating interval every second
   useEffect(() => {
     if (!timer.running || !timer.targetEndMs) return;
 
+    const targetEnd = timer.targetEndMs;
     const tick = () => {
-      const rem = Math.ceil((timer.targetEndMs! - Date.now()) / 1000);
+      const rem = Math.ceil((targetEnd - Date.now()) / 1000);
       if (rem <= 0) {
-        finishSession(timer.presetMin, timer);
+        const snapshot = timerRef.current;
+        finishSession(snapshot.presetMin, snapshot);
       } else {
         setTimer((prev) =>
           prev.remainingSec === rem ? prev : { ...prev, remainingSec: rem }
@@ -264,7 +309,125 @@ export function FocusTimerCard({
     tick();
     const id = window.setInterval(tick, 500);
     return () => window.clearInterval(id);
-  }, [timer.running, timer.targetEndMs, timer.presetMin, timer, finishSession]);
+  }, [timer.running, timer.targetEndMs, finishSession]);
+
+  // Procedural Web Audio API soundscape generator while timer is actively running
+  useEffect(() => {
+    const stopActiveSoundscape = () => {
+      if (soundscapeCleanupRef.current) {
+        soundscapeCleanupRef.current();
+        soundscapeCleanupRef.current = null;
+      }
+    };
+
+    stopActiveSoundscape();
+    if (!timer.running || soundscape === 'none') {
+      return;
+    }
+
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return;
+
+    let ctx: AudioContext | null = null;
+    try {
+      ctx = new AudioCtx();
+      const masterGain = ctx.createGain();
+      masterGain.gain.setValueAtTime(0.001, ctx.currentTime);
+      masterGain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.6);
+      masterGain.connect(ctx.destination);
+
+      if (soundscape === 'pulse') {
+        const oscLeft = ctx.createOscillator();
+        const oscRight = ctx.createOscillator();
+        const oscSub = ctx.createOscillator();
+        const subGain = ctx.createGain();
+
+        oscLeft.type = 'sine';
+        oscRight.type = 'sine';
+        oscSub.type = 'sine';
+        oscLeft.frequency.value = 174;
+        oscRight.frequency.value = 184; // 10Hz gentle alpha beat
+        oscSub.frequency.value = 87;
+        subGain.gain.value = 0.25;
+
+        oscLeft.connect(masterGain);
+        oscRight.connect(masterGain);
+        oscSub.connect(subGain);
+        subGain.connect(masterGain);
+
+        oscLeft.start();
+        oscRight.start();
+        oscSub.start();
+
+        soundscapeCleanupRef.current = () => {
+          try {
+            oscLeft.stop();
+            oscRight.stop();
+            oscSub.stop();
+            void ctx?.close();
+          } catch {
+            // ignore
+          }
+        };
+      } else {
+        const bufferSize = ctx.sampleRate * 3;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+
+        if (soundscape === 'brown') {
+          let lastOut = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            lastOut = (lastOut + 0.02 * white) / 1.02;
+            data[i] = lastOut * 3.2;
+          }
+        } else {
+          // Pink/rain-textured broadband noise
+          let b0 = 0;
+          let b1 = 0;
+          let b2 = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99765 * b0 + white * 0.099046;
+            b1 = 0.963 * b1 + white * 0.2965164;
+            b2 = 0.57 * b2 + white * 1.0526913;
+            data[i] = (b0 + b1 + b2 + white * 0.1848) * 0.18;
+          }
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.loop = true;
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = soundscape === 'brown' ? 'lowpass' : 'bandpass';
+        filter.frequency.value = soundscape === 'brown' ? 380 : 1200;
+        filter.Q.value = soundscape === 'brown' ? 0.7 : 0.55;
+
+        source.connect(filter);
+        filter.connect(masterGain);
+        source.start();
+
+        soundscapeCleanupRef.current = () => {
+          try {
+            source.stop();
+            void ctx?.close();
+          } catch {
+            // ignore
+          }
+        };
+      }
+    } catch {
+      if (ctx) {
+        void ctx.close();
+      }
+    }
+
+    return stopActiveSoundscape;
+  }, [timer.running, soundscape]);
 
   const handleSelectPreset = (minutes: number, mode: 'focus' | 'break') => {
     const next: PersistedTimerState = {
@@ -321,6 +484,33 @@ export function FocusTimerCard({
     const elapsedSec = timer.presetMin * 60 - timer.remainingSec;
     const mins = Math.max(1, Math.round(elapsedSec / 60));
     finishSession(mins, timer);
+  };
+
+  const handleAdjustMinutes = (deltaMinutes: number) => {
+    const nextPresetMin = Math.min(120, Math.max(5, timer.presetMin + deltaMinutes));
+    if (timer.running && timer.targetEndMs) {
+      const nextRemSec = Math.max(60, timer.remainingSec + deltaMinutes * 60);
+      const next: PersistedTimerState = {
+        ...timer,
+        presetMin: nextPresetMin,
+        remainingSec: nextRemSec,
+        targetEndMs: Date.now() + nextRemSec * 1000,
+      };
+      setTimer(next);
+      persistTimerState(next);
+    } else {
+      const nextRemSec = Math.min(
+        nextPresetMin * 60,
+        Math.max(60, timer.remainingSec + deltaMinutes * 60)
+      );
+      const next: PersistedTimerState = {
+        ...timer,
+        presetMin: nextPresetMin,
+        remainingSec: nextRemSec,
+      };
+      setTimer(next);
+      persistTimerState(next);
+    }
   };
 
   const totalSec = timer.presetMin * 60;
@@ -487,6 +677,27 @@ export function FocusTimerCard({
 
                 <button
                   type="button"
+                  onClick={() => handleAdjustMinutes(-5)}
+                  disabled={timer.presetMin <= 5}
+                  aria-label="Նվազեցնել 5 րոպեով"
+                  title="-5 րոպե"
+                  className="min-h-[38px] px-2 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAdjustMinutes(5)}
+                  disabled={timer.presetMin >= 120}
+                  aria-label="Ավելացնել 5 րոպե"
+                  title="+5 րոպե"
+                  className="min-h-[38px] px-2 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleReset}
                   aria-label="Վերակայել ժամաչափը"
                   title="Վերակայել"
@@ -521,7 +732,7 @@ export function FocusTimerCard({
                     persistTimerState(next);
                   }}
                   aria-label="Կապել անելիքի կամ նպատակի հետ"
-                  className="w-full sm:max-w-[230px] min-h-[34px] px-2.5 py-1 text-xs rounded-xl input-field"
+                  className="w-full sm:max-w-[260px] min-h-[34px] px-2.5 py-1 text-xs rounded-xl input-field"
                 >
                   <option value="">
                     {focusGoal && !focusGoal.completed
@@ -540,6 +751,35 @@ export function FocusTimerCard({
                   ))}
                 </select>
               )}
+
+              {/* Soundscape ambient selector */}
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                <span className="inline-flex items-center gap-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] mr-1">
+                  {soundscape === 'none' ? (
+                    <VolumeX className="w-3 h-3" />
+                  ) : (
+                    <Volume2 className="w-3 h-3 text-[#2563EB] dark:text-[#60A5FA]" />
+                  )}
+                  <span>Ֆոն․</span>
+                </span>
+                {SOUNDSCAPE_OPTIONS.map((opt) => {
+                  const active = soundscape === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSelectSoundscape(opt.id)}
+                      className={`min-h-[26px] px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/70 text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                          : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -595,8 +835,45 @@ export function FocusTimerCard({
               );
             })}
           </div>
+          <div className="pt-1 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] tabular-nums">
+              <span className="text-[#64748B] dark:text-[#94A3B8]">
+                Օրվա թիրախ ({DAILY_TARGET_MINUTES}ր)
+              </span>
+              <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                {weeklyStats.todayMinutes}/{DAILY_TARGET_MINUTES}ր (
+                {Math.min(
+                  100,
+                  Math.round(
+                    (weeklyStats.todayMinutes / DAILY_TARGET_MINUTES) * 100
+                  )
+                )}
+                %)
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${
+                  weeklyStats.todayMinutes >= DAILY_TARGET_MINUTES
+                    ? 'bg-emerald-500'
+                    : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                }`}
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.max(
+                      weeklyStats.todayMinutes > 0 ? 5 : 0,
+                      Math.round(
+                        (weeklyStats.todayMinutes / DAILY_TARGET_MINUTES) * 100
+                      )
+                    )
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </section>
   );
-}
+});

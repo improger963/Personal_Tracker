@@ -1,12 +1,10 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { ChevronLeft, ChevronRight, RotateCcw, X } from 'lucide-react';
 import { CloudSyncStatus, TopNav } from './components/TopNav';
-import { QuickAddModal, QuickModalState } from './components/QuickAddModal';
+import type { QuickModalState } from './components/QuickAddModal';
 import { NotificationAlerts } from './components/NotificationAlerts';
-import { ConfirmExpenseModal } from './components/ConfirmExpenseModal';
-import { PWAInstallModal } from './components/PWAInstallModal';
 import {
   PageSkeleton,
   ScrollToTopButton,
@@ -30,17 +28,37 @@ import {
   upsertWorkspaceSettings,
 } from './services/firestoreSync';
 
-const OverviewView = lazy(() =>
-  import('./components/OverviewView').then((m) => ({ default: m.OverviewView }))
+const loadOverviewView = () =>
+  import('./components/OverviewView').then((m) => ({ default: m.OverviewView }));
+const loadFinanceView = () =>
+  import('./components/FinanceView').then((m) => ({ default: m.FinanceView }));
+const loadPlannerView = () =>
+  import('./components/PlannerView').then((m) => ({ default: m.PlannerView }));
+const loadNotesView = () =>
+  import('./components/NotesView').then((m) => ({ default: m.NotesView }));
+
+const OverviewView = lazy(loadOverviewView);
+const FinanceView = lazy(loadFinanceView);
+const PlannerView = lazy(loadPlannerView);
+const NotesView = lazy(loadNotesView);
+
+const QuickAddModal = lazy(() =>
+  import('./components/QuickAddModal').then((m) => ({ default: m.QuickAddModal }))
 );
-const FinanceView = lazy(() =>
-  import('./components/FinanceView').then((m) => ({ default: m.FinanceView }))
+const ConfirmExpenseModal = lazy(() =>
+  import('./components/ConfirmExpenseModal').then((m) => ({
+    default: m.ConfirmExpenseModal,
+  }))
 );
-const PlannerView = lazy(() =>
-  import('./components/PlannerView').then((m) => ({ default: m.PlannerView }))
+const PWAInstallModal = lazy(() =>
+  import('./components/PWAInstallModal').then((m) => ({
+    default: m.PWAInstallModal,
+  }))
 );
-const NotesView = lazy(() =>
-  import('./components/NotesView').then((m) => ({ default: m.NotesView }))
+const CommandPaletteModal = lazy(() =>
+  import('./components/CommandPaletteModal').then((m) => ({
+    default: m.CommandPaletteModal,
+  }))
 );
 import {
   ARMENIAN_MONTHS,
@@ -144,23 +162,47 @@ export default function App() {
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [isDark, setIsDark] = useLocalStorage<boolean>('pa_theme_dark', true);
 
-  const handleSelectTab = (tab: NavSection) => {
-    if (tab === activeTab) {
-      scrollToTopSmooth();
-      return;
-    }
-    setIsRouteTransitioning(true);
-    if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
-    routeTimerRef.current = window.setTimeout(() => {
-      setIsRouteTransitioning(false);
-    }, 280);
-    setActiveTab(tab);
-  };
+  const handleSelectTab = useCallback((tab: NavSection) => {
+    setActiveTab((prev) => {
+      if (tab === prev) {
+        scrollToTopSmooth();
+        return prev;
+      }
+      setIsRouteTransitioning(true);
+      if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
+      routeTimerRef.current = window.setTimeout(() => {
+        setIsRouteTransitioning(false);
+      }, 280);
+      return tab;
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
       if (routeTimerRef.current) window.clearTimeout(routeTimerRef.current);
     };
+  }, []);
+
+  // Prefetch lazy view chunks during idle time for instant tab transitions
+  useEffect(() => {
+    const prefetchAll = () => {
+      void loadOverviewView();
+      void loadFinanceView();
+      void loadPlannerView();
+      void loadNotesView();
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+      const id = win.requestIdleCallback(prefetchAll, { timeout: 2000 });
+      return () => {
+        win.cancelIdleCallback?.(id);
+      };
+    }
+    const timer = window.setTimeout(prefetchAll, 1200);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const [primaryIncome, setPrimaryIncome] = useLocalStorage<PrimaryIncomeConfig>(
@@ -247,6 +289,11 @@ export default function App() {
     promptInstall,
   } = usePWAInstall();
 
+  const [isPrivacyMode, setIsPrivacyMode] = useLocalStorage<boolean>(
+    'pa_privacy_mode',
+    false
+  );
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [modalState, setModalState] = useState<QuickModalState | null>(null);
   const [toast, setToast] = useState<UndoToastState | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -279,24 +326,9 @@ export default function App() {
   const cloudReadyRef = useRef(false);
   const isApplyingRemoteRef = useRef(false);
 
-  const latestWorkspaceRef = useRef<FullWorkspaceSnapshot>({
-    transactions,
-    cards,
-    tasks,
-    notes,
-    budgets,
-    recurringBills,
-    habits,
-    savingsGoals,
-    debts,
-    focusSessions,
-    settings: {
-      primaryIncome,
-      focusGoal,
-      notificationSettings,
-      isDark,
-    },
-  });
+  const latestWorkspaceRef = useRef<FullWorkspaceSnapshot>(
+    null as unknown as FullWorkspaceSnapshot
+  );
   latestWorkspaceRef.current = {
     transactions,
     cards,
@@ -316,31 +348,65 @@ export default function App() {
     },
   };
 
-  const showToast = (message: string, onUndo?: () => void) => {
+  const showToast = useCallback((message: string, onUndo?: () => void) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ id: Date.now(), message, onUndo });
     toastTimerRef.current = window.setTimeout(() => {
       setToast(null);
     }, 5000);
-  };
+  }, []);
 
+  // Minute-boundary aligned clock sync (no wasted 15s full-App re-renders)
   useEffect(() => {
+    let timeoutId: number | null = null;
     const syncClock = () => {
       const current = getTodayISO();
       const hhmm = getCurrentHHMM();
       setTodayKey((prev) => (prev === current ? prev : current));
       setCurrentHHMM((prev) => (prev === hhmm ? prev : hhmm));
+    };
+
+    const scheduleNextMinute = () => {
+      const now = new Date();
+      const msUntilNextMinute =
+        (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50;
+      timeoutId = window.setTimeout(() => {
+        syncClock();
+        scheduleNextMinute();
+      }, Math.max(500, msUntilNextMinute));
+    };
+
+    const handleVisibilityOrFocus = () => {
+      syncClock();
       setNowMs(Date.now());
     };
-    const timer = window.setInterval(syncClock, 15_000);
-    window.addEventListener('focus', syncClock);
-    document.addEventListener('visibilitychange', syncClock);
+
+    scheduleNextMinute();
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', syncClock);
-      document.removeEventListener('visibilitychange', syncClock);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, []);
+
+  // Single targeted timeout for the next active snooze expiry (zero idle timers)
+  useEffect(() => {
+    const now = Date.now();
+    let nextExpiry = Infinity;
+    for (const until of Object.values(snoozedUntilMap)) {
+      if (typeof until === 'number' && until > now && until < nextExpiry) {
+        nextExpiry = until;
+      }
+    }
+    if (!Number.isFinite(nextExpiry)) return;
+    const delay = Math.max(50, nextExpiry - now + 25);
+    const id = window.setTimeout(() => {
+      setNowMs(Date.now());
+    }, delay);
+    return () => window.clearTimeout(id);
+  }, [snoozedUntilMap, nowMs]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -350,6 +416,33 @@ export default function App() {
       root.classList.remove('dark');
     }
   }, [isDark]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isPrivacyMode) {
+      root.classList.add('pa-privacy');
+    } else {
+      root.classList.remove('pa-privacy');
+    }
+  }, [isPrivacyMode]);
+
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      } else if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === 'h'
+      ) {
+        e.preventDefault();
+        setIsPrivacyMode((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [setIsPrivacyMode]);
 
   // Firebase Auth & Real-Time Firestore Workspace Subscription
   useEffect(() => {
@@ -1016,6 +1109,43 @@ export default function App() {
     }
   };
 
+  const handleDuplicateTransaction = (tx: Transaction) => {
+    const duplicated: Transaction = {
+      ...tx,
+      id: createId('tx'),
+      date: todayKey,
+      isPending: false,
+      createdAt: new Date().toISOString(),
+    };
+    setTransactions((prev) => [duplicated, ...prev]);
+    setSelectedMonth(getCycleKeyForDate(todayKey, effectivePayday));
+    showToast(`Գործարքը կրկնվեց այսօր («${tx.title}»)`, () => {
+      setTransactions((prev) => prev.filter((item) => item.id !== duplicated.id));
+    });
+  };
+
+  const handleBulkDeleteTransactions = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const previousSnapshot = transactions;
+    setTransactions((prev) => prev.filter((t) => !idSet.has(t.id)));
+    showToast(`${ids.length} գործարք ջնջվեց`, () => {
+      setTransactions(previousSnapshot);
+    });
+  };
+
+  const handleBulkAssignCard = (ids: string[], cardId: string | undefined) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    const previousSnapshot = transactions;
+    setTransactions((prev) =>
+      prev.map((t) => (idSet.has(t.id) ? { ...t, cardId } : t))
+    );
+    showToast(`${ids.length} գործարքի քարտը թարմացվեց`, () => {
+      setTransactions(previousSnapshot);
+    });
+  };
+
   const handleRepeatMonthlyIncomes = (
     sourceIncomes: Transaction[],
     monthKey: string
@@ -1106,18 +1236,18 @@ export default function App() {
     showToast('Հիմնական քարտը թարմացվեց');
   };
 
-  const handleQuickCardTransaction = (
-    type: 'income' | 'expense',
-    cardId: string
-  ) => {
-    setModalState({
-      mode: 'transaction',
-      prefill: {
-        type,
-        cardId,
-      },
-    });
-  };
+  const handleQuickCardTransaction = useCallback(
+    (type: 'income' | 'expense', cardId: string) => {
+      setModalState({
+        mode: 'transaction',
+        prefill: {
+          type,
+          cardId,
+        },
+      });
+    },
+    []
+  );
 
   const handleTransferBetweenCards = ({
     fromCardId,
@@ -1221,6 +1351,20 @@ export default function App() {
     showToast('Կրկնվող վճարումը թարմացվեց');
   };
 
+  const handleToggleBillActive = (id: string) => {
+    const target = recurringBills.find((b) => b.id === id);
+    if (!target) return;
+    const nextActive = target.active === false;
+    setRecurringBills((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, active: nextActive } : b))
+    );
+    showToast(
+      nextActive
+        ? `«${target.title}» վճարումը ակտիվացվեց`
+        : `«${target.title}» վճարումը դադարեցվեց`
+    );
+  };
+
   const handlePayAllRecurringBills = (
     billsToPay: RecurringBill[],
     monthKey: string
@@ -1302,14 +1446,21 @@ export default function App() {
     showToast('Հիշեցումը բաց թողնվեց');
   };
 
-  const handleConfirmPreExpense = (txId: string) => {
-    const target = transactions.find((t) => t.id === txId);
-    if (!target) return;
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === txId ? { ...t, isPending: false } : t))
-    );
-    showToast(`Հաստատվեց «${target.title}» ծախսը (-${formatMoney(target.amount)})`);
-  };
+  const handleConfirmPreExpense = useCallback(
+    (txId: string) => {
+      const target = latestWorkspaceRef.current?.transactions.find(
+        (t) => t.id === txId
+      );
+      if (!target) return;
+      setTransactions((prev) =>
+        prev.map((t) => (t.id === txId ? { ...t, isPending: false } : t))
+      );
+      showToast(
+        `Հաստատվեց «${target.title}» ծախսը (-${formatMoney(target.amount)})`
+      );
+    },
+    [setTransactions, showToast]
+  );
 
   const handleConfirmExpenseNotification = (
     item: AppNotificationItem,
@@ -1485,24 +1636,27 @@ export default function App() {
     showToast('Անելիքը ավելացվեց');
   };
 
-  const handleToggleTask = (id: string) => {
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id !== id) return t;
-        if (isTaskRepeating(t)) {
-          const existing = t.completedDates ?? [];
-          const hasToday = existing.includes(todayKey);
-          return {
-            ...t,
-            completedDates: hasToday
-              ? existing.filter((d) => d !== todayKey)
-              : [...existing, todayKey],
-          };
-        }
-        return { ...t, completed: !t.completed };
-      })
-    );
-  };
+  const handleToggleTask = useCallback(
+    (id: string) => {
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id !== id) return t;
+          if (isTaskRepeating(t)) {
+            const existing = t.completedDates ?? [];
+            const hasToday = existing.includes(todayKey);
+            return {
+              ...t,
+              completedDates: hasToday
+                ? existing.filter((d) => d !== todayKey)
+                : [...existing, todayKey],
+            };
+          }
+          return { ...t, completed: !t.completed };
+        })
+      );
+    },
+    [setTasks, todayKey]
+  );
 
   const handleUpdateTask = (
     id: string,
@@ -1553,20 +1707,23 @@ export default function App() {
     showToast('Սովորությունը ավելացվեց');
   };
 
-  const handleToggleHabitDate = (habitId: string, date: string) => {
-    setHabits((prev) =>
-      prev.map((h) => {
-        if (h.id !== habitId) return h;
-        const exists = h.completedDates.includes(date);
-        return {
-          ...h,
-          completedDates: exists
-            ? h.completedDates.filter((d) => d !== date)
-            : [...h.completedDates, date],
-        };
-      })
-    );
-  };
+  const handleToggleHabitDate = useCallback(
+    (habitId: string, date: string) => {
+      setHabits((prev) =>
+        prev.map((h) => {
+          if (h.id !== habitId) return h;
+          const exists = h.completedDates.includes(date);
+          return {
+            ...h,
+            completedDates: exists
+              ? h.completedDates.filter((d) => d !== date)
+              : [...h.completedDates, date],
+          };
+        })
+      );
+    },
+    [setHabits]
+  );
 
   const handleUpdateHabit = (habitId: string, title: string) => {
     const trimmed = title.trim();
@@ -1666,7 +1823,7 @@ export default function App() {
     );
   };
 
-  const handleLogShoppingExpense = (note: Note) => {
+  const handleLogShoppingExpense = (note: Note, estimatedTotal?: number) => {
     setModalState({
       mode: 'transaction',
       prefill: {
@@ -1674,6 +1831,7 @@ export default function App() {
         title: note.title,
         category: 'Գնումներ',
         date: getTodayISO(),
+        ...(estimatedTotal && estimatedTotal > 0 ? { amount: estimatedTotal } : {}),
       },
     });
   };
@@ -1842,47 +2000,51 @@ export default function App() {
   };
 
   // Focus Sessions Handler
-  const handleCompleteFocusSession = (
-    session: Omit<FocusSession, 'id' | 'completedAt'>
-  ) => {
-    const next: FocusSession = {
-      ...session,
-      id: createId('focus'),
-      completedAt: new Date().toISOString(),
-    };
-    setFocusSessions((prev) => [next, ...prev]);
-    showToast(`Ֆոկուս սեսիան գրանցվեց (${session.minutes} րոպե)`);
-  };
+  const handleCompleteFocusSession = useCallback(
+    (session: Omit<FocusSession, 'id' | 'completedAt'>) => {
+      const next: FocusSession = {
+        ...session,
+        id: createId('focus'),
+        completedAt: new Date().toISOString(),
+      };
+      setFocusSessions((prev) => [next, ...prev]);
+      showToast(`Ֆոկուս սեսիան գրանցվեց (${session.minutes} րոպե)`);
+    },
+    [setFocusSessions, showToast]
+  );
 
-  const handleSaveFocusGoal = (title: string) => {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    const today = getTodayISO();
-    setFocusGoal((prev) => ({
-      title: trimmed,
-      completed: prev && prev.date === today ? prev.completed : false,
-      date: today,
-    }));
-    showToast('Օրվա ֆոկուս նպատակը պահպանվեց');
-  };
+  const handleSaveFocusGoal = useCallback(
+    (title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      const today = getTodayISO();
+      setFocusGoal((prev) => ({
+        title: trimmed,
+        completed: prev && prev.date === today ? prev.completed : false,
+        date: today,
+      }));
+      showToast('Օրվա ֆոկուս նպատակը պահպանվեց');
+    },
+    [setFocusGoal, showToast]
+  );
 
-  const handleToggleFocusGoal = () => {
+  const handleToggleFocusGoal = useCallback(() => {
     const today = getTodayISO();
     setFocusGoal((prev) => {
       if (!prev || prev.date !== today) return prev;
       return { ...prev, completed: !prev.completed };
     });
-  };
+  }, [setFocusGoal]);
 
-  const handleClearFocusGoal = () => {
-    const previous = focusGoal;
+  const handleClearFocusGoal = useCallback(() => {
+    const previous = latestWorkspaceRef.current?.settings?.focusGoal ?? null;
     setFocusGoal(null);
     if (previous) {
       showToast('Օրվա ֆոկուս նպատակը հեռացվեց', () => {
         setFocusGoal(previous);
       });
     }
-  };
+  }, [setFocusGoal, showToast]);
 
   const handleExportJSON = () => {
     const payload = {
@@ -1965,24 +2127,30 @@ export default function App() {
         : 'transaction';
 
   const todayISO = todayKey;
-  const priorityRank: Record<TaskPriority, number> = {
-    high: 0,
-    medium: 1,
-    low: 2,
-  };
-  const todayPendingTasks = [...tasks]
-    .filter((t) => isTaskDueOnDate(t, todayISO) && !isTaskCompletedOnDate(t, todayISO))
-    .sort((a, b) => {
-      const pDiff =
-        priorityRank[a.priority ?? 'medium'] -
-        priorityRank[b.priority ?? 'medium'];
-      if (pDiff !== 0) return pDiff;
-      return (a.dueTime ?? '99:99').localeCompare(b.dueTime ?? '99:99');
-    });
+  const todayPendingTasks = useMemo(() => {
+    const priorityRank: Record<TaskPriority, number> = {
+      high: 0,
+      medium: 1,
+      low: 2,
+    };
+    return [...tasks]
+      .filter((t) => isTaskDueOnDate(t, todayISO) && !isTaskCompletedOnDate(t, todayISO))
+      .sort((a, b) => {
+        const pDiff =
+          priorityRank[a.priority ?? 'medium'] -
+          priorityRank[b.priority ?? 'medium'];
+        if (pDiff !== 0) return pDiff;
+        return (a.dueTime ?? '99:99').localeCompare(b.dueTime ?? '99:99');
+      });
+  }, [tasks, todayISO]);
 
-  const dueNoteReminders = [...notes]
-    .filter((n) => Boolean(n.reminderDate) && n.reminderDate!.slice(0, 10) <= todayISO)
-    .sort((a, b) => (a.reminderDate ?? '').localeCompare(b.reminderDate ?? ''));
+  const dueNoteReminders = useMemo(
+    () =>
+      [...notes]
+        .filter((n) => Boolean(n.reminderDate) && n.reminderDate!.slice(0, 10) <= todayISO)
+        .sort((a, b) => (a.reminderDate ?? '').localeCompare(b.reminderDate ?? '')),
+    [notes, todayISO]
+  );
 
   const safeToSpend = useMemo(() => {
     const cycleDayMetrics = getCycleDayMetrics(
@@ -1999,6 +2167,7 @@ export default function App() {
     const unpaidBillsTotal = recurringBills
       .filter(
         (bill) =>
+          bill.active !== false &&
           getBillFrequency(bill) === 'monthly' &&
           !cycleFin.cycleTransactions.some(
             (tx) =>
@@ -2020,32 +2189,54 @@ export default function App() {
     });
   }, [transactions, recurringBills, selectedMonth, effectivePayday, todayISO]);
 
-  const allNotifications = buildAppNotifications({
-    bills: recurringBills,
-    transactions,
-    tasks,
-    notes,
-    budgets,
-    debts,
-    selectedMonth,
-    todayISO,
-    currentHHMM,
-    effectivePayday,
-  });
+  const allNotifications = useMemo(
+    () =>
+      buildAppNotifications({
+        bills: recurringBills,
+        transactions,
+        tasks,
+        notes,
+        budgets,
+        debts,
+        selectedMonth,
+        todayISO,
+        currentHHMM,
+        effectivePayday,
+      }),
+    [
+      recurringBills,
+      transactions,
+      tasks,
+      notes,
+      budgets,
+      debts,
+      selectedMonth,
+      todayISO,
+      currentHHMM,
+      effectivePayday,
+    ]
+  );
 
-  const activeNotifications = allNotifications.filter(
-    (n) => nowMs >= (snoozedUntilMap[n.id] ?? 0)
-  );
-  const snoozedCount = allNotifications.length - activeNotifications.length;
-  const dueFloatingAlerts = activeNotifications.filter(
-    (n) =>
-      (n.kind === 'daily_expense' ||
-        n.kind === 'planned_expense' ||
-        n.kind === 'monthly_bill' ||
-        n.kind === 'budget_alert') &&
-      (n.status === 'due_now' || n.status === 'overdue') &&
-      !dismissedBannerIds.includes(n.id)
-  );
+  const { activeNotifications, snoozedCount, dueFloatingAlerts } = useMemo(() => {
+    const active = allNotifications.filter(
+      (n) => nowMs >= (snoozedUntilMap[n.id] ?? 0)
+    );
+    const dismissedSet = new Set(dismissedBannerIds);
+    const dueFloating = active.filter(
+      (n) =>
+        (n.kind === 'daily_expense' ||
+          n.kind === 'planned_expense' ||
+          n.kind === 'monthly_bill' ||
+          n.kind === 'budget_alert') &&
+        (n.status === 'due_now' || n.status === 'overdue') &&
+        !dismissedSet.has(n.id)
+    );
+    return {
+      activeNotifications: active,
+      snoozedCount: allNotifications.length - active.length,
+      dueFloatingAlerts: dueFloating,
+    };
+  }, [allNotifications, nowMs, snoozedUntilMap, dismissedBannerIds]);
 
   useEffect(() => {
     const newlyDue = activeNotifications.filter((n) => {
@@ -2071,7 +2262,41 @@ export default function App() {
     }
   }, [activeNotifications, notificationSettings, currentHHMM]);
 
-  const editorialDate = getTodayEditorialDate();
+  const editorialDate = useMemo(() => getTodayEditorialDate(), [todayISO]);
+  const activeFocusGoal = useMemo(
+    () => (focusGoal && focusGoal.date === todayISO ? focusGoal : null),
+    [focusGoal, todayISO]
+  );
+  const canUseBrowserNotifs = useMemo(() => canUseBrowserNotifications(), []);
+
+  const handleOpenDefaultModal = useCallback(() => {
+    setModalState({ mode: defaultModalMode });
+  }, [defaultModalMode]);
+  const handleShiftMonth = useCallback((delta: number) => {
+    setSelectedMonth((prev) => shiftMonthKey(prev, delta));
+  }, []);
+  const handleToggleTheme = useCallback(() => {
+    setIsDark((prev) => !prev);
+  }, [setIsDark]);
+  const handleOpenOverviewModal = useCallback(
+    (mode: QuickModalState['mode']) => setModalState({ mode }),
+    []
+  );
+
+  const totalBalance = useMemo(() => {
+    let sum = 0;
+    for (const c of cards) {
+      let cardSum = c.initialBalance;
+      for (const tx of transactions) {
+        if (tx.cardId === c.id) {
+          if (tx.type === 'income') cardSum += tx.amount;
+          else if (!tx.isPending) cardSum -= tx.amount;
+        }
+      }
+      sum += cardSum;
+    }
+    return sum;
+  }, [cards, transactions]);
 
   return (
     <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F4F6FA] dark:bg-[#080C14] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
@@ -2080,7 +2305,7 @@ export default function App() {
       <TopNav
         activeTab={activeTab}
         onSelectTab={handleSelectTab}
-        onOpenNewModal={() => setModalState({ mode: defaultModalMode })}
+        onOpenNewModal={handleOpenDefaultModal}
         todayTasks={todayPendingTasks}
         onToggleTask={handleToggleTask}
         dueNotes={dueNoteReminders}
@@ -2088,7 +2313,7 @@ export default function App() {
         notifications={activeNotifications}
         snoozedCount={snoozedCount}
         notificationSettings={notificationSettings}
-        canUseBrowserNotifs={canUseBrowserNotifications()}
+        canUseBrowserNotifs={canUseBrowserNotifs}
         onToggleSound={handleToggleSound}
         onToggleBrowserNotifications={handleToggleBrowserNotifications}
         onUpdateNotificationSettings={handleUpdateNotificationSettings}
@@ -2100,9 +2325,12 @@ export default function App() {
         editorialDate={editorialDate}
         selectedMonth={selectedMonth}
         payday={effectivePayday}
-        onShiftMonth={(delta) => setSelectedMonth(shiftMonthKey(selectedMonth, delta))}
+        onShiftMonth={handleShiftMonth}
         isDark={isDark}
-        onToggleTheme={() => setIsDark((prev) => !prev)}
+        onToggleTheme={handleToggleTheme}
+        isPrivacyMode={isPrivacyMode}
+        onTogglePrivacy={() => setIsPrivacyMode((prev) => !prev)}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
         user={user}
         syncStatus={syncStatus}
         isOnline={isOnline}
@@ -2110,6 +2338,8 @@ export default function App() {
         onSignOutGoogle={handleSignOutGoogle}
         canInstallPWA={canInstallPWA}
         onInstallPWA={promptInstall}
+        totalBalance={totalBalance}
+        currency="AMD"
       >
         <main className="flex-1 w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 min-w-0">
           {/* Mobile & Tablet Preferences Strip (< lg) */}
@@ -2173,9 +2403,7 @@ export default function App() {
                     notes={notes}
                     budgets={budgets}
                     habits={habits}
-                    focusGoal={
-                      focusGoal && focusGoal.date === todayISO ? focusGoal : null
-                    }
+                    focusGoal={activeFocusGoal}
                     safeToSpend={safeToSpend}
                     savingsGoals={savingsGoals}
                     debts={debts}
@@ -2190,9 +2418,13 @@ export default function App() {
                     onToggleTask={handleToggleTask}
                     onToggleHabitDate={handleToggleHabitDate}
                     onNavigate={handleSelectTab}
-                    onOpenNewModal={(mode) => setModalState({ mode })}
+                    onOpenNewModal={handleOpenOverviewModal}
                     onQuickCardTransaction={handleQuickCardTransaction}
                     onConfirmPreExpense={handleConfirmPreExpense}
+                    onAddTransaction={handleAddTransaction}
+                    onOpenTransactionWithPrefill={(prefill) =>
+                      setModalState({ mode: 'transaction', prefill })
+                    }
                   />
                 )}
 
@@ -2214,6 +2446,9 @@ export default function App() {
                     }
                     onAutoCategorizeTransactions={handleAutoCategorizeTransactions}
                     onDeleteTransaction={handleDeleteTransaction}
+                    onDuplicateTransaction={handleDuplicateTransaction}
+                    onBulkDeleteTransactions={handleBulkDeleteTransactions}
+                    onBulkAssignCard={handleBulkAssignCard}
                     onRepeatMonthlyIncomes={handleRepeatMonthlyIncomes}
                     onNotify={showToast}
                     budgets={budgets}
@@ -2222,6 +2457,7 @@ export default function App() {
                     recurringBills={recurringBills}
                     onAddRecurringBill={handleAddRecurringBill}
                     onUpdateRecurringBill={handleUpdateRecurringBill}
+                    onToggleBillActive={handleToggleBillActive}
                     onDeleteRecurringBill={handleDeleteRecurringBill}
                     onPayAllRecurringBills={handlePayAllRecurringBills}
                     onConfirmBillSlot={handleConfirmBillSlot}
@@ -2261,6 +2497,7 @@ export default function App() {
                   <PlannerView
                     tasks={tasks}
                     onOpenNewTaskModal={() => setModalState({ mode: 'task' })}
+                    onAddTask={handleAddTask}
                     onEditTask={(task) =>
                       setModalState({ mode: 'task', editing: task })
                     }
@@ -2275,9 +2512,7 @@ export default function App() {
                     }
                     onToggleHabitDate={handleToggleHabitDate}
                     onDeleteHabit={handleDeleteHabit}
-                    focusGoal={
-                      focusGoal && focusGoal.date === todayISO ? focusGoal : null
-                    }
+                    focusGoal={activeFocusGoal}
                     focusSessions={focusSessions}
                     soundEnabled={notificationSettings.soundEnabled}
                     browserNotifications={notificationSettings.browserNotifications}
@@ -2360,56 +2595,86 @@ export default function App() {
         }
       />
 
-      {confirmModalState && (
-        <ConfirmExpenseModal
-          bill={confirmModalState.bill}
-          slotKey={confirmModalState.slotKey}
-          dateISO={confirmModalState.dateISO}
-          onConfirm={(finalAmount) => {
-            if (confirmModalState.item) {
-              handleConfirmExpenseNotification(
-                confirmModalState.item,
-                finalAmount
-              );
-            } else {
-              handleConfirmBillSlot(
-                confirmModalState.bill.id,
-                confirmModalState.slotKey,
-                confirmModalState.dateISO,
-                finalAmount
-              );
+      <Suspense fallback={null}>
+        {confirmModalState && (
+          <ConfirmExpenseModal
+            bill={confirmModalState.bill}
+            slotKey={confirmModalState.slotKey}
+            dateISO={confirmModalState.dateISO}
+            onConfirm={(finalAmount) => {
+              if (confirmModalState.item) {
+                handleConfirmExpenseNotification(
+                  confirmModalState.item,
+                  finalAmount
+                );
+              } else {
+                handleConfirmBillSlot(
+                  confirmModalState.bill.id,
+                  confirmModalState.slotKey,
+                  confirmModalState.dateISO,
+                  finalAmount
+                );
+              }
+            }}
+            onClose={() => setConfirmModalState(null)}
+          />
+        )}
+
+        {modalState && (
+          <QuickAddModal
+            modalState={modalState}
+            transactions={transactions}
+            cards={cards}
+            onClose={() => setModalState(null)}
+            onAddTransaction={handleAddTransaction}
+            onUpdateTransaction={handleUpdateTransaction}
+            onAddCard={handleAddCard}
+            onUpdateCard={handleUpdateCard}
+            onAddTask={handleAddTask}
+            onUpdateTask={handleUpdateTask}
+            onAddHabit={handleAddHabit}
+            onUpdateHabit={handleUpdateHabit}
+            onAddNote={handleAddNote}
+            onUpdateNote={handleUpdateNote}
+            onAddGoal={handleAddGoal}
+            onUpdateGoal={handleUpdateGoal}
+            onAddDebt={handleAddDebt}
+            onUpdateDebt={handleUpdateDebt}
+          />
+        )}
+
+        {showIOSGuide && (
+          <PWAInstallModal onClose={() => setShowIOSGuide(false)} />
+        )}
+
+        {commandPaletteOpen && (
+          <CommandPaletteModal
+            onClose={() => setCommandPaletteOpen(false)}
+            currency="AMD"
+            transactions={transactions}
+            cards={cards}
+            tasks={tasks}
+            notes={notes}
+            savingsGoals={savingsGoals}
+            debts={debts}
+            isDark={isDark}
+            isPrivacyMode={isPrivacyMode}
+            onToggleTheme={handleToggleTheme}
+            onTogglePrivacy={() => setIsPrivacyMode((prev) => !prev)}
+            onNavigate={handleSelectTab}
+            onOpenNewModal={(mode) => setModalState({ mode })}
+            onEditTransaction={(tx) =>
+              setModalState({ mode: 'transaction', editing: tx })
             }
-          }}
-          onClose={() => setConfirmModalState(null)}
-        />
-      )}
-
-      {modalState && (
-        <QuickAddModal
-          modalState={modalState}
-          transactions={transactions}
-          cards={cards}
-          onClose={() => setModalState(null)}
-          onAddTransaction={handleAddTransaction}
-          onUpdateTransaction={handleUpdateTransaction}
-          onAddCard={handleAddCard}
-          onUpdateCard={handleUpdateCard}
-          onAddTask={handleAddTask}
-          onUpdateTask={handleUpdateTask}
-          onAddHabit={handleAddHabit}
-          onUpdateHabit={handleUpdateHabit}
-          onAddNote={handleAddNote}
-          onUpdateNote={handleUpdateNote}
-          onAddGoal={handleAddGoal}
-          onUpdateGoal={handleUpdateGoal}
-          onAddDebt={handleAddDebt}
-          onUpdateDebt={handleUpdateDebt}
-        />
-      )}
-
-      {showIOSGuide && (
-        <PWAInstallModal onClose={() => setShowIOSGuide(false)} />
-      )}
+            onEditTask={(task) => setModalState({ mode: 'task', editing: task })}
+            onEditNote={(note) => setModalState({ mode: 'note', editing: note })}
+            onExportJSON={handleExportJSON}
+            onExecuteSmartTransaction={handleAddTransaction}
+            onExecuteSmartTask={handleAddTask}
+            onExecuteSmartNote={handleAddNote}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

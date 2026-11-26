@@ -11,6 +11,7 @@ import {
   ArrowUpRight,
   Check,
   Clock,
+  Copy,
   Pencil,
   Trash2,
 } from 'lucide-react';
@@ -30,9 +31,13 @@ interface SwipeableTransactionRowProps {
   todayISO: string;
   isEditing: boolean;
   isOpen: boolean;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (id: string) => void;
   onOpenChange: (id: string | null) => void;
   onStartSwipe: (id: string) => void;
   onEdit: (tx: Transaction) => void;
+  onDuplicate?: (tx: Transaction) => void;
   onDelete: (id: string) => void;
   onConfirmPreExpense: (id: string) => void;
 }
@@ -49,9 +54,13 @@ export function SwipeableTransactionRow({
   todayISO,
   isEditing,
   isOpen,
+  selectionMode = false,
+  isSelected = false,
+  onToggleSelect,
   onOpenChange,
   onStartSwipe,
   onEdit,
+  onDuplicate,
   onDelete,
   onConfirmPreExpense,
 }: SwipeableTransactionRowProps) {
@@ -300,17 +309,44 @@ export function SwipeableTransactionRow({
       {/* Foreground Sliding Row */}
       <motion.div
         style={{ x }}
-        onPointerDown={handlePointerDown}
-        onClick={handleRowClick}
+        onPointerDown={selectionMode ? undefined : handlePointerDown}
+        onClick={(e) => {
+          if (selectionMode && onToggleSelect) {
+            e.stopPropagation();
+            onToggleSelect(tx.id);
+            return;
+          }
+          handleRowClick(e);
+        }}
         className={`relative z-10 touch-pan-y select-none sm:select-text group px-3.5 sm:px-6 py-3.5 min-h-[62px] sm:min-h-0 flex items-center justify-between gap-3 transition-colors ${
-          isEditing
-            ? 'bg-[#EFF6FF] dark:bg-[#172554]'
-            : tx.isPending
-              ? 'bg-[#FFFBEB] dark:bg-[#191614] hover:bg-[#FEF3C7]/60 dark:hover:bg-[#1F1B17]'
-              : 'bg-white dark:bg-[#0F172A] hover:bg-[#F8FAFC] dark:hover:bg-[#162033]'
+          isSelected
+            ? 'bg-[#EFF6FF] dark:bg-[#172554]/65'
+            : isEditing
+              ? 'bg-[#EFF6FF] dark:bg-[#172554]'
+              : tx.isPending
+                ? 'bg-[#FFFBEB] dark:bg-[#191614] hover:bg-[#FEF3C7]/60 dark:hover:bg-[#1F1B17]'
+                : 'bg-white dark:bg-[#0F172A] hover:bg-[#F8FAFC] dark:hover:bg-[#162033]'
         }`}
       >
         <div className="flex items-center gap-3 sm:gap-3.5 min-w-0 flex-1">
+          {selectionMode && onToggleSelect && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect(tx.id);
+              }}
+              aria-label={`Ընտրել ${tx.title}`}
+              aria-pressed={isSelected}
+              className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                isSelected
+                  ? 'bg-[#2563EB] border-[#2563EB] dark:bg-[#3B82F6] dark:border-[#3B82F6] text-white dark:text-[#060B16]'
+                  : 'border-[#CBD5E1] dark:border-[#334155] bg-white dark:bg-[#0B1120]'
+              }`}
+            >
+              {isSelected && <Check className="w-3 h-3" strokeWidth={2.7} />}
+            </button>
+          )}
           <span
             className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
               tx.type === 'income'
@@ -362,7 +398,7 @@ export function SwipeableTransactionRow({
           {tx.isPending ? (
             <div className="flex items-center gap-2">
               <div className="text-right">
-                <span className="text-sm font-semibold font-mono tabular-nums whitespace-nowrap text-amber-600 dark:text-amber-400">
+                <span className="pa-sensitive text-sm font-semibold font-mono tabular-nums whitespace-nowrap text-amber-600 dark:text-amber-400">
                   (-{formatMoney(tx.amount, currency)})
                 </span>
                 <span className="block text-[10px] text-[#94A3B8] tabular-nums">
@@ -370,22 +406,24 @@ export function SwipeableTransactionRow({
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onConfirmPreExpense(tx.id);
-                }}
-                className="min-h-[38px] sm:min-h-[34px] px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
-                title="Հաստատել որպես ծախս և հանել բալանսից"
-              >
-                <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
-                <span>Հաստատել</span>
-              </button>
+              {!selectionMode && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onConfirmPreExpense(tx.id);
+                  }}
+                  className="min-h-[38px] sm:min-h-[34px] px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shadow-xs"
+                  title="Հաստատել որպես ծախս և հանել բալանսից"
+                >
+                  <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
+                  <span>Հաստատել</span>
+                </button>
+              )}
             </div>
           ) : (
             <span
-              className={`text-sm font-semibold font-mono tabular-nums whitespace-nowrap sm:mr-1 ${
+              className={`pa-sensitive text-sm font-semibold font-mono tabular-nums whitespace-nowrap sm:mr-1 ${
                 tx.type === 'income'
                   ? 'text-emerald-600 dark:text-emerald-400'
                   : 'text-[#0F172A] dark:text-[#F8FAFC]'
@@ -396,31 +434,47 @@ export function SwipeableTransactionRow({
             </span>
           )}
 
-          {/* Desktop/Tablet inline action buttons (hidden on mobile to free space for swipe-to-delete) */}
-          <div className="hidden sm:flex items-center gap-1">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(tx);
-              }}
-              aria-label={`Խմբագրել ${tx.title}`}
-              className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] lg:opacity-60 lg:group-hover:opacity-100 hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-all cursor-pointer"
-            >
-              <Pencil className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(tx.id);
-              }}
-              aria-label={`Ջնջել ${tx.title}`}
-              className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] lg:opacity-60 lg:group-hover:opacity-100 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Desktop/Tablet inline action buttons (hidden in selectionMode) */}
+          {!selectionMode && (
+            <div className="hidden sm:flex items-center gap-1">
+              {onDuplicate && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDuplicate(tx);
+                  }}
+                  title="Կրկնել այսօր"
+                  aria-label={`Կրկնել ${tx.title}`}
+                  className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] lg:opacity-60 lg:group-hover:opacity-100 hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 transition-all cursor-pointer"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(tx);
+                }}
+                aria-label={`Խմբագրել ${tx.title}`}
+                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] lg:opacity-60 lg:group-hover:opacity-100 hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#E2E8F0]/60 dark:hover:bg-[#1E293B] transition-all cursor-pointer"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(tx.id);
+                }}
+                aria-label={`Ջնջել ${tx.title}`}
+                className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#94A3B8] lg:opacity-60 lg:group-hover:opacity-100 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-all cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>

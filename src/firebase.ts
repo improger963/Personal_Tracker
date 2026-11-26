@@ -92,7 +92,19 @@ export async function testConnection(): Promise<void> {
   }
 }
 
-testConnection();
+if (typeof window !== 'undefined') {
+  const runIdleCheck = () => {
+    void testConnection();
+  };
+  const win = window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  };
+  if (typeof win.requestIdleCallback === 'function') {
+    win.requestIdleCallback(runIdleCheck, { timeout: 4000 });
+  } else {
+    window.setTimeout(runIdleCheck, 2500);
+  }
+}
 
 export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider);

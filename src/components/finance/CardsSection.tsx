@@ -101,7 +101,7 @@ export function CardsSection({
               <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
                 · {cards.length} հաշիվ · Ընդհանուր՝{' '}
                 <strong
-                  className={`font-mono ${
+                  className={`pa-sensitive font-mono ${
                     totalCardsBalance >= 0
                       ? 'text-[#0F172A] dark:text-[#F8FAFC]'
                       : 'text-rose-600 dark:text-rose-400'
@@ -262,7 +262,7 @@ export function CardsSection({
                             <span className="block text-[10px] uppercase tracking-wider text-white/75">
                               Ընթացիկ բալանս
                             </span>
-                            <p className="text-xl sm:text-2xl font-mono font-bold tabular-nums text-white truncate">
+                            <p className="pa-sensitive text-xl sm:text-2xl font-mono font-bold tabular-nums text-white truncate">
                               {formatMoney(currentBalance, currency)}
                             </p>
                           </div>
@@ -273,7 +273,7 @@ export function CardsSection({
                           )}
                         </div>
 
-                        <div className="pt-2 border-t border-white/15 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-white/85">
+                        <div className="pa-sensitive pt-2 border-t border-white/15 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-white/85">
                           <span>Սկիզբ՝ {formatMoney(card.initialBalance, currency)}</span>
                           <div className="flex items-center gap-2">
                             {totalIncome > 0 && (

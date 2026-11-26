@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useEffect, useState } from 'react';
 import { ArrowUp, LucideIcon } from 'lucide-react';
 import { scrollToTopSmooth } from '../../utils/scroll';
 
@@ -356,28 +355,19 @@ export function EmptyStatePlaceholder({
 }
 
 export function TopRouteProgressBar({ active }: { active: boolean }) {
-  const prefersReducedMotion = useReducedMotion();
-
   return (
-    <AnimatePresence>
-      {active && (
-        <motion.div
-          aria-hidden="true"
-          initial={prefersReducedMotion ? { opacity: 1 } : { scaleX: 0, opacity: 1 }}
-          animate={prefersReducedMotion ? { opacity: 1 } : { scaleX: 1, opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: prefersReducedMotion ? 0.05 : 0.24, ease: [0.22, 1, 0.36, 1] }}
-          style={{ transformOrigin: 'left center' }}
-          className="fixed top-0 left-0 right-0 h-[2.5px] z-50 pointer-events-none bg-gradient-to-r from-[#2563EB] via-[#38BDF8] to-[#2563EB] dark:from-[#3B82F6] dark:via-[#60A5FA] dark:to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.45)]"
-        />
-      )}
-    </AnimatePresence>
+    <div
+      aria-hidden="true"
+      style={{ transformOrigin: 'left center' }}
+      className={`fixed top-0 left-0 right-0 h-[2.5px] z-50 pointer-events-none bg-gradient-to-r from-[#2563EB] via-[#38BDF8] to-[#2563EB] dark:from-[#3B82F6] dark:via-[#60A5FA] dark:to-[#3B82F6] shadow-[0_0_8px_rgba(37,99,235,0.45)] transition-[transform,opacity] duration-200 ease-out will-change-transform ${
+        active ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'
+      }`}
+    />
   );
 }
 
 export function ScrollToTopButton() {
   const [visible, setVisible] = useState(false);
-  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     let rafId = 0;
@@ -401,23 +391,17 @@ export function ScrollToTopButton() {
     };
   }, []);
 
+  if (!visible) return null;
+
   return (
-    <AnimatePresence>
-      {visible && (
-        <motion.button
-          type="button"
-          onClick={scrollToTopSmooth}
-          initial={prefersReducedMotion ? false : { opacity: 0, y: 12, scale: 0.9 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.9 }}
-          transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          aria-label="Վերադառնալ էջի վերև"
-          title="Վերադառնալ վերև"
-          className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 left-3.5 sm:left-5 lg:left-[17.5rem] z-30 w-10 h-10 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] hover:text-[#2563EB] dark:hover:text-[#60A5FA] shadow-lg flex items-center justify-center transition-colors cursor-pointer"
-        >
-          <ArrowUp className="w-4 h-4" />
-        </motion.button>
-      )}
-    </AnimatePresence>
+    <button
+      type="button"
+      onClick={scrollToTopSmooth}
+      aria-label="Վերադառնալ էջի վերև"
+      title="Վերադառնալ վերև"
+      className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 left-3.5 sm:left-5 lg:left-[17.5rem] z-30 w-10 h-10 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] hover:text-[#2563EB] dark:hover:text-[#60A5FA] shadow-lg flex items-center justify-center transition-[transform,opacity,color,border-color] duration-150 cursor-pointer"
+    >
+      <ArrowUp className="w-4 h-4" />
+    </button>
   );
 }

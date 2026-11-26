@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
   Area,
@@ -60,26 +60,34 @@ import { EmptyStatePlaceholder, PageSkeleton } from './ui/Skeleton';
 import { scrollToTopInstant, scrollToTopSmooth } from '../utils/scroll';
 import { INTERNAL_TRANSFER_CATEGORY } from '../utils/cardBalances';
 
-const TransactionsLedgerPage = lazy(() =>
+const loadLedgerPage = () =>
   import('./finance/TransactionsLedgerPage').then((m) => ({
     default: m.TransactionsLedgerPage,
-  }))
-);
-const BudgetsAndBillsPage = lazy(() =>
+  }));
+const loadBudgetsPage = () =>
   import('./finance/BudgetsAndBillsPage').then((m) => ({
     default: m.BudgetsAndBillsPage,
-  }))
-);
-const AnalyticsAndReportsPage = lazy(() =>
+  }));
+const loadAnalyticsPage = () =>
   import('./finance/AnalyticsAndReportsPage').then((m) => ({
     default: m.AnalyticsAndReportsPage,
-  }))
-);
-const GoalsAndDebtsPage = lazy(() =>
+  }));
+const loadGoalsDebtsPage = () =>
   import('./finance/GoalsAndDebtsPage').then((m) => ({
     default: m.GoalsAndDebtsPage,
-  }))
-);
+  }));
+
+const TransactionsLedgerPage = lazy(loadLedgerPage);
+const BudgetsAndBillsPage = lazy(loadBudgetsPage);
+const AnalyticsAndReportsPage = lazy(loadAnalyticsPage);
+const GoalsAndDebtsPage = lazy(loadGoalsDebtsPage);
+
+function prefetchFinancePage(page: FinancePageTab) {
+  if (page === 'ledger') void loadLedgerPage();
+  else if (page === 'budgets') void loadBudgetsPage();
+  else if (page === 'goals_debts') void loadGoalsDebtsPage();
+  else if (page === 'analytics') void loadAnalyticsPage();
+}
 import {
   formatMoney,
   getLastNMonthsKeys,
@@ -116,6 +124,9 @@ interface FinanceViewProps {
     updates: Array<{ id: string; category: string; incomeKind?: IncomeKind }>
   ) => void;
   onDeleteTransaction: (id: string) => void;
+  onDuplicateTransaction?: (tx: Transaction) => void;
+  onBulkDeleteTransactions?: (ids: string[]) => void;
+  onBulkAssignCard?: (ids: string[], cardId: string | undefined) => void;
   onRepeatMonthlyIncomes: (sourceIncomes: Transaction[], monthKey: string) => void;
   onNotify?: (message: string) => void;
   budgets: BudgetLimit[];
@@ -127,6 +138,7 @@ interface FinanceViewProps {
     id: string,
     updates: Omit<RecurringBill, 'id'>
   ) => void;
+  onToggleBillActive?: (id: string) => void;
   onDeleteRecurringBill: (id: string) => void;
   onPayAllRecurringBills: (bills: RecurringBill[], monthKey: string) => void;
   onConfirmBillSlot: (billId: string, slotKey: string, dateISO: string) => void;
@@ -165,7 +177,7 @@ interface FinanceViewProps {
   onImportJSON: (file: File) => void;
 }
 
-export function FinanceView({
+export const FinanceView = memo(function FinanceView({
   selectedMonth,
   onChangeMonth,
   primaryIncome,
@@ -178,6 +190,9 @@ export function FinanceView({
   onEditTransaction,
   onAutoCategorizeTransactions,
   onDeleteTransaction,
+  onDuplicateTransaction,
+  onBulkDeleteTransactions,
+  onBulkAssignCard,
   onRepeatMonthlyIncomes,
   onNotify,
   budgets,
@@ -186,6 +201,7 @@ export function FinanceView({
   recurringBills,
   onAddRecurringBill,
   onUpdateRecurringBill,
+  onToggleBillActive,
   onDeleteRecurringBill,
   onPayAllRecurringBills,
   onConfirmBillSlot,
@@ -288,23 +304,54 @@ export function FinanceView({
     return 'ledger';
   });
 
-  const handleSelectPage = (page: FinancePageTab) => {
-    if (page === activePage) {
-      scrollToTopSmooth();
-      return;
+  const handleSelectPage = useCallback(
+    (page: FinancePageTab) => {
+      if (page === activePage) {
+        scrollToTopSmooth();
+        return;
+      }
+      setActivePage(page);
+      try {
+        localStorage.setItem('pa_finance_active_page', page);
+      } catch {
+        // ignore
+      }
+    },
+    [activePage]
+  );
+
+  // Idle-prefetch remaining finance sub-page chunks so switching tabs is instant
+  useEffect(() => {
+    const prefetchAll = () => {
+      void loadLedgerPage();
+      void loadBudgetsPage();
+      void loadGoalsDebtsPage();
+      void loadAnalyticsPage();
+    };
+    const win = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+      const id = win.requestIdleCallback(prefetchAll, { timeout: 2500 });
+      return () => {
+        win.cancelIdleCallback?.(id);
+      };
     }
-    setActivePage(page);
-    try {
-      localStorage.setItem('pa_finance_active_page', page);
-    } catch {
-      // ignore
-    }
-  };
+    const t = window.setTimeout(prefetchAll, 1200);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const effectivePayday = getEffectivePayday(primaryIncome);
-  const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
+  const cycleLabel = useMemo(
+    () => formatCycleLabel(selectedMonth, effectivePayday),
+    [selectedMonth, effectivePayday]
+  );
   const todayISO = getTodayISO();
-  const cycleMetrics = getCycleDayMetrics(selectedMonth, effectivePayday, todayISO);
+  const cycleMetrics = useMemo(
+    () => getCycleDayMetrics(selectedMonth, effectivePayday, todayISO),
+    [selectedMonth, effectivePayday, todayISO]
+  );
 
   const {
     cycleTransactions: monthTransactions,
@@ -314,246 +361,330 @@ export function FinanceView({
     cyclePendingExpense,
     cycleNet: netSavings,
     cycleEndBalance: realBalance,
-  } = computeCycleFinancials(transactions, selectedMonth, effectivePayday, todayISO);
-
-  const incomeTransactions = monthTransactions.filter(
-    (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
-  );
-  const expenseTransactions = monthTransactions.filter(
-    (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
-  );
-
-  const monthlyIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'monthly')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const extraIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'extra')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const oneTimeIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'one_time')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomeKindSummary = [
-    {
-      id: 'monthly' as IncomeKind,
-      label: 'Ամսական',
-      amount: monthlyIncomeTotal,
-      barClass: 'bg-emerald-500',
-      textClass: 'text-emerald-600 dark:text-emerald-400',
-    },
-    {
-      id: 'extra' as IncomeKind,
-      label: 'Հավելյալ',
-      amount: extraIncomeTotal,
-      barClass: 'bg-[#2563EB] dark:bg-[#3B82F6]',
-      textClass: 'text-[#2563EB] dark:text-[#60A5FA]',
-    },
-    {
-      id: 'one_time' as IncomeKind,
-      label: 'Միանգամյա',
-      amount: oneTimeIncomeTotal,
-      barClass: 'bg-amber-500',
-      textClass: 'text-amber-600 dark:text-amber-400',
-    },
-  ];
-
-  const prevMonthKey = shiftMonthKey(selectedMonth, -1);
-  const prevMonthTransactions = transactions.filter((t) =>
-    isDateInCycle(t.date, prevMonthKey, effectivePayday)
-  );
-  const prevIncome = prevMonthTransactions
-    .filter(
-      (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
-    )
-    .reduce((sum, t) => sum + t.amount, 0);
-  const prevExpense = prevMonthTransactions
-    .filter(
-      (t) =>
-        t.type === 'expense' &&
-        !t.isPending &&
-        t.category !== INTERNAL_TRANSFER_CATEGORY
-    )
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const incomeDeltaPct = calcDeltaPct(totalIncome, prevIncome);
-  const expenseDeltaPct = calcDeltaPct(totalExpense, prevExpense);
-
-  const repeatableMonthlyIncomes = prevMonthTransactions.filter(
-    (t) =>
-      t.type === 'income' &&
-      t.category !== INTERNAL_TRANSFER_CATEGORY &&
-      getTransactionIncomeKind(t) === 'monthly' &&
-      !incomeTransactions.some(
-        (cur) => cur.title.toLowerCase() === t.title.toLowerCase()
-      )
+  } = useMemo(
+    () =>
+      computeCycleFinancials(
+        transactions,
+        selectedMonth,
+        effectivePayday,
+        todayISO
+      ),
+    [transactions, selectedMonth, effectivePayday, todayISO]
   );
 
-  const expenseByCategory = monthTransactions
-    .filter(
-      (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
-    )
-    .reduce<Record<string, number>>((acc, t) => {
-      acc[t.category] = (acc[t.category] ?? 0) + t.amount;
-      return acc;
-    }, {});
+  const {
+    incomeTransactions,
+    expenseTransactions,
+    monthlyIncomeTotal,
+    extraIncomeTotal,
+    oneTimeIncomeTotal,
+    incomeKindSummary,
+    expenseByCategory,
+    sortedCategories,
+    savingsPct,
+    hasCurrentPrimaryCredited,
+  } = useMemo(() => {
+    const incTxs: Transaction[] = [];
+    const expTxs: Transaction[] = [];
+    let monthly = 0;
+    let extra = 0;
+    let oneTime = 0;
+    const byCat: Record<string, number> = {};
 
-  const sortedCategories = Object.entries(expenseByCategory).sort(
-    (a, b) => b[1] - a[1]
-  );
-
-  const savingsPct =
-    totalIncome > 0
-      ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100)
-      : null;
-
-  const hasCurrentPrimaryCredited =
-    primaryIncome.enabled &&
-    (primaryIncome.creditedCycles.includes(selectedMonth) ||
-      incomeTransactions.some(
-        (tx) =>
-          tx.primaryCycleKey === selectedMonth ||
-          (getTransactionIncomeKind(tx) === 'monthly' &&
-            tx.title.toLowerCase() === primaryIncome.title.toLowerCase())
-      ));
-
-  // Burn rate and projections calculation
-  const recordedToDateExpense = cycleMetrics.isCurrentCycle
-    ? expenseTransactions
-        .filter((t) => t.date <= todayISO)
-        .reduce((sum, t) => sum + t.amount, 0)
-    : totalExpense;
-  const futureDatedExpense = Math.max(0, totalExpense - recordedToDateExpense);
-
-  const priorExpenseMonths: [string, number][] = [1, 2, 3, 4, 5, 6]
-    .map((offset) => {
-      const k = shiftMonthKey(selectedMonth, -offset);
-      const sum = transactions
-        .filter(
-          (t) =>
-            t.type === 'expense' &&
-            !t.isPending &&
-            t.category !== INTERNAL_TRANSFER_CATEGORY &&
-            isDateInCycle(t.date, k, effectivePayday)
-        )
-        .reduce((s, t) => s + t.amount, 0);
-      return [k, sum] as [string, number];
-    })
-    .filter(([, sum]) => sum > 0);
-  const historicalMonthlyAvg =
-    priorExpenseMonths.length > 0
-      ? Math.round(
-          priorExpenseMonths.reduce((sum, [, val]) => sum + val, 0) /
-            priorExpenseMonths.length
-        )
-      : null;
-
-  const dailyBurnRate = cycleMetrics.isFutureCycle
-    ? (historicalMonthlyAvg ?? 0) / cycleMetrics.totalDays
-    : recordedToDateExpense / Math.max(1, cycleMetrics.elapsedDays);
-
-  const projectedMonthlyExpense = cycleMetrics.isPastCycle
-    ? totalExpense
-    : cycleMetrics.isCurrentCycle
-      ? recordedToDateExpense > 0
-        ? Math.round(dailyBurnRate * cycleMetrics.totalDays + futureDatedExpense)
-        : Math.round(futureDatedExpense)
-      : Math.round(Math.max(totalExpense, historicalMonthlyAvg ?? 0));
-
-  const projectedRemainingExpense = Math.max(
-    0,
-    projectedMonthlyExpense - totalExpense
-  );
-
-  const unpaidBills = recurringBills.filter(
-    (bill) =>
-      getBillFrequency(bill) === 'monthly' &&
-      !monthTransactions.some(
-        (tx) =>
-          tx.type === 'expense' &&
-          tx.title.toLowerCase() === bill.title.toLowerCase()
-      )
-  );
-  const unpaidBillsTotal = unpaidBills.reduce((sum, b) => sum + b.amount, 0);
-  const totalBudgetLimit = budgets.reduce((sum, b) => sum + b.limit, 0);
-
-  const projectionBaseline =
-    totalBudgetLimit > 0
-      ? totalBudgetLimit
-      : totalIncome > 0
-        ? totalIncome
-        : Math.max(projectedMonthlyExpense, totalExpense, 1);
-  const actualPacePct = Math.min(
-    100,
-    Math.round((totalExpense / projectionBaseline) * 100)
-  );
-  const projectedTotalBarPct = Math.min(
-    100,
-    Math.round((projectedMonthlyExpense / projectionBaseline) * 100)
-  );
-  const projectedAddBarPct = Math.max(0, projectedTotalBarPct - actualPacePct);
-
-  let projectionStatusText = 'Հաշվարկված է ընթացիկ տեմպով';
-  let projectionStatusClass = 'text-[#64748B] dark:text-[#94A3B8]';
-
-  if (cycleMetrics.isPastCycle) {
-    if (totalBudgetLimit > 0) {
-      if (totalExpense > totalBudgetLimit) {
-        projectionStatusText = `Բյուջեից +${formatMoney(totalExpense - totalBudgetLimit, currency)}`;
-        projectionStatusClass = 'text-rose-600 dark:text-rose-400';
+    for (const t of monthTransactions) {
+      if (t.category === INTERNAL_TRANSFER_CATEGORY) continue;
+      if (t.type === 'income') {
+        incTxs.push(t);
+        const kind = getTransactionIncomeKind(t);
+        if (kind === 'monthly') monthly += t.amount;
+        else if (kind === 'extra') extra += t.amount;
+        else oneTime += t.amount;
       } else {
-        projectionStatusText = `Բյուջեի սահմաններում · Մնաց ${formatMoney(totalBudgetLimit - totalExpense, currency)}`;
-        projectionStatusClass = 'text-emerald-600 dark:text-emerald-400';
+        expTxs.push(t);
+        byCat[t.category] = (byCat[t.category] ?? 0) + t.amount;
       }
-    } else {
-      projectionStatusText = 'Ամիսն ավարտված է';
     }
-  } else if (totalBudgetLimit > 0) {
-    const budgetRatio = projectedMonthlyExpense / totalBudgetLimit;
-    if (projectedMonthlyExpense > totalBudgetLimit) {
-      projectionStatusText = `Բյուջեն գերազանցելու ռիսկ · +${formatMoney(projectedMonthlyExpense - totalBudgetLimit, currency)}`;
-      projectionStatusClass = 'text-rose-600 dark:text-rose-400';
-    } else if (budgetRatio >= 0.85) {
-      projectionStatusText = `Մոտ է բյուջեի սահմանին · Մնացորդ՝ ${formatMoney(totalBudgetLimit - projectedMonthlyExpense, currency)}`;
-      projectionStatusClass = 'text-amber-600 dark:text-amber-400';
-    } else {
-      projectionStatusText = `Բյուջեի սահմաններում · Պահուստ՝ ${formatMoney(totalBudgetLimit - projectedMonthlyExpense, currency)}`;
-      projectionStatusClass = 'text-emerald-600 dark:text-emerald-400';
+
+    const sortedCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+    const hasPrimary =
+      primaryIncome.enabled &&
+      (primaryIncome.creditedCycles.includes(selectedMonth) ||
+        incTxs.some(
+          (tx) =>
+            tx.primaryCycleKey === selectedMonth ||
+            (getTransactionIncomeKind(tx) === 'monthly' &&
+              tx.title.toLowerCase() === primaryIncome.title.toLowerCase())
+        ));
+
+    return {
+      incomeTransactions: incTxs,
+      expenseTransactions: expTxs,
+      monthlyIncomeTotal: monthly,
+      extraIncomeTotal: extra,
+      oneTimeIncomeTotal: oneTime,
+      incomeKindSummary: [
+        {
+          id: 'monthly' as IncomeKind,
+          label: 'Ամսական',
+          amount: monthly,
+          barClass: 'bg-emerald-500',
+          textClass: 'text-emerald-600 dark:text-emerald-400',
+        },
+        {
+          id: 'extra' as IncomeKind,
+          label: 'Հավելյալ',
+          amount: extra,
+          barClass: 'bg-[#2563EB] dark:bg-[#3B82F6]',
+          textClass: 'text-[#2563EB] dark:text-[#60A5FA]',
+        },
+        {
+          id: 'one_time' as IncomeKind,
+          label: 'Միանգամյա',
+          amount: oneTime,
+          barClass: 'bg-amber-500',
+          textClass: 'text-amber-600 dark:text-amber-400',
+        },
+      ],
+      expenseByCategory: byCat,
+      sortedCategories: sortedCats,
+      savingsPct:
+        totalIncome > 0
+          ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100)
+          : null,
+      hasCurrentPrimaryCredited: hasPrimary,
+    };
+  }, [
+    monthTransactions,
+    primaryIncome,
+    selectedMonth,
+    totalIncome,
+    totalExpense,
+  ]);
+
+  const {
+    incomeDeltaPct,
+    expenseDeltaPct,
+    repeatableMonthlyIncomes,
+  } = useMemo(() => {
+    const prevMonthKey = shiftMonthKey(selectedMonth, -1);
+    const prevMonthTransactions = transactions.filter((t) =>
+      isDateInCycle(t.date, prevMonthKey, effectivePayday)
+    );
+    const prevIncome = prevMonthTransactions
+      .filter(
+        (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
+      )
+      .reduce((sum, t) => sum + t.amount, 0);
+    const prevExpense = prevMonthTransactions
+      .filter(
+        (t) =>
+          t.type === 'expense' &&
+          !t.isPending &&
+          t.category !== INTERNAL_TRANSFER_CATEGORY
+      )
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const repeatable = prevMonthTransactions.filter(
+      (t) =>
+        t.type === 'income' &&
+        t.category !== INTERNAL_TRANSFER_CATEGORY &&
+        getTransactionIncomeKind(t) === 'monthly' &&
+        !incomeTransactions.some(
+          (cur) => cur.title.toLowerCase() === t.title.toLowerCase()
+        )
+    );
+
+    return {
+      incomeDeltaPct: calcDeltaPct(totalIncome, prevIncome),
+      expenseDeltaPct: calcDeltaPct(totalExpense, prevExpense),
+      repeatableMonthlyIncomes: repeatable,
+    };
+  }, [
+    transactions,
+    selectedMonth,
+    effectivePayday,
+    incomeTransactions,
+    totalIncome,
+    totalExpense,
+  ]);
+
+  const {
+    dailyBurnRate,
+    projectedMonthlyExpense,
+    projectedRemainingExpense,
+    unpaidBills,
+    unpaidBillsTotal,
+    actualPacePct,
+    projectedTotalBarPct,
+    projectedAddBarPct,
+    projectionStatusText,
+    projectionStatusClass,
+  } = useMemo(() => {
+    const recordedToDateExpense = cycleMetrics.isCurrentCycle
+      ? expenseTransactions
+          .filter((t) => t.date <= todayISO)
+          .reduce((sum, t) => sum + t.amount, 0)
+      : totalExpense;
+    const futureDatedExpense = Math.max(0, totalExpense - recordedToDateExpense);
+
+    const priorExpenseMonths: [string, number][] = [1, 2, 3, 4, 5, 6]
+      .map((offset) => {
+        const k = shiftMonthKey(selectedMonth, -offset);
+        const sum = transactions
+          .filter(
+            (t) =>
+              t.type === 'expense' &&
+              !t.isPending &&
+              t.category !== INTERNAL_TRANSFER_CATEGORY &&
+              isDateInCycle(t.date, k, effectivePayday)
+          )
+          .reduce((s, t) => s + t.amount, 0);
+        return [k, sum] as [string, number];
+      })
+      .filter(([, sum]) => sum > 0);
+
+    const historicalMonthlyAvg =
+      priorExpenseMonths.length > 0
+        ? Math.round(
+            priorExpenseMonths.reduce((sum, [, val]) => sum + val, 0) /
+              priorExpenseMonths.length
+          )
+        : null;
+
+    const burnRate = cycleMetrics.isFutureCycle
+      ? (historicalMonthlyAvg ?? 0) / cycleMetrics.totalDays
+      : recordedToDateExpense / Math.max(1, cycleMetrics.elapsedDays);
+
+    const projected = cycleMetrics.isPastCycle
+      ? totalExpense
+      : cycleMetrics.isCurrentCycle
+        ? recordedToDateExpense > 0
+          ? Math.round(burnRate * cycleMetrics.totalDays + futureDatedExpense)
+          : Math.round(futureDatedExpense)
+        : Math.round(Math.max(totalExpense, historicalMonthlyAvg ?? 0));
+
+    const remainingProjected = Math.max(0, projected - totalExpense);
+
+    const unpaid = recurringBills.filter(
+      (bill) =>
+        bill.active !== false &&
+        getBillFrequency(bill) === 'monthly' &&
+        !monthTransactions.some(
+          (tx) =>
+            tx.type === 'expense' &&
+            tx.title.toLowerCase() === bill.title.toLowerCase()
+        )
+    );
+    const unpaidTotal = unpaid.reduce((sum, b) => sum + b.amount, 0);
+    const totalBudgetLimit = budgets.reduce((sum, b) => sum + b.limit, 0);
+
+    const projectionBaseline =
+      totalBudgetLimit > 0
+        ? totalBudgetLimit
+        : totalIncome > 0
+          ? totalIncome
+          : Math.max(projected, totalExpense, 1);
+    const actualPct = Math.min(
+      100,
+      Math.round((totalExpense / projectionBaseline) * 100)
+    );
+    const projectedTotalPct = Math.min(
+      100,
+      Math.round((projected / projectionBaseline) * 100)
+    );
+    const projectedAddPct = Math.max(0, projectedTotalPct - actualPct);
+
+    let statusText = 'Հաշվարկված է ընթացիկ տեմպով';
+    let statusClass = 'text-[#64748B] dark:text-[#94A3B8]';
+
+    if (cycleMetrics.isPastCycle) {
+      if (totalBudgetLimit > 0) {
+        if (totalExpense > totalBudgetLimit) {
+          statusText = `Բյուջեից +${formatMoney(totalExpense - totalBudgetLimit, currency)}`;
+          statusClass = 'text-rose-600 dark:text-rose-400';
+        } else {
+          statusText = `Բյուջեի սահմաններում · Մնաց ${formatMoney(totalBudgetLimit - totalExpense, currency)}`;
+          statusClass = 'text-emerald-600 dark:text-emerald-400';
+        }
+      } else {
+        statusText = 'Ամիսն ավարտված է';
+      }
+    } else if (totalBudgetLimit > 0) {
+      const budgetRatio = projected / totalBudgetLimit;
+      if (projected > totalBudgetLimit) {
+        statusText = `Բյուջեն գերազանցելու ռիսկ · +${formatMoney(projected - totalBudgetLimit, currency)}`;
+        statusClass = 'text-rose-600 dark:text-rose-400';
+      } else if (budgetRatio >= 0.85) {
+        statusText = `Մոտ է բյուջեի սահմանին · Մնացորդ՝ ${formatMoney(totalBudgetLimit - projected, currency)}`;
+        statusClass = 'text-amber-600 dark:text-amber-400';
+      } else {
+        statusText = `Բյուջեի սահմաններում · Պահուստ՝ ${formatMoney(totalBudgetLimit - projected, currency)}`;
+        statusClass = 'text-emerald-600 dark:text-emerald-400';
+      }
+    } else if (totalIncome > 0 && projected > 0) {
+      const incRatio = projected / totalIncome;
+      if (projected > totalIncome) {
+        statusText = `Եկամտից +${formatMoney(projected - totalIncome, currency)} ավելի ծախս`;
+        statusClass = 'text-rose-600 dark:text-rose-400';
+      } else if (incRatio >= 0.85) {
+        statusText = `Եկամտի ${Math.round(incRatio * 100)}%-ը՝ բարձր տեմպ`;
+        statusClass = 'text-amber-600 dark:text-amber-400';
+      } else {
+        statusText = `Կանխատեսվող խնայողություն՝ ${formatMoney(totalIncome - projected, currency)}`;
+        statusClass = 'text-emerald-600 dark:text-emerald-400';
+      }
     }
-  } else if (totalIncome > 0 && projectedMonthlyExpense > 0) {
-    const incRatio = projectedMonthlyExpense / totalIncome;
-    if (projectedMonthlyExpense > totalIncome) {
-      projectionStatusText = `Եկամտից +${formatMoney(projectedMonthlyExpense - totalIncome, currency)} ավելի ծախս`;
-      projectionStatusClass = 'text-rose-600 dark:text-rose-400';
-    } else if (incRatio >= 0.85) {
-      projectionStatusText = `Եկամտի ${Math.round(incRatio * 100)}%-ը՝ բարձր տեմպ`;
-      projectionStatusClass = 'text-amber-600 dark:text-amber-400';
-    } else {
-      projectionStatusText = `Կանխատեսվող խնայողություն՝ ${formatMoney(totalIncome - projectedMonthlyExpense, currency)}`;
-      projectionStatusClass = 'text-emerald-600 dark:text-emerald-400';
-    }
-  }
+
+    return {
+      dailyBurnRate: burnRate,
+      projectedMonthlyExpense: projected,
+      projectedRemainingExpense: remainingProjected,
+      unpaidBills: unpaid,
+      unpaidBillsTotal: unpaidTotal,
+      actualPacePct: actualPct,
+      projectedTotalBarPct: projectedTotalPct,
+      projectedAddBarPct: projectedAddPct,
+      projectionStatusText: statusText,
+      projectionStatusClass: statusClass,
+    };
+  }, [
+    cycleMetrics,
+    expenseTransactions,
+    todayISO,
+    totalExpense,
+    totalIncome,
+    selectedMonth,
+    transactions,
+    effectivePayday,
+    recurringBills,
+    monthTransactions,
+    budgets,
+    currency,
+  ]);
 
   // 6-Month Trend Data
-  const last6Months = getLastNMonthsKeys(selectedMonth, 6);
-  const monthlySeries: MonthlyPoint[] = last6Months.map((monthKey) => {
-    const items = transactions.filter(
-      (t) =>
-        t.category !== INTERNAL_TRANSFER_CATEGORY &&
-        isDateInCycle(t.date, monthKey, effectivePayday)
-    );
-    const inc = items
-      .filter((t) => t.type === 'income')
-      .reduce((s, t) => s + t.amount, 0);
-    const exp = items
-      .filter((t) => t.type === 'expense' && !t.isPending)
-      .reduce((s, t) => s + t.amount, 0);
-    return {
-      monthKey,
-      label: getCycleShortLabel(monthKey, effectivePayday),
-      income: inc,
-      expense: exp,
-    };
-  });
+  const monthlySeries: MonthlyPoint[] = useMemo(() => {
+    const last6Months = getLastNMonthsKeys(selectedMonth, 6);
+    return last6Months.map((monthKey) => {
+      const items = transactions.filter(
+        (t) =>
+          t.category !== INTERNAL_TRANSFER_CATEGORY &&
+          isDateInCycle(t.date, monthKey, effectivePayday)
+      );
+      const inc = items
+        .filter((t) => t.type === 'income')
+        .reduce((s, t) => s + t.amount, 0);
+      const exp = items
+        .filter((t) => t.type === 'expense' && !t.isPending)
+        .reduce((s, t) => s + t.amount, 0);
+      return {
+        monthKey,
+        label: getCycleShortLabel(monthKey, effectivePayday),
+        income: inc,
+        expense: exp,
+      };
+    });
+  }, [selectedMonth, transactions, effectivePayday]);
 
   // 6 or 12-Month Dynamics Chart Data
   const dynamicsSeries = useMemo(() => {
@@ -598,51 +729,60 @@ export function FinanceView({
   }, [dynamicsSeries]);
 
   // 3-Month Comparative Data
-  const last3MonthsKeys = getLastNMonthsKeys(selectedMonth, 3);
-  const last3MonthsSeries = last3MonthsKeys.map((monthKey) => {
-    const items = transactions.filter(
-      (t) =>
-        t.category !== INTERNAL_TRANSFER_CATEGORY &&
-        isDateInCycle(t.date, monthKey, effectivePayday)
-    );
-    const inc = items
-      .filter((t) => t.type === 'income')
-      .reduce((s, t) => s + t.amount, 0);
-    const exp = items
-      .filter((t) => t.type === 'expense' && !t.isPending)
-      .reduce((s, t) => s + t.amount, 0);
-    return {
-      monthKey,
-      label: formatCycleLabel(monthKey, effectivePayday),
-      income: inc,
-      expense: exp,
-    };
-  });
+  const last3MonthsSeries = useMemo(() => {
+    const last3MonthsKeys = getLastNMonthsKeys(selectedMonth, 3);
+    return last3MonthsKeys.map((monthKey) => {
+      const items = transactions.filter(
+        (t) =>
+          t.category !== INTERNAL_TRANSFER_CATEGORY &&
+          isDateInCycle(t.date, monthKey, effectivePayday)
+      );
+      const inc = items
+        .filter((t) => t.type === 'income')
+        .reduce((s, t) => s + t.amount, 0);
+      const exp = items
+        .filter((t) => t.type === 'expense' && !t.isPending)
+        .reduce((s, t) => s + t.amount, 0);
+      return {
+        monthKey,
+        label: formatCycleLabel(monthKey, effectivePayday),
+        income: inc,
+        expense: exp,
+      };
+    });
+  }, [selectedMonth, transactions, effectivePayday]);
 
-  const categoryComparisonData =
-    budgets.length > 0
-      ? budgets.map((b) => ({
-          category: b.category,
-          spent: expenseByCategory[b.category] ?? 0,
-          limit: b.limit,
-        }))
-      : sortedCategories.slice(0, 6).map(([cat, val]) => ({
+  const categoryComparisonData = useMemo(
+    () =>
+      budgets.length > 0
+        ? budgets.map((b) => ({
+            category: b.category,
+            spent: expenseByCategory[b.category] ?? 0,
+            limit: b.limit,
+          }))
+        : sortedCategories.slice(0, 6).map(([cat, val]) => ({
+            category: cat,
+            spent: val,
+            limit: 0,
+          })),
+    [budgets, expenseByCategory, sortedCategories]
+  );
+
+  const donutSegments = useMemo(
+    () =>
+      sortedCategories.map(([cat, val], idx) => {
+        const share = totalExpense > 0 ? val / totalExpense : 0;
+        const budget = budgets.find((b) => b.category === cat);
+        return {
           category: cat,
-          spent: val,
-          limit: 0,
-        }));
-
-  const donutSegments = sortedCategories.map(([cat, val], idx) => {
-    const share = totalExpense > 0 ? val / totalExpense : 0;
-    const budget = budgets.find((b) => b.category === cat);
-    return {
-      category: cat,
-      amount: val,
-      pct: Math.round(share * 100),
-      color: DONUT_COLORS[idx % DONUT_COLORS.length],
-      budgetLimit: budget?.limit,
-    };
-  });
+          amount: val,
+          pct: Math.round(share * 100),
+          color: DONUT_COLORS[idx % DONUT_COLORS.length],
+          budgetLimit: budget?.limit,
+        };
+      }),
+    [sortedCategories, totalExpense, budgets]
+  );
 
   const pieExpenseSegments: CategoryDonutPoint[] = useMemo(() => {
     const confirmedByCat = monthTransactions
@@ -712,41 +852,50 @@ export function FinanceView({
     URL.revokeObjectURL(url);
   };
 
-  const activeGoalsCount = savingsGoals.filter(
-    (g) => g.currentAmount < g.targetAmount
-  ).length;
-  const activeDebtsCount = debts.filter((d) => !d.settled).length;
+  const pagesConfig = useMemo(() => {
+    const activeGoalsCount = savingsGoals.filter(
+      (g) => g.currentAmount < g.targetAmount
+    ).length;
+    const activeDebtsCount = debts.filter((d) => !d.settled).length;
 
-  const pagesConfig = [
-    {
-      id: 'ledger' as const,
-      label: 'Գործարքներ',
-      subtitle: 'Մատյան և գրանցումներ',
-      icon: Receipt,
-      badge: `${monthTransactions.length}`,
-    },
-    {
-      id: 'budgets' as const,
-      label: 'Բյուջե և Վճարներ',
-      subtitle: 'Կրկնվող ծախսեր և ցիկլ',
-      icon: Target,
-      badge: `${budgets.length + recurringBills.length}`,
-    },
-    {
-      id: 'goals_debts' as const,
-      label: 'Նպատակներ / Պարտքեր',
-      subtitle: 'Գանձանակներ և փոխառություններ',
-      icon: PiggyBank,
-      badge: `${activeGoalsCount + activeDebtsCount}`,
-    },
-    {
-      id: 'analytics' as const,
-      label: 'Վերլուծություն',
-      subtitle: 'Ամփոփում և գրաֆիկներ',
-      icon: BarChart3,
-      badge: savingsPct !== null ? `${savingsPct}%` : undefined,
-    },
-  ];
+    return [
+      {
+        id: 'ledger' as const,
+        label: 'Գործարքներ',
+        subtitle: 'Մատյան և գրանցումներ',
+        icon: Receipt,
+        badge: `${monthTransactions.length}`,
+      },
+      {
+        id: 'budgets' as const,
+        label: 'Բյուջե և Վճարներ',
+        subtitle: 'Կրկնվող ծախսեր և ցիկլ',
+        icon: Target,
+        badge: `${budgets.length + recurringBills.length}`,
+      },
+      {
+        id: 'goals_debts' as const,
+        label: 'Նպատակներ / Պարտքեր',
+        subtitle: 'Գանձանակներ և փոխառություններ',
+        icon: PiggyBank,
+        badge: `${activeGoalsCount + activeDebtsCount}`,
+      },
+      {
+        id: 'analytics' as const,
+        label: 'Վերլուծություն',
+        subtitle: 'Ամփոփում և գրաֆիկներ',
+        icon: BarChart3,
+        badge: savingsPct !== null ? `${savingsPct}%` : undefined,
+      },
+    ];
+  }, [
+    savingsGoals,
+    debts,
+    monthTransactions.length,
+    budgets.length,
+    recurringBills.length,
+    savingsPct,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -841,6 +990,8 @@ export function FinanceView({
               key={page.id}
               type="button"
               onClick={() => handleSelectPage(page.id)}
+              onMouseEnter={() => prefetchFinancePage(page.id)}
+              onFocus={() => prefetchFinancePage(page.id)}
               className={`min-h-[52px] px-4 py-2.5 rounded-xl text-left flex items-center justify-between gap-3 transition-all cursor-pointer ${
                 isActive
                   ? 'bg-white dark:bg-[#0F172A] shadow-md border border-[#E2E8F0] dark:border-[#1E293B]'
@@ -1596,6 +1747,9 @@ export function FinanceView({
                 onEditTransaction={onEditTransaction}
                 onAutoCategorizeTransactions={onAutoCategorizeTransactions}
                 onDeleteTransaction={onDeleteTransaction}
+                onDuplicateTransaction={onDuplicateTransaction}
+                onBulkDeleteTransactions={onBulkDeleteTransactions}
+                onBulkAssignCard={onBulkAssignCard}
                 realBalance={realBalance}
                 totalIncome={totalIncome}
                 totalExpense={totalExpense}
@@ -1630,6 +1784,7 @@ export function FinanceView({
                 recurringBills={recurringBills}
                 onAddRecurringBill={onAddRecurringBill}
                 onUpdateRecurringBill={onUpdateRecurringBill}
+                onToggleBillActive={onToggleBillActive}
                 onDeleteRecurringBill={onDeleteRecurringBill}
                 onPayAllRecurringBills={onPayAllRecurringBills}
                 onConfirmBillSlot={onConfirmBillSlot}
@@ -1719,4 +1874,4 @@ export function FinanceView({
       )}
     </div>
   );
-}
+});

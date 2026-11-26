@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
@@ -15,7 +15,10 @@ import {
   Clock,
   Cloud,
   CloudOff,
+  Command,
   Download,
+  Eye,
+  EyeOff,
   HandCoins,
   LayoutDashboard,
   LogOut,
@@ -28,6 +31,7 @@ import {
   RefreshCw,
   Repeat,
   RotateCcw,
+  Search,
   SkipForward,
   SlidersHorizontal,
   Sparkles,
@@ -40,6 +44,7 @@ import {
 } from 'lucide-react';
 import {
   AppNotificationItem,
+  Currency,
   GeminiVoicePreset,
   NavSection,
   Note,
@@ -89,6 +94,9 @@ interface TopNavProps {
   onShiftMonth: (delta: number) => void;
   isDark: boolean;
   onToggleTheme: () => void;
+  isPrivacyMode: boolean;
+  onTogglePrivacy: () => void;
+  onOpenCommandPalette: () => void;
   user: User | null;
   syncStatus: CloudSyncStatus;
   isOnline: boolean;
@@ -96,6 +104,8 @@ interface TopNavProps {
   onSignOutGoogle: () => void;
   canInstallPWA: boolean;
   onInstallPWA: () => void;
+  totalBalance?: number;
+  currency?: Currency;
   children: React.ReactNode;
 }
 
@@ -133,7 +143,7 @@ const NAV_ITEMS: {
 
 type NotifFilter = 'all' | 'payments' | 'schedule';
 
-export function TopNav({
+export const TopNav = memo(function TopNav({
   activeTab,
   onSelectTab,
   onOpenNewModal,
@@ -159,6 +169,9 @@ export function TopNav({
   onShiftMonth,
   isDark,
   onToggleTheme,
+  isPrivacyMode,
+  onTogglePrivacy,
+  onOpenCommandPalette,
   user,
   syncStatus,
   isOnline,
@@ -166,6 +179,8 @@ export function TopNav({
   onSignOutGoogle,
   canInstallPWA,
   onInstallPWA,
+  totalBalance = 0,
+  currency = 'AMD',
   children,
 }: TopNavProps) {
   const [remindersOpen, setRemindersOpen] = useState(false);
@@ -199,43 +214,56 @@ export function TopNav({
 
   const todayCount = todayTasks.length;
   const totalBellCount = notifications.length;
-  const urgentCount = notifications.filter(
-    (n) => n.status === 'overdue' || n.status === 'due_now'
-  ).length;
-  const paymentCount = notifications.filter(
-    (n) =>
-      n.kind === 'daily_expense' ||
-      n.kind === 'planned_expense' ||
-      n.kind === 'monthly_bill' ||
-      n.kind === 'budget_alert' ||
-      n.kind === 'debt'
-  ).length;
-  const scheduleCount = notifications.filter(
-    (n) => n.kind === 'task' || n.kind === 'note'
-  ).length;
-
-  const filteredNotifications = notifications.filter((n) => {
-    if (notifFilter === 'payments') {
-      return (
+  const { urgentCount, paymentCount, scheduleCount } = useMemo(() => {
+    let urgent = 0;
+    let payment = 0;
+    let schedule = 0;
+    for (const n of notifications) {
+      if (n.status === 'overdue' || n.status === 'due_now') urgent++;
+      if (
         n.kind === 'daily_expense' ||
         n.kind === 'planned_expense' ||
         n.kind === 'monthly_bill' ||
         n.kind === 'budget_alert' ||
         n.kind === 'debt'
-      );
+      ) {
+        payment++;
+      } else if (n.kind === 'task' || n.kind === 'note') {
+        schedule++;
+      }
     }
-    if (notifFilter === 'schedule') {
-      return n.kind === 'task' || n.kind === 'note';
-    }
-    return true;
-  });
+    return {
+      urgentCount: urgent,
+      paymentCount: payment,
+      scheduleCount: schedule,
+    };
+  }, [notifications]);
 
-  const dueNotifications = filteredNotifications.filter(
-    (n) => n.status === 'overdue' || n.status === 'due_now'
-  );
-  const upcomingNotifications = filteredNotifications.filter(
-    (n) => n.status === 'upcoming'
-  );
+  const { filteredNotifications, dueNotifications, upcomingNotifications } =
+    useMemo(() => {
+      const filtered = notifications.filter((n) => {
+        if (notifFilter === 'payments') {
+          return (
+            n.kind === 'daily_expense' ||
+            n.kind === 'planned_expense' ||
+            n.kind === 'monthly_bill' ||
+            n.kind === 'budget_alert' ||
+            n.kind === 'debt'
+          );
+        }
+        if (notifFilter === 'schedule') {
+          return n.kind === 'task' || n.kind === 'note';
+        }
+        return true;
+      });
+      return {
+        filteredNotifications: filtered,
+        dueNotifications: filtered.filter(
+          (n) => n.status === 'overdue' || n.status === 'due_now'
+        ),
+        upcomingNotifications: filtered.filter((n) => n.status === 'upcoming'),
+      };
+    }, [notifications, notifFilter]);
 
   const activeMeta =
     NAV_ITEMS.find((n) => n.id === activeTab) ?? NAV_ITEMS[0];
@@ -473,6 +501,42 @@ export function TopNav({
 
           <button
             type="button"
+            onClick={onOpenCommandPalette}
+            aria-label="Արագ մուտք և որոնում (Ctrl+K)"
+            className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] flex items-center justify-between hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+          >
+            <span className="inline-flex items-center gap-2 min-w-0">
+              <Search className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
+              <span className="truncate">Արագ հրամաններ</span>
+            </span>
+            <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#26334D] text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8]">
+              <Command className="w-2.5 h-2.5" />K
+            </kbd>
+          </button>
+
+          <button
+            type="button"
+            onClick={onTogglePrivacy}
+            aria-pressed={isPrivacyMode}
+            aria-label={isPrivacyMode ? 'Ցույց տալ գումարները' : 'Թաքցնել գումարները'}
+            className={`w-full min-h-[40px] px-3 py-2 rounded-xl border text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
+              isPrivacyMode
+                ? 'border-[#2563EB]/50 bg-[#EFF6FF] dark:bg-[#172554]/50 text-[#1D4ED8] dark:text-[#60A5FA]'
+                : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6]'
+            }`}
+          >
+            <span className="inline-flex items-center gap-2">
+              {isPrivacyMode ? (
+                <EyeOff className="w-4 h-4 shrink-0" />
+              ) : (
+                <Eye className="w-4 h-4 text-[#64748B] dark:text-[#94A3B8] shrink-0" />
+              )}
+              <span>{isPrivacyMode ? 'Գաղտնի ռեժիմ (Միացված)' : 'Թաքցնել գումարները'}</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={onToggleTheme}
             aria-label={isDark ? 'Անցնել լուսավոր ռեժիմի' : 'Անցնել մութ ռեժիմի'}
             className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] flex items-center justify-between hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
@@ -520,6 +584,23 @@ export function TopNav({
                   <span>{editorialDate}</span>
                 </p>
               </div>
+            </div>
+
+            {/* Persistent Pinned Live Balance Header Pill (Always in front of user's eyes) */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onSelectTab('finance')}
+                title="Անցնել Ֆինանսներ · Ընդհանուր մնացորդ"
+                aria-label={`Ընդհանուր մնացորդ՝ ${formatMoney(totalBalance, currency)}`}
+                className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border border-[#2563EB]/30 dark:border-[#3B82F6]/40 bg-[#EFF6FF] dark:bg-[#172554]/60 text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] transition-all cursor-pointer shadow-xs"
+              >
+                <Wallet className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline text-[#475569] dark:text-[#94A3B8] font-medium">Բալանս՝</span>
+                <span className="pa-sensitive font-mono font-bold tabular-nums">
+                  {formatMoney(totalBalance, currency)}
+                </span>
+              </button>
             </div>
 
             {/* Tablet Horizontal Navigation (md to lg) */}
@@ -594,6 +675,39 @@ export function TopNav({
                   </button>
                 </div>
               )}
+
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                title="Արագ որոնում և հրամաններ (Ctrl+K)"
+                aria-label="Արագ որոնում և հրամաններ"
+                className="min-h-[40px] min-w-[40px] lg:px-3 flex items-center justify-center gap-1.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+              >
+                <Search className="w-4 h-4" />
+                <span className="hidden xl:inline text-xs font-medium">Որոնում</span>
+                <kbd className="hidden xl:inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#26334D] text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8]">
+                  ⌘K
+                </kbd>
+              </button>
+
+              <button
+                type="button"
+                onClick={onTogglePrivacy}
+                aria-pressed={isPrivacyMode}
+                title={isPrivacyMode ? 'Ցույց տալ գումարները (Ctrl+Shift+H)' : 'Թաքցնել գումարները (Ctrl+Shift+H)'}
+                aria-label={isPrivacyMode ? 'Ցույց տալ գումարները' : 'Թաքցնել գումարները'}
+                className={`min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border transition-colors cursor-pointer ${
+                  isPrivacyMode
+                    ? 'border-[#2563EB]/60 bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#1D4ED8] dark:text-[#60A5FA]'
+                    : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6]'
+                }`}
+              >
+                {isPrivacyMode ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
 
               {!isOnline && (
                 <span
@@ -1909,4 +2023,4 @@ export function TopNav({
       </div>
     </>
   );
-}
+});

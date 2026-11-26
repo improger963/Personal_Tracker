@@ -178,11 +178,12 @@ export const CURRENCY_CONFIG: Record<Currency, { symbol: string; label: string }
   AMD: { symbol: '֏', label: 'ՀՀ դրամ (֏)' },
 };
 
-export function formatMoney(amount: number, _currency: Currency = 'AMD'): string {
-  const formatted = new Intl.NumberFormat('hy-AM', {
-    maximumFractionDigits: 0,
-  }).format(Math.abs(amount));
+const AMD_NUMBER_FORMATTER = new Intl.NumberFormat('hy-AM', {
+  maximumFractionDigits: 0,
+});
 
+export function formatMoney(amount: number, _currency: Currency = 'AMD'): string {
+  const formatted = AMD_NUMBER_FORMATTER.format(Math.abs(amount));
   return `${amount < 0 ? '-' : ''}${formatted} ֏`;
 }
 

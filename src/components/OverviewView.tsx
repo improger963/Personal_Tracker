@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -14,12 +14,14 @@ import {
   PiggyBank,
   Plus,
   Receipt,
+  Repeat,
   ShieldCheck,
   Target,
   TrendingDown,
   TrendingUp,
   Wallet,
   X,
+  Zap,
 } from 'lucide-react';
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { FocusTimerCard } from './FocusTimerCard';
@@ -95,6 +97,10 @@ interface OverviewViewProps {
   onOpenNewModal: (initialMode: QuickModalMode) => void;
   onQuickCardTransaction: (type: 'income' | 'expense', cardId: string) => void;
   onConfirmPreExpense?: (txId: string) => void;
+  onAddTransaction?: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  onOpenTransactionWithPrefill?: (
+    prefill: Partial<Omit<Transaction, 'id' | 'createdAt'>>
+  ) => void;
 }
 
 interface SparkNode {
@@ -105,7 +111,7 @@ interface SparkNode {
   date: string;
 }
 
-export function OverviewView({
+export const OverviewView = memo(function OverviewView({
   selectedMonth,
   primaryIncome,
   transactions,
@@ -132,6 +138,8 @@ export function OverviewView({
   onOpenNewModal,
   onQuickCardTransaction,
   onConfirmPreExpense,
+  onAddTransaction,
+  onOpenTransactionWithPrefill,
 }: OverviewViewProps) {
   const currency = 'AMD' as const;
   const [focusInput, setFocusInput] = useState('');
@@ -140,7 +148,12 @@ export function OverviewView({
   const todayISO = getTodayISO();
 
   const effectivePayday = getEffectivePayday(primaryIncome);
-  const cycleMetrics = getCycleDayMetrics(selectedMonth, effectivePayday, todayISO);
+
+  const cycleMetrics = useMemo(
+    () => getCycleDayMetrics(selectedMonth, effectivePayday, todayISO),
+    [selectedMonth, effectivePayday, todayISO]
+  );
+
   const {
     cycleTransactions: monthTransactions,
     openingBalance,
@@ -148,113 +161,168 @@ export function OverviewView({
     cycleExpense: totalExpense,
     cycleNet,
     cycleEndBalance: balance,
-  } = computeCycleFinancials(transactions, selectedMonth, effectivePayday, todayISO);
-
-  const cardsById = new Map(cards.map((c) => [c.id, c]));
-  const cardStats = cards.map((card) => computeCardStats(card, transactions));
-  const totalCardsBalance = cardStats.reduce(
-    (sum, item) => sum + item.currentBalance,
-    0
+  } = useMemo(
+    () =>
+      computeCycleFinancials(
+        transactions,
+        selectedMonth,
+        effectivePayday,
+        todayISO
+      ),
+    [transactions, selectedMonth, effectivePayday, todayISO]
   );
 
-  const incomeTransactions = monthTransactions.filter(
-    (t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY
+  const cardsById = useMemo(
+    () => new Map(cards.map((c) => [c.id, c])),
+    [cards]
   );
-  const monthlyIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'monthly')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const extraIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'extra')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const oneTimeIncomeTotal = incomeTransactions
-    .filter((t) => getTransactionIncomeKind(t) === 'one_time')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const savingsRate =
-    totalIncome > 0
-      ? Math.max(0, Math.round(((totalIncome - totalExpense) / totalIncome) * 100))
-      : 0;
+  const cardStats = useMemo(
+    () => cards.map((card) => computeCardStats(card, transactions)),
+    [cards, transactions]
+  );
+  const totalCardsBalance = useMemo(
+    () => cardStats.reduce((sum, item) => sum + item.currentBalance, 0),
+    [cardStats]
+  );
+
+  const {
+    monthlyIncomeTotal,
+    extraIncomeTotal,
+    oneTimeIncomeTotal,
+    savingsRate,
+  } = useMemo(() => {
+    let monthly = 0;
+    let extra = 0;
+    let oneTime = 0;
+    for (const t of monthTransactions) {
+      if (t.type !== 'income' || t.category === INTERNAL_TRANSFER_CATEGORY) {
+        continue;
+      }
+      const kind = getTransactionIncomeKind(t);
+      if (kind === 'monthly') monthly += t.amount;
+      else if (kind === 'extra') extra += t.amount;
+      else oneTime += t.amount;
+    }
+    return {
+      monthlyIncomeTotal: monthly,
+      extraIncomeTotal: extra,
+      oneTimeIncomeTotal: oneTime,
+      savingsRate:
+        totalIncome > 0
+          ? Math.max(
+              0,
+              Math.round(((totalIncome - totalExpense) / totalIncome) * 100)
+            )
+          : 0,
+    };
+  }, [monthTransactions, totalIncome, totalExpense]);
 
   // Interactive cumulative real balance points starting from prior carryover
-  const sortedChronological = [...monthTransactions]
-    .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
-    .sort((a, b) => a.date.localeCompare(b.date));
-  const rawNodes: { balance: number; label: string; date: string }[] = [
-    {
-      balance: openingBalance,
-      label: openingBalance !== 0 ? 'Նախորդ մնացորդ' : 'Ցիկլի սկիզբ',
-      date: cycleMetrics.startDate,
-    },
-  ];
-  for (const tx of sortedChronological) {
-    const prev = rawNodes[rawNodes.length - 1].balance;
-    rawNodes.push({
-      balance:
-        prev +
-        (tx.type === 'income' ? tx.amount : tx.isPending ? 0 : -tx.amount),
-      label: tx.title,
-      date: tx.date,
+  const { sparkNodes, sparkPoints, sparkArea } = useMemo(() => {
+    const sortedChronological = [...monthTransactions]
+      .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const rawNodes: { balance: number; label: string; date: string }[] = [
+      {
+        balance: openingBalance,
+        label: openingBalance !== 0 ? 'Նախորդ մնացորդ' : 'Ցիկլի սկիզբ',
+        date: cycleMetrics.startDate,
+      },
+    ];
+    for (const tx of sortedChronological) {
+      const prev = rawNodes[rawNodes.length - 1].balance;
+      rawNodes.push({
+        balance:
+          prev +
+          (tx.type === 'income' ? tx.amount : tx.isPending ? 0 : -tx.amount),
+        label: tx.title,
+        date: tx.date,
+      });
+    }
+
+    const minSpark = Math.min(...rawNodes.map((n) => n.balance), 0);
+    const maxSpark = Math.max(...rawNodes.map((n) => n.balance), 1);
+    const sparkRange = Math.max(1, maxSpark - minSpark);
+
+    const nodes: SparkNode[] = rawNodes.map((node, idx) => {
+      const x =
+        rawNodes.length <= 1 ? 320 : (idx / (rawNodes.length - 1)) * 320;
+      const y = 74 - ((node.balance - minSpark) / sparkRange) * 60;
+      return { ...node, x, y };
     });
-  }
 
-  const minSpark = Math.min(...rawNodes.map((n) => n.balance), 0);
-  const maxSpark = Math.max(...rawNodes.map((n) => n.balance), 1);
-  const sparkRange = Math.max(1, maxSpark - minSpark);
+    const points = nodes
+      .map((n) => `${n.x.toFixed(1)},${n.y.toFixed(1)}`)
+      .join(' ');
+    return {
+      sparkNodes: nodes,
+      sparkPoints: points,
+      sparkArea: `0,84 ${points} 320,84`,
+    };
+  }, [monthTransactions, openingBalance, cycleMetrics.startDate]);
 
-  const sparkNodes: SparkNode[] = rawNodes.map((node, idx) => {
-    const x =
-      rawNodes.length <= 1 ? 320 : (idx / (rawNodes.length - 1)) * 320;
-    const y = 74 - ((node.balance - minSpark) / sparkRange) * 60;
-    return { ...node, x, y };
-  });
-
-  const sparkPoints = sparkNodes
-    .map((n) => `${n.x.toFixed(1)},${n.y.toFixed(1)}`)
-    .join(' ');
-  const sparkArea = `0,84 ${sparkPoints} 320,84`;
   const activeSparkNode =
     hoveredSparkIndex !== null ? sparkNodes[hoveredSparkIndex] : null;
 
-  const recentTransactions = [...monthTransactions]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 5);
-
-  const expenseByCategory = monthTransactions
-    .filter(
-      (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
-    )
-    .reduce<Record<string, number>>((acc, t) => {
-      acc[t.category] = (acc[t.category] ?? 0) + t.amount;
-      return acc;
-    }, {});
-
-  const topCategories = Object.entries(expenseByCategory)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4);
-
-  const dueOrOverdueTasks = tasks.filter(
-    (t) =>
-      isTaskDueOnDate(t, todayISO) ||
-      (!isTaskRepeating(t) && !t.completed && t.date < todayISO)
+  const recentTransactions = useMemo(
+    () =>
+      [...monthTransactions]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 5),
+    [monthTransactions]
   );
-  const overviewTaskPool = dueOrOverdueTasks.length > 0 ? dueOrOverdueTasks : tasks;
-  const completedTasksCount = overviewTaskPool.filter((t) =>
-    isTaskCompletedOnDate(t, todayISO)
-  ).length;
-  const visibleTasks = [...overviewTaskPool]
-    .sort(
-      (a, b) =>
-        Number(isTaskCompletedOnDate(a, todayISO)) -
-        Number(isTaskCompletedOnDate(b, todayISO))
-    )
-    .slice(0, 5);
 
-  const highlightedNotes = [...notes]
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned))
-    .slice(0, 3);
+  const { expenseByCategory, topCategories } = useMemo(() => {
+    const byCat = monthTransactions
+      .filter(
+        (t) => t.type === 'expense' && t.category !== INTERNAL_TRANSFER_CATEGORY
+      )
+      .reduce<Record<string, number>>((acc, t) => {
+        acc[t.category] = (acc[t.category] ?? 0) + t.amount;
+        return acc;
+      }, {});
+    return {
+      expenseByCategory: byCat,
+      topCategories: Object.entries(byCat)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4),
+    };
+  }, [monthTransactions]);
 
-  const habitsDoneToday = habits.filter((h) =>
-    h.completedDates.includes(todayISO)
-  ).length;
+  const { overviewTaskPool, completedTasksCount, visibleTasks } = useMemo(() => {
+    const dueOrOverdueTasks = tasks.filter(
+      (t) =>
+        isTaskDueOnDate(t, todayISO) ||
+        (!isTaskRepeating(t) && !t.completed && t.date < todayISO)
+    );
+    const pool = dueOrOverdueTasks.length > 0 ? dueOrOverdueTasks : tasks;
+    const completed = pool.filter((t) =>
+      isTaskCompletedOnDate(t, todayISO)
+    ).length;
+    const visible = [...pool]
+      .sort(
+        (a, b) =>
+          Number(isTaskCompletedOnDate(a, todayISO)) -
+          Number(isTaskCompletedOnDate(b, todayISO))
+      )
+      .slice(0, 5);
+    return {
+      overviewTaskPool: pool,
+      completedTasksCount: completed,
+      visibleTasks: visible,
+    };
+  }, [tasks, todayISO]);
+
+  const highlightedNotes = useMemo(
+    () =>
+      [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned)).slice(0, 3),
+    [notes]
+  );
+
+  const habitsDoneToday = useMemo(
+    () => habits.filter((h) => h.completedDates.includes(todayISO)).length,
+    [habits, todayISO]
+  );
 
   const handleFocusSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -279,17 +347,101 @@ export function OverviewView({
     onNavigate('finance');
   };
 
-  const activeGoals = savingsGoals.filter((g) => g.currentAmount < g.targetAmount);
-  const totalSavedGoals = savingsGoals.reduce((s, g) => s + g.currentAmount, 0);
-  const totalTargetGoals = savingsGoals.reduce((s, g) => s + g.targetAmount, 0);
-  const activeDebts = debts.filter((d) => !d.settled);
-  const activeLentTotal = activeDebts
-    .filter((d) => d.direction === 'lent')
-    .reduce((s, d) => s + Math.max(0, d.totalAmount - d.paidAmount), 0);
-  const activeBorrowedTotal = activeDebts
-    .filter((d) => d.direction === 'borrowed')
-    .reduce((s, d) => s + Math.max(0, d.totalAmount - d.paidAmount), 0);
+  const {
+    activeGoals,
+    totalSavedGoals,
+    totalTargetGoals,
+    activeDebts,
+    activeLentTotal,
+    activeBorrowedTotal,
+  } = useMemo(() => {
+    const activeG = savingsGoals.filter((g) => g.currentAmount < g.targetAmount);
+    const saved = savingsGoals.reduce((s, g) => s + g.currentAmount, 0);
+    const target = savingsGoals.reduce((s, g) => s + g.targetAmount, 0);
+    const activeD = debts.filter((d) => !d.settled);
+    let lent = 0;
+    let borrowed = 0;
+    for (const d of activeD) {
+      const rem = Math.max(0, d.totalAmount - d.paidAmount);
+      if (d.direction === 'lent') lent += rem;
+      else borrowed += rem;
+    }
+    return {
+      activeGoals: activeG,
+      totalSavedGoals: saved,
+      totalTargetGoals: target,
+      activeDebts: activeD,
+      activeLentTotal: lent,
+      activeBorrowedTotal: borrowed,
+    };
+  }, [savingsGoals, debts]);
   const reservedTotal = safeToSpend.reservedBills + safeToSpend.reservedPending;
+
+  const liquidCash = cards.length > 0 ? totalCardsBalance : balance;
+  const netWorth =
+    liquidCash +
+    totalSavedGoals +
+    activeLentTotal -
+    activeBorrowedTotal -
+    reservedTotal;
+  const netDebtPosition = activeLentTotal - activeBorrowedTotal;
+  const avgDailyExpense =
+    cycleMetrics.elapsedDays > 0 && totalExpense > 0
+      ? totalExpense / cycleMetrics.elapsedDays
+      : 0;
+  const runwayDays =
+    liquidCash > 0 && avgDailyExpense > 0
+      ? Math.round(liquidCash / avgDailyExpense)
+      : null;
+
+  const frequentExpensePresets = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        title: string;
+        category: string;
+        amount: number;
+        cardId?: string;
+        count: number;
+        latestDate: string;
+      }
+    >();
+    for (const tx of transactions) {
+      if (
+        tx.type !== 'expense' ||
+        tx.isPending ||
+        tx.category === INTERNAL_TRANSFER_CATEGORY
+      ) {
+        continue;
+      }
+      const key = `${tx.title.trim().toLowerCase()}|${tx.category}`;
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, {
+          title: tx.title.trim(),
+          category: tx.category,
+          amount: tx.amount,
+          cardId: tx.cardId,
+          count: 1,
+          latestDate: tx.date,
+        });
+      } else {
+        existing.count += 1;
+        if (tx.date >= existing.latestDate) {
+          existing.latestDate = tx.date;
+          existing.amount = tx.amount;
+          existing.cardId = tx.cardId;
+        }
+      }
+    }
+    return Array.from(groups.values())
+      .filter((g) => g.count >= 1 && g.title.length > 0 && g.amount > 0)
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return b.latestDate.localeCompare(a.latestDate);
+      })
+      .slice(0, 4);
+  }, [transactions]);
 
   return (
     <div className="space-y-6">
@@ -451,7 +603,7 @@ export function OverviewView({
                   : `${formatCycleLabel(selectedMonth, effectivePayday)} · Իրական բալանս`}
               </p>
               <h1
-                className={`mt-2 font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight tabular-nums break-words ${
+                className={`pa-sensitive mt-2 font-display text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight tabular-nums break-words ${
                   (activeSparkNode ? activeSparkNode.balance : balance) >= 0
                     ? 'text-[#0F172A] dark:text-[#F8FAFC]'
                     : 'text-rose-600 dark:text-rose-400'
@@ -467,7 +619,7 @@ export function OverviewView({
                   <>
                     <span>
                       Նախորդ մնացորդ՝{' '}
-                      <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                      <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                         {openingBalance > 0 ? '+' : ''}
                         {formatMoney(openingBalance, currency)}
                       </span>
@@ -478,7 +630,7 @@ export function OverviewView({
                 <span>
                   Ցիկլի զուտ՝{' '}
                   <span
-                    className={`font-mono font-semibold ${
+                    className={`pa-sensitive font-mono font-semibold ${
                       cycleNet >= 0
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : 'text-rose-600 dark:text-rose-400'
@@ -613,17 +765,19 @@ export function OverviewView({
                 </p>
                 <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums truncate">
                   {safeToSpend.remainingDaysInclusive} օր ·{' '}
-                  {safeToSpend.remainingTodayAllowance >= 0
-                    ? `այսօր մնաց ${formatMoney(safeToSpend.remainingTodayAllowance, currency)}`
-                    : `այսօր գերազանցված ${formatMoney(Math.abs(safeToSpend.remainingTodayAllowance), currency)}-ով`}
-                  {reservedTotal > 0
-                    ? ` · պահուստ՝ ${formatMoney(reservedTotal, currency)}`
-                    : ''}
+                  <span className="pa-sensitive">
+                    {safeToSpend.remainingTodayAllowance >= 0
+                      ? `այսօր մնաց ${formatMoney(safeToSpend.remainingTodayAllowance, currency)}`
+                      : `այսօր գերազանցված ${formatMoney(Math.abs(safeToSpend.remainingTodayAllowance), currency)}-ով`}
+                    {reservedTotal > 0
+                      ? ` · պահուստ՝ ${formatMoney(reservedTotal, currency)}`
+                      : ''}
+                  </span>
                 </p>
               </div>
             </div>
             <div className="sm:text-right shrink-0">
-              <span className="font-mono text-base sm:text-lg font-bold tabular-nums text-[#1D4ED8] dark:text-[#60A5FA]">
+              <span className="pa-sensitive font-mono text-base sm:text-lg font-bold tabular-nums text-[#1D4ED8] dark:text-[#60A5FA]">
                 {formatMoney(safeToSpend.dailyAllowance, currency)}
               </span>
               <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] ml-1">
@@ -642,11 +796,11 @@ export function OverviewView({
                 <p className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                   Եկամուտ
                 </p>
-                <p className="mt-0.5 text-sm sm:text-base lg:text-lg font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 truncate">
+                <p className="pa-sensitive mt-0.5 text-sm sm:text-base lg:text-lg font-bold font-mono tabular-nums text-emerald-600 dark:text-emerald-400 truncate">
                   +{formatMoney(totalIncome, currency)}
                 </p>
                 {totalIncome > 0 && (
-                  <p className="mt-0.5 text-[11px] text-[#94A3B8] dark:text-[#64748B] truncate tabular-nums">
+                  <p className="pa-sensitive mt-0.5 text-[11px] text-[#94A3B8] dark:text-[#64748B] truncate tabular-nums">
                     {[
                       monthlyIncomeTotal > 0
                         ? `Ամս. ${formatMoney(monthlyIncomeTotal, currency)}`
@@ -673,7 +827,7 @@ export function OverviewView({
                 <p className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                   Ծախս
                 </p>
-                <p className="mt-0.5 text-sm sm:text-base lg:text-lg font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400 truncate">
+                <p className="pa-sensitive mt-0.5 text-sm sm:text-base lg:text-lg font-bold font-mono tabular-nums text-rose-600 dark:text-rose-400 truncate">
                   -{formatMoney(totalExpense, currency)}
                 </p>
               </div>
@@ -822,6 +976,149 @@ export function OverviewView({
         </div>
       </section>
 
+      {/* Row 1.25: Net Worth & Quick-Log Frequent Presets */}
+      <section
+        aria-label="Զուտ կապիտալ և արագ կրկնվող ծախսեր"
+        className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:gap-6 items-stretch"
+      >
+        <div
+          className={`${
+            frequentExpensePresets.length > 0 && onAddTransaction
+              ? 'lg:col-span-7'
+              : 'lg:col-span-12'
+          } surface-card p-4 sm:p-5 flex flex-col justify-between gap-3`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8]">
+              Ամբողջական ֆինանսական դիրք (Net Worth)
+            </span>
+            <button
+              type="button"
+              onClick={openGoalsAndDebtsPage}
+              className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+            >
+              Նպատակներ և պարտքեր
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Զուտ կապիտալ
+              </p>
+              <p
+                className={`pa-sensitive mt-0.5 font-mono text-base sm:text-lg font-bold tabular-nums truncate ${
+                  netWorth >= 0
+                    ? 'text-[#0F172A] dark:text-[#F8FAFC]'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {formatMoney(netWorth, currency)}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Ֆինանսական պահուստ
+              </p>
+              <p className="mt-0.5 font-mono text-base sm:text-lg font-bold tabular-nums text-[#2563EB] dark:text-[#60A5FA] truncate">
+                {runwayDays !== null
+                  ? runwayDays >= 60
+                    ? `~${Math.round(runwayDays / 30)} ամիս`
+                    : `${runwayDays} օր`
+                  : '—'}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Գանձանակներ
+              </p>
+              <p className="pa-sensitive mt-0.5 font-mono text-base sm:text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400 truncate">
+                +{formatMoney(totalSavedGoals, currency)}
+              </p>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Զուտ պարտքային դիրք
+              </p>
+              <p
+                className={`pa-sensitive mt-0.5 font-mono text-base sm:text-lg font-bold tabular-nums truncate ${
+                  netDebtPosition >= 0
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {netDebtPosition > 0 ? '+' : ''}
+                {formatMoney(netDebtPosition, currency)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {frequentExpensePresets.length > 0 && onAddTransaction && (
+          <div className="lg:col-span-5 surface-card p-4 sm:p-5 flex flex-col justify-between gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                <Zap className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                <span>1-հպումով կրկնվող ծախսեր</span>
+              </span>
+              <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                Ձեր պատմությունից
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {frequentExpensePresets.map((preset) => (
+                <div
+                  key={`${preset.title}-${preset.category}`}
+                  className="flex items-center justify-between gap-1.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-2 min-w-0"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onAddTransaction({
+                        type: 'expense',
+                        title: preset.title,
+                        category: preset.category,
+                        amount: preset.amount,
+                        date: todayISO,
+                        cardId: preset.cardId,
+                      })
+                    }
+                    title={`Անմիջապես գրանցել ${preset.title} (-${formatMoney(preset.amount, currency)})`}
+                    className="flex-1 min-w-0 text-left cursor-pointer group"
+                  >
+                    <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate group-hover:text-[#2563EB] dark:group-hover:text-[#60A5FA] transition-colors">
+                      {preset.title}
+                    </p>
+                    <p className="pa-sensitive text-[11px] font-mono tabular-nums text-rose-600 dark:text-rose-400">
+                      -{formatMoney(preset.amount, currency)}
+                    </p>
+                  </button>
+                  {onOpenTransactionWithPrefill && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenTransactionWithPrefill({
+                          type: 'expense',
+                          title: preset.title,
+                          category: preset.category,
+                          amount: preset.amount,
+                          date: todayISO,
+                          cardId: preset.cardId,
+                        })
+                      }
+                      aria-label={`Փոխել գումարը՝ ${preset.title}`}
+                      title="Փոխել գումարը նախքան գրանցելը"
+                      className="min-h-[28px] min-w-[28px] rounded-lg flex items-center justify-center text-[#94A3B8] hover:text-[#2563EB] dark:hover:text-[#60A5FA] hover:bg-white dark:hover:bg-[#1E293B] transition-colors cursor-pointer shrink-0"
+                    >
+                      <Repeat className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       {/* Row 1.5: Compact Cards & Wallets Strip */}
       <section
         aria-label="Քարտեր և մնացորդներ"
@@ -840,7 +1137,7 @@ export function OverviewView({
                 {cards.length > 0 && (
                   <span className="text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
                     · Ընդհանուր՝{' '}
-                    <strong className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                    <strong className="pa-sensitive font-mono text-[#0F172A] dark:text-[#F8FAFC]">
                       {formatMoney(totalCardsBalance, currency)}
                     </strong>
                   </span>
@@ -920,7 +1217,7 @@ export function OverviewView({
                   </div>
 
                   <p
-                    className={`text-lg font-mono font-bold tabular-nums truncate ${
+                    className={`pa-sensitive text-lg font-mono font-bold tabular-nums truncate ${
                       currentBalance >= 0
                         ? 'text-[#0F172A] dark:text-[#F8FAFC]'
                         : 'text-rose-600 dark:text-rose-400'
@@ -1035,7 +1332,7 @@ export function OverviewView({
                   <div className="flex items-center gap-2.5 shrink-0">
                     <div className="text-right">
                       <span
-                        className={`text-xs sm:text-sm font-semibold font-mono tabular-nums whitespace-nowrap block ${
+                        className={`pa-sensitive text-xs sm:text-sm font-semibold font-mono tabular-nums whitespace-nowrap block ${
                           tx.isPending
                             ? 'text-amber-600 dark:text-amber-400'
                             : tx.type === 'income'
@@ -1121,7 +1418,7 @@ export function OverviewView({
                       <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC]">
                         {category}
                       </span>
-                      <span className="font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] text-xs">
+                      <span className="pa-sensitive font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] text-xs">
                         {formatMoney(amount, currency)}
                         {budget
                           ? ` / ${formatMoney(budget.limit, currency)}`
@@ -1279,7 +1576,7 @@ export function OverviewView({
                 <span className="text-[#64748B] dark:text-[#94A3B8]">
                   {activeGoals.length} ընթացիկ նպատակ
                 </span>
-                <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                   {formatMoney(totalSavedGoals, currency)} /{' '}
                   {formatMoney(totalTargetGoals, currency)}
                 </span>
@@ -1296,7 +1593,7 @@ export function OverviewView({
                         <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
                           {g.title}
                         </span>
-                        <span className="font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                        <span className="pa-sensitive font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8] shrink-0">
                           {pct}% · {formatMoney(g.currentAmount, currency)}
                         </span>
                       </div>
@@ -1360,7 +1657,7 @@ export function OverviewView({
                   <span className="text-[#64748B] dark:text-[#94A3B8] block">
                     Ինձ պարտք են
                   </span>
-                  <span className="font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                  <span className="pa-sensitive font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
                     +{formatMoney(activeLentTotal, currency)}
                   </span>
                 </div>
@@ -1368,7 +1665,7 @@ export function OverviewView({
                   <span className="text-[#64748B] dark:text-[#94A3B8] block">
                     Ես պարտք եմ
                   </span>
-                  <span className="font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
+                  <span className="pa-sensitive font-mono text-sm font-bold text-rose-600 dark:text-rose-400">
                     -{formatMoney(activeBorrowedTotal, currency)}
                   </span>
                 </div>
@@ -1409,4 +1706,4 @@ export function OverviewView({
       </section>
     </div>
   );
-}
+});
