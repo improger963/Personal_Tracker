@@ -1359,9 +1359,9 @@ export function QuickAddModal({
 
                 {inputCurrency === 'AMD' && (
                   <div className="mt-2 grid grid-cols-4 gap-1.5">
-                    {QUICK_AMOUNTS_AMD.map((preset) => (
+                    {QUICK_AMOUNTS_AMD.map((preset, idx) => (
                       <button
-                        key={preset}
+                        key={`${preset}-${idx}`}
                         type="button"
                         onClick={() => handleQuickPreset(preset)}
                         className="min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] active:scale-[0.96] transition-all cursor-pointer"
@@ -1399,9 +1399,9 @@ export function QuickAddModal({
                     <p className="px-2 py-1 text-[11px] font-semibold text-[#64748B] dark:text-[#94A3B8]">
                       Նախկին վերնագրեր
                     </p>
-                    {txTitleSuggestions.map((sug) => (
+                    {txTitleSuggestions.map((sug, idx) => (
                       <button
-                        key={`${sug.title}-${sug.category}`}
+                        key={`${sug.title}-${sug.category}-${idx}`}
                         type="button"
                         onMouseDown={(e) => {
                           e.preventDefault();
@@ -1446,8 +1446,8 @@ export function QuickAddModal({
                   }}
                   className="w-full min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
                 >
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>
+                  {categories.map((cat, idx) => (
+                    <option key={`${cat}-${idx}`} value={cat}>
                       {cat}
                     </option>
                   ))}
@@ -1515,9 +1515,9 @@ export function QuickAddModal({
                 </div>
                 {txTags.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {txTags.map((tag) => (
+                    {txTags.map((tag, idx) => (
                       <button
-                        key={tag}
+                        key={`${tag}-${idx}`}
                         type="button"
                         onClick={() =>
                           setTxTags((prev) => prev.filter((t) => t !== tag))

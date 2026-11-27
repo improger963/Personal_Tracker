@@ -1514,8 +1514,8 @@ export const TopNav = memo(function TopNav({
                                   className="w-full min-h-[34px] px-2.5 py-1 rounded-xl input-field text-[11px]"
                                 >
                                   <option value="">Ավտոմատ (լավագույն հասանելի)</option>
-                                  {browserVoices.slice(0, 30).map((v) => (
-                                    <option key={v.voiceURI} value={v.voiceURI}>
+                                  {browserVoices.slice(0, 30).map((v, idx) => (
+                                    <option key={`${v.voiceURI}-${idx}`} value={v.voiceURI}>
                                       {v.name} ({v.lang})
                                     </option>
                                   ))}

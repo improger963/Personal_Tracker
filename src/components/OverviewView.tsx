@@ -736,9 +736,9 @@ export const OverviewView = memo(function OverviewView({
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {frequentExpensePresets.map((preset) => (
+                {frequentExpensePresets.map((preset, idx) => (
                   <div
-                    key={`${preset.title}-${preset.category}`}
+                    key={`${preset.title}-${preset.category}-${idx}`}
                     className="flex items-center justify-between gap-1 rounded-xl border border-[#E2E8F0]/90 dark:border-[#1B2538] bg-[#F8FAFC]/80 dark:bg-[#0A101D] hover:border-[#2563EB]/45 dark:hover:border-[#3B82F6]/45 transition-colors px-2.5 py-2 min-w-0"
                   >
                     <button

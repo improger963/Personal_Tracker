@@ -4,8 +4,8 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
+  CreditCard,
   Flame,
-  Lightbulb,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -15,6 +15,7 @@ import { SectionCard } from './layout/PagePrimitives';
 import { Currency, FocusGoal, Habit, Task, Transaction } from '../types';
 import { formatMoney, getTodayISO } from '../data/defaults';
 import { SafeToSpendMetrics } from '../utils/financialCycle';
+import { SubscriptionLeakDetector } from './finance/SubscriptionLeakDetector';
 
 interface SmartWidgetsHubProps {
   currency: Currency;
@@ -80,7 +81,7 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
   onNavigateFinance,
   onNavigatePlanner,
 }: SmartWidgetsHubProps) {
-  const [activeTab, setActiveTab] = useState<'prompts' | 'health' | 'quick'>('prompts');
+  const [activeTab, setActiveTab] = useState<'prompts' | 'health' | 'subscriptions' | 'quick'>('prompts');
   const todayISO = getTodayISO();
 
   const habitsDoneToday = useMemo(
@@ -101,14 +102,15 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
   return (
     <SectionCard
       title="Ինտեգրված խելացի վիջեթներ և AI օգնական"
-      subtitle="Արագ մուտք դեպի կանխատեսումներ, սովորությունների ռիթմ և AI ակնթարթային հարցումներ"
+      subtitle="Արագ մուտք դեպի կանխատեսումներ, բաժանորդագրությունների սկաներ և AI ակնթարթային հարցումներ"
       icon={Sparkles}
       headerRight={
-        <div className="flex items-center gap-1 p-0.5 rounded-xl surface-subtle text-xs">
+        <div className="flex items-center gap-1 p-0.5 rounded-xl surface-subtle text-xs overflow-x-auto">
           {(
             [
               { id: 'prompts', label: 'AI Հարցումներ' },
               { id: 'health', label: 'Առողջության ինդեքս' },
+              { id: 'subscriptions', label: 'Բաժանորդագրություններ' },
               { id: 'quick', label: 'Արագ գործողություններ' },
             ] as const
           ).map((tab) => (
@@ -230,6 +232,14 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'subscriptions' && (
+          <SubscriptionLeakDetector
+            transactions={transactions}
+            currency={currency}
+            onOpenAssistant={onOpenAssistant}
+          />
         )}
 
         {activeTab === 'quick' && (

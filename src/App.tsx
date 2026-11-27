@@ -21,6 +21,8 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { useOnlineStatus, usePWAInstall } from './hooks/usePWAInstall';
 import { useAppLock } from './hooks/useAppLock';
 import { useWorkspaceCloudSync } from './hooks/useWorkspaceCloudSync';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { triggerMilestoneConfetti } from './utils/confetti';
 
 const loadOverviewView = () =>
   import('./components/OverviewView').then((m) => ({ default: m.OverviewView }));
@@ -546,6 +548,12 @@ export default function App() {
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
   }, [setIsPrivacyMode]);
+
+  useKeyboardShortcuts({
+    onOpenNewModal: (mode) => setModalState({ mode }),
+    onNavigateTab: handleSelectTab,
+    onNavigatePlannerPage: handleSelectPlannerPage,
+  });
 
   const cardsInitialBalance = useMemo(
     () => getTotalCardsInitialBalanceAMD(cards, liveFxRates),
@@ -1425,6 +1433,32 @@ export default function App() {
         ? !isTaskCompletedOnDate(target, todayKey)
         : false;
 
+      if (becomingCompleted) {
+        const nextTasks = tasks.map((t) => {
+          if (t.id !== id) return t;
+          if (isTaskRepeating(t)) {
+            const existing = t.completedDates ?? [];
+            const hasToday = existing.includes(todayKey);
+            return {
+              ...t,
+              completedDates: hasToday
+                ? existing.filter((d) => d !== todayKey)
+                : [...existing, todayKey],
+            };
+          }
+          return { ...t, completed: !t.completed };
+        });
+
+        const todayTasks = nextTasks.filter(
+          (t) => isTaskDueOnDate(t, todayKey) || (!isTaskRepeating(t) && t.date <= todayKey)
+        );
+        const allDone = todayTasks.length > 0 && todayTasks.every((t) => isTaskCompletedOnDate(t, todayKey));
+        if (allDone) {
+          triggerMilestoneConfetti();
+          showToast('🎉 Շնորհավորում ենք! Այսօրվա բոլոր անելիքները կատարված են!');
+        }
+      }
+
       setTasks((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t;
@@ -1794,6 +1828,11 @@ export default function App() {
           : g
       )
     );
+
+    if (nextAmount >= target.targetAmount && !target.completed) {
+      triggerMilestoneConfetti();
+      showToast(`🎉 Շնորհավորում ենք! «${target.title}» նպատակը հաջողությամբ կատարվեց!`);
+    }
 
     if (recordInLedger) {
       const tx: Transaction = {
