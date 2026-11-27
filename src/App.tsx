@@ -1433,6 +1433,7 @@ export default function App() {
         ? !isTaskCompletedOnDate(target, todayKey)
         : false;
 
+      let celebratedAllDone = false;
       if (becomingCompleted) {
         const nextTasks = tasks.map((t) => {
           if (t.id !== id) return t;
@@ -1452,10 +1453,12 @@ export default function App() {
         const todayTasks = nextTasks.filter(
           (t) => isTaskDueOnDate(t, todayKey) || (!isTaskRepeating(t) && t.date <= todayKey)
         );
-        const allDone = todayTasks.length > 0 && todayTasks.every((t) => isTaskCompletedOnDate(t, todayKey));
+        const allDone =
+          todayTasks.length > 0 &&
+          todayTasks.every((t) => isTaskCompletedOnDate(t, todayKey));
         if (allDone) {
+          celebratedAllDone = true;
           triggerMilestoneConfetti();
-          showToast('🎉 Շնորհավորում ենք! Այսօրվա բոլոր անելիքները կատարված են!');
         }
       }
 
@@ -1476,17 +1479,25 @@ export default function App() {
         })
       );
 
-      if (becomingCompleted && target?.linkedTxId) {
-        const linkedTx = transactions.find(
-          (tx) => tx.id === target.linkedTxId && tx.isPending
+      const linkedTx =
+        becomingCompleted && target?.linkedTxId
+          ? transactions.find((tx) => tx.id === target.linkedTxId && tx.isPending)
+          : undefined;
+
+      if (celebratedAllDone && linkedTx && target) {
+        showToast(
+          `🎉 Այսօրվա բոլոր անելիքները կատարված են! Հաստատե՞լ «${target.title}» (${formatMoney(linkedTx.amount)}) նախածախսը`,
+          () => handleConfirmPreExpense(linkedTx.id),
+          'Հաստատել ծախսը'
         );
-        if (linkedTx) {
-          showToast(
-            `«${target.title}» կատարվեց․ հաստատե՞լ ${formatMoney(linkedTx.amount)} նախածախսը`,
-            () => handleConfirmPreExpense(linkedTx.id),
-            'Հաստատել ծախսը'
-          );
-        }
+      } else if (celebratedAllDone) {
+        showToast('🎉 Շնորհավորում ենք! Այսօրվա բոլոր անելիքները կատարված են!');
+      } else if (linkedTx && target) {
+        showToast(
+          `«${target.title}» կատարվեց․ հաստատե՞լ ${formatMoney(linkedTx.amount)} նախածախսը`,
+          () => handleConfirmPreExpense(linkedTx.id),
+          'Հաստատել ծախսը'
+        );
       }
     },
     [handleConfirmPreExpense, setTasks, showToast, tasks, todayKey, transactions]
@@ -1786,23 +1797,49 @@ export default function App() {
 
   // Savings Goals Handlers
   const handleAddGoal = (goal: Omit<SavingsGoal, 'id' | 'createdAt'>) => {
+    const isReached = goal.targetAmount > 0 && goal.currentAmount >= goal.targetAmount;
     const next: SavingsGoal = {
       ...goal,
+      completed: isReached,
       id: createId('goal'),
       createdAt: new Date().toISOString(),
     };
     setSavingsGoals((prev) => [next, ...prev]);
-    showToast('Խնայողության նպատակը ստեղծվեց');
+    if (isReached) {
+      triggerMilestoneConfetti();
+      showToast(`🎉 Շնորհավորում ենք! «${next.title}» նպատակը արդեն կատարված է!`);
+    } else {
+      showToast('Խնայողության նպատակը ստեղծվեց');
+    }
   };
 
   const handleUpdateGoal = (
     id: string,
     updates: Omit<SavingsGoal, 'id' | 'createdAt'>
   ) => {
+    const existing = savingsGoals.find((g) => g.id === id);
+    const isReached =
+      updates.targetAmount > 0 && updates.currentAmount >= updates.targetAmount;
+    const isNewlyReached = isReached && !existing?.completed;
+
     setSavingsGoals((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, ...updates } : g))
+      prev.map((g) =>
+        g.id === id
+          ? {
+              ...g,
+              ...updates,
+              completed: isReached,
+            }
+          : g
+      )
     );
-    showToast('Նպատակը թարմացվեց');
+
+    if (isNewlyReached) {
+      triggerMilestoneConfetti();
+      showToast(`🎉 Շնորհավորում ենք! «${updates.title}» նպատակը հաջողությամբ կատարվեց!`);
+    } else {
+      showToast('Նպատակը թարմացվեց');
+    }
   };
 
   const handleAdjustGoal = (
@@ -1817,22 +1854,20 @@ export default function App() {
     const appliedDelta = nextAmount - target.currentAmount;
     if (appliedDelta === 0) return;
 
+    const isReached = target.targetAmount > 0 && nextAmount >= target.targetAmount;
+    const isNewlyCompleted = isReached && !target.completed;
+
     setSavingsGoals((prev) =>
       prev.map((g) =>
         g.id === goalId
           ? {
               ...g,
               currentAmount: nextAmount,
-              completed: nextAmount >= g.targetAmount,
+              completed: g.targetAmount > 0 && nextAmount >= g.targetAmount,
             }
           : g
       )
     );
-
-    if (nextAmount >= target.targetAmount && !target.completed) {
-      triggerMilestoneConfetti();
-      showToast(`🎉 Շնորհավորում ենք! «${target.title}» նպատակը հաջողությամբ կատարվեց!`);
-    }
 
     if (recordInLedger) {
       const tx: Transaction = {
@@ -1852,11 +1887,16 @@ export default function App() {
       setTransactions((prev) => [tx, ...prev]);
     }
 
-    showToast(
-      appliedDelta > 0
-        ? `Գանձանակը համալրվեց (+${formatMoney(appliedDelta)})`
-        : `Գանձանակից հանվեց (${formatMoney(Math.abs(appliedDelta))})`
-    );
+    if (isNewlyCompleted) {
+      triggerMilestoneConfetti();
+      showToast(`🎉 Շնորհավորում ենք! «${target.title}» նպատակը հաջողությամբ կատարվեց!`);
+    } else {
+      showToast(
+        appliedDelta > 0
+          ? `Գանձանակը համալրվեց (+${formatMoney(appliedDelta)})`
+          : `Գանձանակից հանվեց (${formatMoney(Math.abs(appliedDelta))})`
+      );
+    }
   };
 
   const handleDeleteGoal = (goalId: string) => {

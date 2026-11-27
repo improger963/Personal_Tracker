@@ -303,7 +303,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow get: if isVerifiedOwner(userId) && isValidId(userId);
-      allow list: if isVerifiedOwner(userId);
+      allow list: if false;
       allow create: if isVerifiedOwner(userId) && isValidId(userId)
         && isValidUserAccount(incoming(), userId)
         && incoming().createdAt == request.time

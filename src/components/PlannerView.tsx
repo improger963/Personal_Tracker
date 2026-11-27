@@ -636,11 +636,13 @@ export const PlannerView = memo(function PlannerView({
                         aria-hidden="true"
                       />
                       <input
+                        id="quick-task-input"
                         type="text"
                         value={quickTaskTitle}
                         onChange={(e) => setQuickTaskTitle(e.target.value)}
                         placeholder="Արագ ավելացնել այսօրվա անելիքը (Enter)..."
                         aria-label="Արագ ավելացնել անելիք"
+                        title="Արագ ավելացնել անելիք (Alt+T)"
                         className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
                       />
                     </div>

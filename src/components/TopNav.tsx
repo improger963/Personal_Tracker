@@ -513,11 +513,18 @@ export const TopNav = memo(function TopNav({
                   const isActive =
                     activeTab === 'planner' && plannerPage === item.id;
                   const showBadge = item.id === 'tasks' && todayCount > 0;
+                  const shortcutHint =
+                    item.id === 'tasks'
+                      ? `${item.label} (Alt+T)`
+                      : item.id === 'focus'
+                        ? `${item.label} (Alt+F)`
+                        : item.label;
                   return (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => onSelectPlannerPage(item.id)}
+                      title={shortcutHint}
                       aria-current={isActive ? 'page' : undefined}
                       aria-label={
                         showBadge
@@ -2119,6 +2126,7 @@ export const TopNav = memo(function TopNav({
                   triggerHaptic('medium');
                   onOpenNewModal();
                 }}
+                title="Ավելացնել նոր գրառում (Alt / Option + N)"
                 className="hidden md:inline-flex min-h-[40px] px-3 sm:px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4 shrink-0" />

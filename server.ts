@@ -1305,6 +1305,145 @@ ${JSON.stringify(cleanTasks)}
     }
   });
 
+  app.post('/api/smart/analyze-subscriptions', async (req: Request, res: Response) => {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error:
+          'GEMINI_API_KEY-ն կարգավորված չէ սերվերում։ Ավելացրեք այն Settings > Secrets բաժնում՝ խելացի վերլուծությունից օգտվելու համար։',
+      });
+    }
+
+    const body = (req.body ?? {}) as {
+      subscriptions?: unknown;
+      totalMonthlySpend?: unknown;
+      currency?: unknown;
+    };
+
+    const rawSubs = Array.isArray(body.subscriptions) ? body.subscriptions.slice(0, 20) : [];
+    const cleanSubs = rawSubs
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const obj = item as Record<string, unknown>;
+        const title = sanitizeText(obj.title, 100);
+        const category = sanitizeText(obj.category, 50) || 'Այլ';
+        const amount = toSafeNumber(obj.amount, 0);
+        const count = toSafeNumber(obj.count, 1);
+        const distinctMonths = toSafeNumber(obj.distinctMonths, 1);
+        const matchReason = sanitizeText(obj.matchReason, 32) || 'keyword';
+        const latestDate = normalizeIsoDate(obj.latestDate);
+        if (!title || amount <= 0) return null;
+        return {
+          title,
+          category,
+          amount,
+          count,
+          distinctMonths,
+          matchReason,
+          latestDate,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    if (cleanSubs.length === 0) {
+      return res.status(400).json({
+        error: 'Վերլուծության համար կրկնվող բաժանորդագրություններ չեն փոխանցվել։',
+      });
+    }
+
+    const computedTotal = cleanSubs.reduce((sum, s) => sum + s.amount, 0);
+    const totalMonthlySpend = toSafeNumber(body.totalMonthlySpend, computedTotal) || computedTotal;
+    const currency = sanitizeText(body.currency, 8) || 'AMD';
+
+    try {
+      const ai = createGeminiClient(apiKey);
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: `Օգտատիրոջ գործարքների պատմությունից հայտնաբերվել են հետևյալ կրկնվող բաժանորդագրություններն ու ամսական արտահոսքերը (${cleanSubs.length} հատ, ընդհանուր ամսական ծախսը՝ ${totalMonthlySpend.toLocaleString('en-US')} ${currency}):
+${JSON.stringify(cleanSubs, null, 2)}
+
+Վերլուծիր այս բաժանորդագրությունները և հայերենով վերադարձրու կառուցվածքային JSON՝
+1. recommendation: Անպայման ներառիր հակիրճ ու հստակ ամփոփ խորհուրդ հետևյալ ձևաչափի ոճով՝ «Դուք ամսական ծախսում եք X ֏՝ Y բաժանորդագրության վրա։ Դիտարկեք Z-ը չեղարկելը, եթե չեք օգտագործում։», որտեղ X-ը ընդհանուր ամսական գումարն է, Y-ը՝ բաժանորդագրությունների քանակը, իսկ Z-ը՝ կոնկրետ թեկնածու բաժանորդագրությունը իրական ցանկից (ավելացրու նաև 1 կարճ գործնական բացատրություն)։
+2. cancelCandidate: Զուտ թեկնածու ծառայության անունը (Z) ցանկից։
+3. potentialMonthlySavings: Ենթադրվող ամսական խնայողությունը միայն թվով (${currency})։
+4. tips: 2-ից 3 շատ կարճ գործնական խորհուրդ հայերենով՝ կրկնվող ծախսերը կրճատելու համար։`,
+        config: {
+          systemInstruction:
+            'Դու խնայողության և բաժանորդագրությունների աուդիտի խելացի ֆինանսական վերլուծաբան ես։ Հիմնվիր բացառապես տրամադրված իրական թվերի և ծառայությունների վրա, մի հորինիր ծառայություններ։ Պատասխանիր գրագետ հայերենով։',
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              recommendation: {
+                type: Type.STRING,
+                description:
+                  'Concise Armenian recommendation card headline following "Դուք ամսական ծախսում եք X ֏՝ Y բաժանորդագրության վրա։ Դիտարկեք Z-ը չեղարկելը, եթե չեք օգտագործում։"',
+              },
+              cancelCandidate: {
+                type: Type.STRING,
+                description: 'Specific subscription or recurring expense name to review/cancel',
+              },
+              potentialMonthlySavings: {
+                type: Type.NUMBER,
+                description: 'Estimated monthly savings in AMD',
+              },
+              tips: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+            },
+            required: [
+              'recommendation',
+              'cancelCandidate',
+              'potentialMonthlySavings',
+              'tips',
+            ],
+          },
+        },
+      });
+
+      const parsed = safeParseModelJson<{
+        recommendation?: string;
+        cancelCandidate?: string;
+        potentialMonthlySavings?: number;
+        tips?: unknown[];
+      }>(response.text);
+
+      const recommendation = sanitizeMultilineText(parsed.recommendation, 500);
+      if (!recommendation) {
+        return res.status(502).json({
+          error: 'Չհաջողվեց ստանալ խելացի վերլուծություն AI-ից։',
+        });
+      }
+
+      const cancelCandidate =
+        sanitizeText(parsed.cancelCandidate, 100) || cleanSubs[0].title;
+      const potentialMonthlySavings =
+        toSafeNumber(parsed.potentialMonthlySavings, cleanSubs[0].amount) ||
+        cleanSubs[0].amount;
+      const tips = Array.isArray(parsed.tips)
+        ? parsed.tips
+            .map((t) => sanitizeText(t, 180))
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
+
+      return res.json({
+        recommendation,
+        cancelCandidate,
+        potentialMonthlySavings,
+        tips,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Analyze subscriptions error:', error);
+      return res.status(502).json({
+        error: 'Բաժանորդագրությունների AI վերլուծությունը ժամանակավորապես անհասանելի է։',
+      });
+    }
+  });
+
   app.get('/api/finance/fx-rates', async (_req: Request, res: Response) => {
     const now = Date.now();
     if (fxRatesCache && now - fxRatesCache.fetchedAt < FX_CACHE_TTL_MS) {

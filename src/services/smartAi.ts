@@ -780,3 +780,60 @@ export async function breakdownTaskWithAI(params: {
     })
     .filter((x): x is BrokenDownSubtask => x !== null);
 }
+
+export interface SubscriptionAnalyzeItem {
+  title: string;
+  category: string;
+  amount: number;
+  count: number;
+  distinctMonths: number;
+  matchReason: string;
+  latestDate: string;
+}
+
+export interface SubscriptionAnalysisResult {
+  recommendation: string;
+  cancelCandidate: string;
+  potentialMonthlySavings: number;
+  tips: string[];
+  generatedAt: string;
+}
+
+export async function analyzeSubscriptionsWithAI(params: {
+  subscriptions: SubscriptionAnalyzeItem[];
+  totalMonthlySpend: number;
+  currency?: string;
+  signal?: AbortSignal;
+}): Promise<SubscriptionAnalysisResult> {
+  const res = await fetch('/api/smart/analyze-subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: params.signal,
+    body: JSON.stringify({
+      subscriptions: params.subscriptions,
+      totalMonthlySpend: params.totalMonthlySpend,
+      currency: params.currency ?? 'AMD',
+    }),
+  });
+  const data = await parseJsonSafe<Partial<SubscriptionAnalysisResult> & { error?: string }>(res);
+  if (!res.ok || !data.recommendation) {
+    throw new Error(
+      data.error || 'Չհաջողվեց ստանալ բաժանորդագրությունների AI վերլուծությունը։'
+    );
+  }
+  return {
+    recommendation: data.recommendation.trim(),
+    cancelCandidate:
+      typeof data.cancelCandidate === 'string' ? data.cancelCandidate.trim() : '',
+    potentialMonthlySavings:
+      typeof data.potentialMonthlySavings === 'number' &&
+      Number.isFinite(data.potentialMonthlySavings)
+        ? Math.max(0, Math.round(data.potentialMonthlySavings))
+        : 0,
+    tips: Array.isArray(data.tips)
+      ? data.tips.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      : [],
+    generatedAt: data.generatedAt || new Date().toISOString(),
+  };
+}
+

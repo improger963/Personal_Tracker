@@ -1,4 +1,6 @@
 import { memo, useMemo, useState } from 'react';
+import { useReducedMotion } from 'motion/react';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -10,6 +12,7 @@ import {
   HandCoins,
   NotebookPen,
   Pencil,
+  PieChart as PieChartIcon,
   PiggyBank,
   Plus,
   Receipt,
@@ -155,9 +158,11 @@ export const OverviewView = memo(function OverviewView({
   onOpenTransactionWithPrefill,
 }: OverviewViewProps) {
   const currency = 'AMD' as const;
+  const prefersReducedMotion = useReducedMotion();
   const [focusInput, setFocusInput] = useState('');
   const [isEditingFocus, setIsEditingFocus] = useState(false);
   const [hoveredSparkIndex, setHoveredSparkIndex] = useState<number | null>(null);
+  const [hoveredFlowSlice, setHoveredFlowSlice] = useState<string | null>(null);
   const todayISO = getTodayISO();
 
   const effectivePayday = getEffectivePayday(primaryIncome);
@@ -473,6 +478,29 @@ export const OverviewView = memo(function OverviewView({
 
   const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
 
+  const incomeVsExpenseFlow = useMemo(() => {
+    const totalFlow = totalIncome + totalExpense;
+    const slices = [
+      {
+        id: 'income',
+        name: 'Ընդհանուր եկամուտ',
+        shortLabel: 'Եկամուտ',
+        value: totalIncome,
+        pct: totalFlow > 0 ? Math.round((totalIncome / totalFlow) * 100) : 0,
+        color: '#10B981',
+      },
+      {
+        id: 'expense',
+        name: 'Ընդհանուր ծախս',
+        shortLabel: 'Ծախս',
+        value: totalExpense,
+        pct: totalFlow > 0 ? Math.round((totalExpense / totalFlow) * 100) : 0,
+        color: '#F43F5E',
+      },
+    ].filter((item) => item.value > 0);
+    return { slices, totalFlow };
+  }, [totalIncome, totalExpense]);
+
   return (
     <PageShell>
       <PageHeader
@@ -489,6 +517,7 @@ export const OverviewView = memo(function OverviewView({
             <button
               type="button"
               onClick={() => onOpenNewModal('transaction')}
+              title="Ավելացնել նոր գործարք (Alt / Option + N)"
               className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
             >
               <Plus className="w-4 h-4 shrink-0" />
@@ -798,6 +827,7 @@ export const OverviewView = memo(function OverviewView({
               <button
                 type="button"
                 onClick={() => onOpenNewModal('task')}
+                title="Ավելացնել անելիք (Alt+T)"
                 className="min-h-[32px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1 cursor-pointer transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -806,6 +836,7 @@ export const OverviewView = memo(function OverviewView({
               <button
                 type="button"
                 onClick={() => onNavigatePlanner('focus')}
+                title="Ֆոկուս թայմեր (Alt+F)"
                 className="min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/50 inline-flex items-center gap-1 cursor-pointer transition-colors"
               >
                 <Timer className="w-3.5 h-3.5" />
@@ -1028,6 +1059,187 @@ export const OverviewView = memo(function OverviewView({
         </SectionCard>
       </div>
 
+      {/* Current Month Income vs. Expenses Pie Chart */}
+      <SectionCard
+        title="Ամսվա եկամուտ և ծախս"
+        subtitle={`${cycleLabel} · Եկամուտների և ծախսերի ընդհանուր հարաբերակցությունը`}
+        icon={PieChartIcon}
+        headerRight={
+          <button
+            type="button"
+            onClick={() => onNavigateFinance('analytics')}
+            className="text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+          >
+            <span>Վերլուծություն</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        }
+      >
+        {incomeVsExpenseFlow.slices.length === 0 ? (
+          <EmptyStatePlaceholder
+            compact
+            icon={PieChartIcon}
+            title="Այս ամսում եկամուտներ կամ ծախսեր դեռ չկան"
+            description="Ավելացրեք եկամուտ կամ ծախս՝ ընթացիկ ամսվա հարաբերակցության գծապատկերը տեսնելու համար։"
+            actionLabel="+ Ավելացնել գործարք"
+            onAction={() => onOpenNewModal('transaction')}
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+            <div className="md:col-span-5 relative h-[210px] w-full">
+              <ResponsiveContainer width="100%" height={210} minWidth={0}>
+                <PieChart>
+                  <Pie
+                    data={incomeVsExpenseFlow.slices}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={56}
+                    outerRadius={86}
+                    paddingAngle={incomeVsExpenseFlow.slices.length > 1 ? 3 : 0}
+                    cornerRadius={4}
+                    stroke="none"
+                    isAnimationActive={!prefersReducedMotion}
+                    animationBegin={30}
+                    animationDuration={500}
+                    animationEasing="ease-out"
+                    onMouseLeave={() => setHoveredFlowSlice(null)}
+                  >
+                    {incomeVsExpenseFlow.slices.map((slice) => {
+                      const isDimmed =
+                        hoveredFlowSlice !== null && hoveredFlowSlice !== slice.id;
+                      return (
+                        <Cell
+                          key={slice.id}
+                          fill={slice.color}
+                          fillOpacity={isDimmed ? 0.35 : 1}
+                          onMouseEnter={() => setHoveredFlowSlice(slice.id)}
+                          className="cursor-pointer transition-opacity duration-150 focus:outline-none"
+                        />
+                      );
+                    })}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || payload.length === 0) return null;
+                      const item = payload[0]?.payload as
+                        | (typeof incomeVsExpenseFlow.slices)[number]
+                        | undefined;
+                      if (!item) return null;
+                      return (
+                        <div className="rounded-xl border border-[#E2E8F0] dark:border-[#26334D] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md px-3 py-2 shadow-lg text-xs">
+                          <p className="font-semibold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span>{item.name}</span>
+                          </p>
+                          <p className="pa-sensitive font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] mt-1">
+                            {formatMoney(item.value, currency)} ({item.pct}%)
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 pointer-events-none">
+                <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
+                  {hoveredFlowSlice === 'income'
+                    ? 'Եկամուտ'
+                    : hoveredFlowSlice === 'expense'
+                      ? 'Ծախս'
+                      : 'Զուտ տարբեր.'}
+                </span>
+                <span
+                  className={`pa-sensitive font-mono text-xs sm:text-sm font-bold tabular-nums mt-0.5 ${
+                    hoveredFlowSlice === 'income'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : hoveredFlowSlice === 'expense'
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : cycleNet >= 0
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {hoveredFlowSlice === 'income'
+                    ? `+${formatMoney(totalIncome, currency)}`
+                    : hoveredFlowSlice === 'expense'
+                      ? `-${formatMoney(totalExpense, currency)}`
+                      : `${cycleNet > 0 ? '+' : ''}${formatMoney(cycleNet, currency)}`}
+                </span>
+              </div>
+            </div>
+
+            <div className="md:col-span-7 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div
+                  onMouseEnter={() => setHoveredFlowSlice('income')}
+                  onMouseLeave={() => setHoveredFlowSlice(null)}
+                  className="p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] space-y-1 transition-colors hover:border-emerald-500/50"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span>Ընդհանուր եկամուտ</span>
+                    </span>
+                    <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
+                      {incomeVsExpenseFlow.totalFlow > 0
+                        ? `${Math.round((totalIncome / incomeVsExpenseFlow.totalFlow) * 100)}%`
+                        : '0%'}
+                    </span>
+                  </div>
+                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                    +{formatMoney(totalIncome, currency)}
+                  </p>
+                </div>
+
+                <div
+                  onMouseEnter={() => setHoveredFlowSlice('expense')}
+                  onMouseLeave={() => setHoveredFlowSlice(null)}
+                  className="p-3.5 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] space-y-1 transition-colors hover:border-rose-500/50"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-rose-700 dark:text-rose-300">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                      <span>Ընդհանուր ծախս</span>
+                    </span>
+                    <span className="font-mono font-semibold text-rose-700 dark:text-rose-300 tabular-nums">
+                      {incomeVsExpenseFlow.totalFlow > 0
+                        ? `${Math.round((totalExpense / incomeVsExpenseFlow.totalFlow) * 100)}%`
+                        : '0%'}
+                    </span>
+                  </div>
+                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                    -{formatMoney(totalExpense, currency)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="px-3.5 py-2.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex flex-wrap items-center justify-between gap-2 text-xs tabular-nums">
+                <span className="text-[#64748B] dark:text-[#94A3B8]">
+                  Ամսական զուտ մնացորդ (Եկամուտ − Ծախս)
+                </span>
+                <span
+                  className={`pa-sensitive font-mono font-bold ${
+                    cycleNet >= 0
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {cycleNet > 0 ? '+' : ''}
+                  {formatMoney(cycleNet, currency)}
+                  {savingsRate !== null && ` · ${savingsRate >= 0 ? `Խնայողություն ${savingsRate}%` : `Գերծախս ${Math.abs(savingsRate)}%`}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
       {/* Smart Daily Insights Brief */}
       <SmartDailyBriefCard
         insights={smartInsights}
@@ -1040,7 +1252,7 @@ export const OverviewView = memo(function OverviewView({
         currency={currency}
         selectedMonth={selectedMonth}
         cycleLabel={cycleLabel}
-        transactions={monthTransactions}
+        transactions={transactions}
         tasks={tasks}
         habits={habits}
         focusGoal={focusGoal}

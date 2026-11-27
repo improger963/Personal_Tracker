@@ -664,16 +664,42 @@ function buildSettingsDoc(
   return payload;
 }
 
+async function safeGetDoc(
+  path: string,
+  ref: ReturnType<typeof doc>
+) {
+  try {
+    return await getDoc(ref);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, path);
+  }
+}
+
+async function safeGetDocs(
+  path: string,
+  colRef: ReturnType<typeof collection>
+) {
+  try {
+    return await getDocs(colRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, path);
+  }
+}
+
 export async function checkCloudWorkspaceExists(userId: string): Promise<boolean> {
   const settingsPath = `users/${userId}/settings/workspace`;
-  try {
-    const snap = await getDoc(doc(db, 'users', userId, 'settings', 'workspace'));
-    if (snap.exists()) return true;
-    const txSnap = await getDocs(collection(db, 'users', userId, 'transactions'));
-    return !txSnap.empty;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, settingsPath);
-  }
+  const snap = await safeGetDoc(
+    settingsPath,
+    doc(db, 'users', userId, 'settings', 'workspace')
+  );
+  if (snap.exists()) return true;
+
+  const txPath = `users/${userId}/transactions`;
+  const txSnap = await safeGetDocs(
+    txPath,
+    collection(db, 'users', userId, 'transactions')
+  );
+  return !txSnap.empty;
 }
 
 function stripServerMeta<T extends Record<string, unknown>>(raw: T): T {
@@ -687,80 +713,108 @@ function stripServerMeta<T extends Record<string, unknown>>(raw: T): T {
 export async function fetchCloudWorkspaceSnapshot(
   userId: string
 ): Promise<FullWorkspaceSnapshot | null> {
-  try {
-    const [
-      settingsSnap,
-      txSnap,
-      cardsSnap,
-      tasksSnap,
-      notesSnap,
-      budgetsSnap,
-      billsSnap,
-      habitsSnap,
-      goalsSnap,
-      debtsSnap,
-      focusSnap,
-    ] = await Promise.all([
-      getDoc(doc(db, 'users', userId, 'settings', 'workspace')),
-      getDocs(collection(db, 'users', userId, 'transactions')),
-      getDocs(collection(db, 'users', userId, 'cards')),
-      getDocs(collection(db, 'users', userId, 'tasks')),
-      getDocs(collection(db, 'users', userId, 'notes')),
-      getDocs(collection(db, 'users', userId, 'budgets')),
-      getDocs(collection(db, 'users', userId, 'recurringBills')),
-      getDocs(collection(db, 'users', userId, 'habits')),
-      getDocs(collection(db, 'users', userId, 'savingsGoals')),
-      getDocs(collection(db, 'users', userId, 'debts')),
-      getDocs(collection(db, 'users', userId, 'focusSessions')),
-    ]);
+  const [
+    settingsSnap,
+    txSnap,
+    cardsSnap,
+    tasksSnap,
+    notesSnap,
+    budgetsSnap,
+    billsSnap,
+    habitsSnap,
+    goalsSnap,
+    debtsSnap,
+    focusSnap,
+  ] = await Promise.all([
+    safeGetDoc(
+      `users/${userId}/settings/workspace`,
+      doc(db, 'users', userId, 'settings', 'workspace')
+    ),
+    safeGetDocs(
+      `users/${userId}/transactions`,
+      collection(db, 'users', userId, 'transactions')
+    ),
+    safeGetDocs(
+      `users/${userId}/cards`,
+      collection(db, 'users', userId, 'cards')
+    ),
+    safeGetDocs(
+      `users/${userId}/tasks`,
+      collection(db, 'users', userId, 'tasks')
+    ),
+    safeGetDocs(
+      `users/${userId}/notes`,
+      collection(db, 'users', userId, 'notes')
+    ),
+    safeGetDocs(
+      `users/${userId}/budgets`,
+      collection(db, 'users', userId, 'budgets')
+    ),
+    safeGetDocs(
+      `users/${userId}/recurringBills`,
+      collection(db, 'users', userId, 'recurringBills')
+    ),
+    safeGetDocs(
+      `users/${userId}/habits`,
+      collection(db, 'users', userId, 'habits')
+    ),
+    safeGetDocs(
+      `users/${userId}/savingsGoals`,
+      collection(db, 'users', userId, 'savingsGoals')
+    ),
+    safeGetDocs(
+      `users/${userId}/debts`,
+      collection(db, 'users', userId, 'debts')
+    ),
+    safeGetDocs(
+      `users/${userId}/focusSessions`,
+      collection(db, 'users', userId, 'focusSessions')
+    ),
+  ]);
 
-    const readCollection = <T extends Record<string, unknown>>(
-      snap: Awaited<ReturnType<typeof getDocs>>
-    ): T[] => {
-      const list: T[] = [];
-      snap.forEach((d) => {
-        list.push(stripServerMeta(d.data() as T));
-      });
-      return list;
-    };
+  const readCollection = <T extends Record<string, unknown>>(
+    snap: Awaited<ReturnType<typeof getDocs>>
+  ): T[] => {
+    const list: T[] = [];
+    snap.forEach((d) => {
+      list.push(stripServerMeta(d.data() as T));
+    });
+    return list;
+  };
 
-    let settings: WorkspaceSettingsPayload | undefined;
-    if (settingsSnap.exists()) {
-      const data = settingsSnap.data();
-      settings = {
-        primaryIncome: data.primaryIncome as PrimaryIncomeConfig,
-        focusGoal: (data.focusGoal as FocusGoal | null) ?? null,
-        notificationSettings: normalizeNotificationSettings(
-          data.notificationSettings as Partial<NotificationSettings>
-        ),
-        isDark: Boolean(data.isDark),
-        customCategories: Array.isArray(data.customCategories)
-          ? (data.customCategories as CustomCategory[])
-          : [],
-      };
-    }
-
-    const budgetsRaw = readCollection<BudgetLimit & Record<string, unknown>>(budgetsSnap);
-
-    return {
-      transactions: readCollection<Transaction & Record<string, unknown>>(txSnap).sort(
-        (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')
+  let settings: WorkspaceSettingsPayload | undefined;
+  if (settingsSnap.exists()) {
+    const data = settingsSnap.data();
+    settings = {
+      primaryIncome: data.primaryIncome as PrimaryIncomeConfig,
+      focusGoal: (data.focusGoal as FocusGoal | null) ?? null,
+      notificationSettings: normalizeNotificationSettings(
+        data.notificationSettings as Partial<NotificationSettings>
       ),
-      cards: readCollection<BankCard & Record<string, unknown>>(cardsSnap),
-      tasks: readCollection<Task & Record<string, unknown>>(tasksSnap),
-      notes: readCollection<Note & Record<string, unknown>>(notesSnap),
-      budgets: budgetsRaw.map(({ category, limit }) => ({ category, limit })),
-      recurringBills: readCollection<RecurringBill & Record<string, unknown>>(billsSnap),
-      habits: readCollection<Habit & Record<string, unknown>>(habitsSnap),
-      savingsGoals: readCollection<SavingsGoal & Record<string, unknown>>(goalsSnap),
-      debts: readCollection<DebtItem & Record<string, unknown>>(debtsSnap),
-      focusSessions: readCollection<FocusSession & Record<string, unknown>>(focusSnap),
-      settings,
+      isDark: Boolean(data.isDark),
+      customCategories: Array.isArray(data.customCategories)
+        ? (data.customCategories as CustomCategory[])
+        : [],
     };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, `users/${userId}`);
-    return null;
   }
+
+  const budgetsRaw = readCollection<BudgetLimit & Record<string, unknown>>(budgetsSnap);
+
+  return {
+    transactions: readCollection<Transaction & Record<string, unknown>>(txSnap).sort(
+      (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')
+    ),
+    cards: readCollection<BankCard & Record<string, unknown>>(cardsSnap),
+    tasks: readCollection<Task & Record<string, unknown>>(tasksSnap),
+    notes: readCollection<Note & Record<string, unknown>>(notesSnap),
+    budgets: budgetsRaw.map(({ category, limit }) => ({ category, limit })),
+    recurringBills: readCollection<RecurringBill & Record<string, unknown>>(billsSnap),
+    habits: readCollection<Habit & Record<string, unknown>>(habitsSnap),
+    savingsGoals: readCollection<SavingsGoal & Record<string, unknown>>(goalsSnap),
+    debts: readCollection<DebtItem & Record<string, unknown>>(debtsSnap),
+    focusSessions: readCollection<FocusSession & Record<string, unknown>>(focusSnap),
+    settings,
+  };
 }
 
 export async function uploadFullWorkspaceToCloud(
@@ -770,6 +824,7 @@ export async function uploadFullWorkspaceToCloud(
 ): Promise<void> {
   const ops: Array<{
     kind: 'set' | 'update';
+    path: string;
     ref: ReturnType<typeof doc>;
     data: Record<string, unknown>;
   }> = [];
@@ -778,6 +833,7 @@ export async function uploadFullWorkspaceToCloud(
     const settingsAlreadyExists = Boolean(existingCloud?.settings);
     ops.push({
       kind: settingsAlreadyExists ? 'update' : 'set',
+      path: `users/${userId}/settings/workspace`,
       ref: doc(db, 'users', userId, 'settings', 'workspace'),
       data: buildSettingsDoc(snapshot.settings, userId, !settingsAlreadyExists),
     });
@@ -801,12 +857,14 @@ export async function uploadFullWorkspaceToCloud(
       if (prevSerialized === undefined) {
         ops.push({
           kind: 'set',
+          path: `users/${userId}/${collectionName}/${docId}`,
           ref: doc(db, 'users', userId, collectionName, docId),
           data: buildDoc(item, userId, true),
         });
       } else if (prevSerialized !== serialize(item)) {
         ops.push({
           kind: 'update',
+          path: `users/${userId}/${collectionName}/${docId}`,
           ref: doc(db, 'users', userId, collectionName, docId),
           data: buildDoc(item, userId, false),
         });
@@ -899,10 +957,11 @@ export async function uploadFullWorkspaceToCloud(
     try {
       await batch.commit();
     } catch (error) {
+      const targetPath = chunk.length === 1 ? chunk[0].path : `users/${userId} (batch: ${chunk[0]?.path ?? ''})`;
       handleFirestoreError(
         error,
         OperationType.WRITE,
-        `users/${userId}`
+        targetPath
       );
     }
   }
