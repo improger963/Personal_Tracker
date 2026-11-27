@@ -45,6 +45,7 @@ import {
   Transaction,
 } from '../types';
 import { SmartDailyBriefCard } from './SmartDailyBriefCard';
+import { SmartWidgetsHub } from './SmartWidgetsHub';
 import {
   SmartInsightTarget,
   generateSmartDailyInsights,
@@ -1032,6 +1033,24 @@ export const OverviewView = memo(function OverviewView({
         insights={smartInsights}
         onRunTarget={handleInsightTarget}
         onOpenAssistant={(prompt) => onOpenAssistant?.(prompt)}
+      />
+
+      {/* Integrated Smart Widgets Hub */}
+      <SmartWidgetsHub
+        currency={currency}
+        selectedMonth={selectedMonth}
+        cycleLabel={cycleLabel}
+        transactions={monthTransactions}
+        tasks={tasks}
+        habits={habits}
+        focusGoal={focusGoal}
+        safeToSpend={safeToSpend}
+        netWorth={netWorth}
+        totalIncome={totalIncome}
+        totalExpense={totalExpense}
+        onOpenAssistant={(prompt) => onOpenAssistant?.(prompt)}
+        onNavigateFinance={onNavigateFinance}
+        onNavigatePlanner={onNavigatePlanner}
       />
 
       {/* Row 2: Recent Transactions | Budget Health | Notes, Goals & Debts */}
