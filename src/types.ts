@@ -4,6 +4,8 @@ export type IncomeKind = 'monthly' | 'extra' | 'one_time';
 
 export type Currency = 'AMD';
 
+export type CardCurrency = 'AMD' | 'USD' | 'EUR' | 'RUB' | 'GEL';
+
 export type NavSection = 'overview' | 'finance' | 'planner' | 'notes';
 
 export type PlannerPageTab = 'tasks' | 'habits' | 'focus';
@@ -14,13 +16,23 @@ export type TaskScheduleType = 'one_time' | 'daily' | 'recurring' | 'weekdays';
 
 export type TaskRepeatInterval = 'weekly' | 'biweekly' | 'monthly' | 'every_n_days';
 
+export interface CustomCategory {
+  id: string;
+  name: string;
+  type: TransactionType;
+  color: string;
+}
+
 export interface Transaction {
   id: string;
   type: TransactionType;
   incomeKind?: IncomeKind;
-  amount: number;
+  amount: number; // Always consolidated in AMD for unified budgets/cycles/runway
+  cardAmount?: number; // Optional native currency amount when linked to a non-AMD card
+  cardCurrency?: CardCurrency;
   title: string; // Source for income, purpose for expense
   category: string;
+  tags?: string[]; // Up to 8 lowercase/clean hashtag strings (without leading #)
   date: string; // YYYY-MM-DD
   createdAt: string;
   primaryCycleKey?: string;
@@ -50,6 +62,9 @@ export interface Task {
   repeatEveryDays?: number; // used when repeatInterval === 'every_n_days'
   selectedWeekdays?: number[]; // 0..6 (Sun..Sat), used when scheduleType === 'weekdays'
   completedDates?: string[]; // YYYY-MM-DD[] for daily, recurring, and weekdays tasks
+  expectedAmount?: number; // Optional expected pre-expense amount linked with Planner
+  expectedCategory?: string; // Optional category for expected pre-expense
+  linkedTxId?: string; // Linked pending transaction ID created from Planner task
 }
 
 export interface NoteChecklistItem {
@@ -208,10 +223,7 @@ export interface BankCard {
   cardType: CardType;
   color: CardColor;
   initialBalance: number;
-  currency: 'AMD';
+  currency: CardCurrency;
   isDefault?: boolean;
   createdAt: string;
 }
-
-
-

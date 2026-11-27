@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Camera, Check, Loader2, Plus, Trash2, Wand2, X } from 'lucide-react';
+import {
+  Camera,
+  Check,
+  Coins,
+  Loader2,
+  Mic,
+  NotebookPen,
+  Plus,
+  Square,
+  Trash2,
+  Wand2,
+  X,
+} from 'lucide-react';
 import {
   EXPENSE_CATEGORIES,
   INCOME_CATEGORIES,
@@ -11,7 +23,15 @@ import {
 } from '../data/defaults';
 import { QUICK_AMOUNTS_AMD } from './finance/financeShared';
 import { triggerHaptic } from '../utils/haptics';
-import { fileToReceiptPayload, scanReceiptWithAI } from '../services/smartAi';
+import {
+  SupportedFxCode,
+  fetchLiveFxRates,
+  fileToReceiptPayload,
+  parseCommandWithAI,
+  scanReceiptWithAI,
+  transcribeAudioWithAI,
+} from '../services/smartAi';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import {
   TitleHistorySuggestion,
   getTitleSuggestionsFromHistory,
@@ -20,7 +40,9 @@ import {
 import {
   BankCard,
   CardColor,
+  CardCurrency,
   CardType,
+  CustomCategory,
   DebtDirection,
   DebtItem,
   Habit,
@@ -38,12 +60,26 @@ import {
 import {
   ARMENIAN_BANK_PRESETS,
   CARD_COLORS,
+  CARD_CURRENCIES,
+  CARD_CURRENCY_META,
   CARD_TYPE_META,
+  FxRatesToAmd,
   INTERNAL_TRANSFER_CATEGORY,
   computeCardStats,
+  convertFromAMD,
   formatCardLabel,
+  formatCardMoney,
   getDefaultCard,
+  getTxAmountInCardCurrency,
+  normalizeCardCurrency,
 } from '../utils/cardBalances';
+import {
+  extractHashtags,
+  mergeExpenseCategories,
+  mergeIncomeCategories,
+  normalizeTag,
+  normalizeTags,
+} from '../utils/customCategories';
 import { formatMoney } from '../data/defaults';
 import {
   TASK_REPEAT_INTERVAL_OPTIONS,
@@ -51,6 +87,11 @@ import {
   WEEKDAY_OPTIONS,
   getTaskScheduleType,
 } from '../utils/taskSchedule';
+import {
+  SplitExpenseSection,
+  SplitParticipant,
+  computeSplitAllocations,
+} from './modals/SplitExpenseSection';
 
 export type QuickModalMode =
   | 'transaction'
@@ -78,6 +119,8 @@ interface QuickAddModalProps {
   modalState: QuickModalState;
   transactions: Transaction[];
   cards: BankCard[];
+  customCategories?: CustomCategory[];
+  fxRates?: FxRatesToAmd | null;
   onClose: () => void;
   onAddTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
   onUpdateTransaction: (
@@ -107,6 +150,7 @@ interface QuickAddModalProps {
     updates: Omit<SavingsGoal, 'id' | 'createdAt'>
   ) => void;
   onAddDebt: (debt: Omit<DebtItem, 'id' | 'createdAt'>) => void;
+  onAddSplitDebts?: (debts: Array<Omit<DebtItem, 'id' | 'createdAt'>>) => void;
   onUpdateDebt: (
     id: string,
     updates: Omit<DebtItem, 'id' | 'createdAt'>
@@ -127,6 +171,8 @@ export function QuickAddModal({
   modalState,
   transactions,
   cards,
+  customCategories = [],
+  fxRates: initialFxRates = null,
   onClose,
   onAddTransaction,
   onUpdateTransaction,
@@ -141,6 +187,7 @@ export function QuickAddModal({
   onAddGoal,
   onUpdateGoal,
   onAddDebt,
+  onAddSplitDebts,
   onUpdateDebt,
 }: QuickAddModalProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -207,6 +254,16 @@ export function QuickAddModal({
     Boolean(editingTx)
   );
   const [isTxTitleFocused, setIsTxTitleFocused] = useState(false);
+  const [txTags, setTxTags] = useState<string[]>(() =>
+    normalizeTags(editingTx?.tags ?? txPrefill?.tags ?? [])
+  );
+  const [tagInput, setTagInput] = useState('');
+  const [splitEnabled, setSplitEnabled] = useState(false);
+  const [splitMode, setSplitMode] = useState<'equal' | 'custom'>('equal');
+  const [splitIncludeSelf, setSplitIncludeSelf] = useState(true);
+  const [splits, setSplits] = useState<SplitParticipant[]>([
+    { id: 'sp-1', person: '', amountStr: '' },
+  ]);
 
   // Card / Wallet state
   const [cardName, setCardName] = useState(editingCard?.name ?? '');
@@ -216,6 +273,9 @@ export function QuickAddModal({
   );
   const [cardColor, setCardColor] = useState<CardColor>(
     editingCard?.color ?? 'blue'
+  );
+  const [cardCurrency, setCardCurrency] = useState<CardCurrency>(
+    normalizeCardCurrency(editingCard?.currency ?? 'AMD')
   );
   const [cardInitialBalance, setCardInitialBalance] = useState(
     editingCard ? String(editingCard.initialBalance) : '0'
@@ -243,6 +303,12 @@ export function QuickAddModal({
     editingTask?.selectedWeekdays && editingTask.selectedWeekdays.length > 0
       ? editingTask.selectedWeekdays
       : [1, 2, 3, 4, 5]
+  );
+  const [taskExpectedAmount, setTaskExpectedAmount] = useState(
+    editingTask?.expectedAmount ? String(editingTask.expectedAmount) : ''
+  );
+  const [taskExpectedCategory, setTaskExpectedCategory] = useState(
+    editingTask?.expectedCategory ?? EXPENSE_CATEGORIES[0]
   );
 
   // Habit state
@@ -289,7 +355,21 @@ export function QuickAddModal({
   const [error, setError] = useState('');
   const [receiptScanning, setReceiptScanning] = useState(false);
   const [receiptInfo, setReceiptInfo] = useState('');
+  const [receiptItems, setReceiptItems] = useState<string[]>([]);
+  const [receiptNoteSaved, setReceiptNoteSaved] = useState(false);
   const receiptInputRef = useRef<HTMLInputElement>(null);
+
+  // FX-to-AMD converter state
+  const [inputCurrency, setInputCurrency] = useState<'AMD' | SupportedFxCode>('AMD');
+  const [fxRates, setFxRates] = useState<Partial<Record<SupportedFxCode, number>>>(
+    () => ({ ...(initialFxRates ?? {}) })
+  );
+  const [fxLoading, setFxLoading] = useState(false);
+  const [customFxRate, setCustomFxRate] = useState('');
+
+  // Voice dictation state
+  const voiceRecorder = useVoiceRecorder();
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false);
 
   const amountRef = useRef<HTMLInputElement>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
@@ -320,15 +400,21 @@ export function QuickAddModal({
     return () => window.clearTimeout(timer);
   }, [mode]);
 
+  const effectiveFxRates = useMemo<FxRatesToAmd>(
+    () => ({ ...(initialFxRates ?? {}), ...fxRates }),
+    [initialFxRates, fxRates]
+  );
+
   const cardStatsMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeCardStats>>();
     for (const c of cards) {
-      map.set(c.id, computeCardStats(c, transactions));
+      map.set(c.id, computeCardStats(c, transactions, effectiveFxRates));
     }
     return map;
-  }, [cards, transactions]);
+  }, [cards, transactions, effectiveFxRates]);
 
   const selectedCardStats = txCardId ? cardStatsMap.get(txCardId) : undefined;
+  const selectedCardCurrency = selectedCardStats?.currency ?? 'AMD';
 
   const autoCategoryPrediction = useMemo(
     () =>
@@ -418,6 +504,8 @@ export function QuickAddModal({
     if (!file || receiptScanning) return;
     setError('');
     setReceiptInfo('');
+    setReceiptItems([]);
+    setReceiptNoteSaved(false);
     setReceiptScanning(true);
     try {
       const payload = await fileToReceiptPayload(file);
@@ -426,6 +514,7 @@ export function QuickAddModal({
         todayISO: getTodayISO(),
       });
       setTxType('expense');
+      setInputCurrency('AMD');
       if (result.amount > 0) setTxAmount(String(result.amount));
       if (result.title) setTxTitle(result.title);
       if (result.category) {
@@ -433,6 +522,9 @@ export function QuickAddModal({
         setUserSelectedCategory(true);
       }
       if (result.date) setTxDate(result.date);
+      if (result.items && result.items.length > 0) {
+        setReceiptItems(result.items);
+      }
       setReceiptInfo(
         result.itemsSummary
           ? `Կտրոնը կարդացվեց · ${result.itemsSummary}`
@@ -445,6 +537,137 @@ export function QuickAddModal({
       );
     } finally {
       setReceiptScanning(false);
+    }
+  };
+
+  const handleSaveReceiptAsNote = () => {
+    if (receiptItems.length === 0 || receiptNoteSaved) return;
+    onAddNote({
+      title: `${txTitle.trim() || 'Կտրոնի գնումներ'} · ${txDate}`,
+      content: receiptInfo || '',
+      checklist: receiptItems.map((line, i) => ({
+        id: `rcpt-${Date.now()}-${i}`,
+        text: line,
+        done: true,
+      })),
+      pinned: false,
+    });
+    setReceiptNoteSaved(true);
+    triggerHaptic('light');
+  };
+
+  const handleSelectCurrency = async (nextCur: 'AMD' | SupportedFxCode) => {
+    setInputCurrency(nextCur);
+    if (nextCur === 'AMD') {
+      setCustomFxRate('');
+      return;
+    }
+    if (fxRates[nextCur] && fxRates[nextCur]! > 0) {
+      setCustomFxRate(String(fxRates[nextCur]));
+      return;
+    }
+    setFxLoading(true);
+    try {
+      const live = await fetchLiveFxRates();
+      setFxRates(live.rates);
+      if (live.rates[nextCur] > 0) {
+        setCustomFxRate(String(live.rates[nextCur]));
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Փոխարժեքը հնարավոր չեղավ ստանալ․ մուտքագրեք ձեռքով։'
+      );
+    } finally {
+      setFxLoading(false);
+    }
+  };
+
+  const effectiveRate =
+    inputCurrency === 'AMD'
+      ? 1
+      : Math.max(0, Number(customFxRate) || fxRates[inputCurrency] || 0);
+  const convertedAmountAMD =
+    inputCurrency === 'AMD'
+      ? Math.round(Number(txAmount) || 0)
+      : Math.round((Number(txAmount) || 0) * effectiveRate);
+
+  const handleQuickVoiceToggle = async () => {
+    setError('');
+    if (voiceRecorder.isRecording) {
+      const payload = await voiceRecorder.stopRecording();
+      if (!payload) return;
+      setVoiceTranscribing(true);
+      try {
+        const text = await transcribeAudioWithAI({
+          audioBase64: payload.audioBase64,
+          mimeType: payload.mimeType,
+        });
+        if (mode === 'transaction') {
+          const parsed = await parseCommandWithAI({
+            text,
+            todayISO: getTodayISO(),
+            cardNames: cards.map((c) => c.name),
+          });
+          const txItem = parsed.find((p) => p.kind === 'transaction');
+          if (txItem) {
+            setTxType(txItem.txType === 'income' ? 'income' : 'expense');
+            setInputCurrency('AMD');
+            if (txItem.amount && txItem.amount > 0) {
+              setTxAmount(String(txItem.amount));
+            }
+            setTxTitle(txItem.title);
+            if (txItem.category) {
+              setTxCategory(txItem.category);
+              setUserSelectedCategory(true);
+            }
+            if (txItem.date) setTxDate(txItem.date);
+            if (txItem.cardHint) {
+              const matched = cards.find(
+                (c) =>
+                  c.name.toLowerCase().includes(txItem.cardHint!.toLowerCase()) ||
+                  (txItem.cardHint!.toLowerCase().includes('կանխիկ') &&
+                    c.cardType === 'cash')
+              );
+              if (matched) setTxCardId(matched.id);
+            }
+          } else {
+            setTxTitle(text);
+          }
+        } else if (mode === 'task') {
+          const parsed = await parseCommandWithAI({
+            text,
+            todayISO: getTodayISO(),
+            cardNames: [],
+          });
+          const taskItem = parsed.find((p) => p.kind === 'task');
+          if (taskItem) {
+            setTaskTitle(taskItem.title);
+            if (taskItem.date) setTaskDate(taskItem.date);
+            if (taskItem.dueTime) setTaskTime(taskItem.dueTime);
+            if (taskItem.priority) setTaskPriority(taskItem.priority);
+          } else {
+            setTaskTitle(text);
+          }
+        } else if (mode === 'note') {
+          setNoteContent((prev) => (prev.trim() ? `${prev.trim()}\n${text}` : text));
+          if (!noteTitle.trim()) {
+            setNoteTitle(text.slice(0, 48));
+          }
+        }
+        triggerHaptic('light');
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Չհաջողվեց մշակել ձայնային հրահանգը։'
+        );
+      } finally {
+        setVoiceTranscribing(false);
+      }
+    } else {
+      await voiceRecorder.startRecording();
     }
   };
 
@@ -462,17 +685,35 @@ export function QuickAddModal({
     setNewChecklistText('');
   };
 
+  const handleAddTag = (rawValue: string) => {
+    const tag = normalizeTag(rawValue);
+    if (!tag) return;
+    setTxTags((prev) => normalizeTags([...prev, tag]));
+    setTagInput('');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (mode === 'transaction') {
-      const amount = Number(txAmount);
+      const rawAmount = Number(txAmount);
+      if (!rawAmount || rawAmount <= 0) {
+        setError('Խնդրում ենք մուտքագրել ճիշտ գումար։');
+        return;
+      }
+      if (inputCurrency !== 'AMD' && effectiveRate <= 0) {
+        setError(`Նշեք ${inputCurrency} → AMD փոխարժեքը։`);
+        return;
+      }
+      const amount = inputCurrency === 'AMD' ? Math.round(rawAmount) : convertedAmountAMD;
       if (!amount || amount <= 0) {
         setError('Խնդրում ենք մուտքագրել ճիշտ գումար։');
         return;
       }
-      if (!txTitle.trim()) {
+      const { cleanText, tags: inlineTags } = extractHashtags(txTitle.trim());
+      const baseTitle = cleanText || txTitle.trim();
+      if (!baseTitle) {
         setError(
           txType === 'income'
             ? 'Նշեք եկամտի աղբյուրը։'
@@ -480,20 +721,82 @@ export function QuickAddModal({
         );
         return;
       }
+      const finalTitle =
+        inputCurrency !== 'AMD' && !baseTitle.includes(inputCurrency)
+          ? `${baseTitle} (${rawAmount} ${inputCurrency})`
+          : baseTitle;
+
+      const mergedTags = normalizeTags([
+        ...txTags,
+        ...inlineTags,
+        ...(tagInput.trim() ? [tagInput.trim()] : []),
+      ]);
+
+      let splitSharesToCreate: Array<{ person: string; amount: number }> = [];
+      if (!isEditing && txType === 'expense' && splitEnabled) {
+        const splitRes = computeSplitAllocations({
+          totalAmountAMD: amount,
+          splitMode,
+          includeSelf: splitIncludeSelf,
+          splits,
+        });
+        if (!splitRes.isValid) {
+          setError(splitRes.errorMessage || 'Ստուգեք կիսվող ծախսի տվյալները։');
+          return;
+        }
+        splitSharesToCreate = splitRes.shares.map((s) => ({
+          person: s.person,
+          amount: s.amount,
+        }));
+      }
+
+      let cardAmount: number | undefined;
+      let cardCurrency: CardCurrency | undefined;
+      if (selectedCardStats && selectedCardCurrency !== 'AMD') {
+        cardCurrency = selectedCardCurrency;
+        cardAmount =
+          inputCurrency === selectedCardCurrency
+            ? Math.round(rawAmount * 100) / 100
+            : convertFromAMD(amount, selectedCardCurrency, effectiveFxRates);
+      } else if (inputCurrency !== 'AMD') {
+        cardCurrency = inputCurrency;
+        cardAmount = Math.round(rawAmount * 100) / 100;
+      }
+
       const payload: Omit<Transaction, 'id' | 'createdAt'> = {
         type: txType,
         incomeKind: txType === 'income' ? txIncomeKind : undefined,
         amount,
-        title: txTitle.trim(),
+        title: finalTitle,
         category: txCategory,
         date: txDate || getTodayISO(),
         isPending: txType === 'expense' ? txIsPending : false,
         cardId: txCardId || undefined,
+        ...(cardAmount !== undefined && cardCurrency
+          ? { cardAmount, cardCurrency }
+          : {}),
+        ...(mergedTags.length > 0 ? { tags: mergedTags } : {}),
       };
       if (editingTx) {
         onUpdateTransaction(editingTx.id, payload);
       } else {
         onAddTransaction(payload);
+        if (splitSharesToCreate.length > 0) {
+          const splitDebts: Array<Omit<DebtItem, 'id' | 'createdAt'>> =
+            splitSharesToCreate.map((s) => ({
+              person: s.person,
+              direction: 'lent',
+              totalAmount: s.amount,
+              paidAmount: 0,
+              settled: false,
+              note: `Կիսված ծախս՝ ${finalTitle}`,
+            }));
+          if (onAddSplitDebts) {
+            onAddSplitDebts(splitDebts);
+          } else {
+            splitDebts.forEach((d) => onAddDebt(d));
+          }
+        }
       }
       onClose();
       return;
@@ -510,13 +813,18 @@ export function QuickAddModal({
         setError('Մուտքագրեք ճիշտ սկզբնական բալանս։');
         return;
       }
+      const normalizedCur = normalizeCardCurrency(cardCurrency);
+      const roundedInitial =
+        normalizedCur === 'AMD'
+          ? Math.round(parsedBalance)
+          : Math.round(parsedBalance * 100) / 100;
       const payload: Omit<BankCard, 'id' | 'createdAt'> = {
         name: trimmedName.slice(0, 120),
         last4: cardType === 'cash' ? '' : cardLast4.replace(/\D/g, '').slice(0, 4),
         cardType,
         color: cardColor,
-        initialBalance: Math.round(parsedBalance),
-        currency: 'AMD',
+        initialBalance: roundedInitial,
+        currency: normalizedCur,
         isDefault: cardIsDefault,
       };
       if (editingCard) {
@@ -541,7 +849,12 @@ export function QuickAddModal({
         1,
         Math.round(Number(taskRepeatEveryDays) || 2)
       );
-      const payload = {
+      const parsedExpected = Number(taskExpectedAmount);
+      const expectedAmount =
+        Number.isFinite(parsedExpected) && parsedExpected > 0
+          ? Math.round(parsedExpected)
+          : undefined;
+      const payload: Omit<Task, 'id' | 'completed' | 'createdAt'> = {
         title: taskTitle.trim(),
         priority: taskPriority,
         dueTime: taskTime || undefined,
@@ -560,6 +873,13 @@ export function QuickAddModal({
           taskScheduleType !== 'one_time'
             ? editingTask?.completedDates ?? []
             : undefined,
+        ...(expectedAmount
+          ? {
+              expectedAmount,
+              expectedCategory: taskExpectedCategory || EXPENSE_CATEGORIES[0],
+            }
+          : {}),
+        ...(editingTask?.linkedTxId ? { linkedTxId: editingTask.linkedTxId } : {}),
       };
       if (editingTask) {
         onUpdateTask(editingTask.id, payload);
@@ -679,7 +999,9 @@ export function QuickAddModal({
 
   const categories = useMemo(() => {
     const base: string[] =
-      txType === 'income' ? [...INCOME_CATEGORIES] : [...EXPENSE_CATEGORIES];
+      txType === 'income'
+        ? mergeIncomeCategories(customCategories)
+        : mergeExpenseCategories(customCategories);
     if (
       editingTx?.category === INTERNAL_TRANSFER_CATEGORY &&
       !base.includes(INTERNAL_TRANSFER_CATEGORY)
@@ -687,7 +1009,12 @@ export function QuickAddModal({
       base.push(INTERNAL_TRANSFER_CATEGORY);
     }
     return base;
-  }, [txType, editingTx?.category]);
+  }, [txType, editingTx?.category, customCategories]);
+
+  const expenseCategoriesForTask = useMemo(
+    () => mergeExpenseCategories(customCategories),
+    [customCategories]
+  );
 
   return (
     <div
@@ -793,37 +1120,106 @@ export function QuickAddModal({
               </div>
 
               {!isEditing && (
-                <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120]">
-                  <input
-                    ref={receiptInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      void handleReceiptFileChange(f);
-                      e.target.value = '';
-                    }}
-                  />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
-                      {receiptInfo || 'Լրացրեք ավտոմատ կտրոնի կամ չեկի լուսանկարից'}
-                    </p>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120]">
+                    <input
+                      ref={receiptInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        void handleReceiptFileChange(f);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                        {voiceRecorder.isRecording
+                          ? 'Լսում եմ… թելադրեք ծախսը կամ եկամուտը'
+                          : voiceTranscribing
+                            ? 'Ձայնագրությունը վերլուծվում է…'
+                            : receiptInfo || 'Լրացրեք կտրոնի նկարից կամ թելադրեք ձայնով'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {voiceRecorder.isSupported && (
+                        <button
+                          type="button"
+                          disabled={voiceTranscribing || receiptScanning}
+                          onClick={() => void handleQuickVoiceToggle()}
+                          className={`min-h-[32px] px-2.5 py-1 rounded-lg border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 ${
+                            voiceRecorder.isRecording
+                              ? 'bg-rose-600 border-rose-600 text-white'
+                              : 'border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB]'
+                          }`}
+                        >
+                          {voiceTranscribing ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : voiceRecorder.isRecording ? (
+                            <>
+                              <Square className="w-3 h-3 fill-current" />
+                              <span className="font-mono tabular-nums">{voiceRecorder.elapsedSec}վ</span>
+                            </>
+                          ) : (
+                            <>
+                              <Mic className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                              <span>Ձայնով</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={receiptScanning || voiceRecorder.isRecording}
+                        onClick={() => receiptInputRef.current?.click()}
+                        className="shrink-0 min-h-[32px] px-2.5 py-1 rounded-lg border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {receiptScanning ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Camera className="w-3.5 h-3.5" />
+                        )}
+                        <span>{receiptScanning ? 'Կարդում է…' : 'Սկան կտրոն'}</span>
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={receiptScanning}
-                    onClick={() => receiptInputRef.current?.click()}
-                    className="shrink-0 min-h-[32px] px-2.5 py-1 rounded-lg border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {receiptScanning ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Camera className="w-3.5 h-3.5" />
-                    )}
-                    <span>{receiptScanning ? 'Կարդում է…' : 'Սկան կտրոն'}</span>
-                  </button>
+
+                  {receiptItems.length > 0 && (
+                    <div className="px-3 py-2.5 rounded-xl border border-[#CBD5E1]/70 dark:border-[#26334D] bg-[#EFF6FF]/45 dark:bg-[#172554]/25 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold text-[#1D4ED8] dark:text-[#60A5FA]">
+                          Կտրոնի ապրանքներ ({receiptItems.length})
+                        </span>
+                        <button
+                          type="button"
+                          disabled={receiptNoteSaved}
+                          onClick={handleSaveReceiptAsNote}
+                          className="min-h-[26px] px-2 py-0.5 rounded-md border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-[11px] font-semibold text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] inline-flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                        >
+                          {receiptNoteSaved ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-500" />
+                              <span>Պահպանվեց նշումներում</span>
+                            </>
+                          ) : (
+                            <>
+                              <NotebookPen className="w-3 h-3 text-[#2563EB] dark:text-[#60A5FA]" />
+                              <span>Պահել նաև որպես նշում</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      <ul className="max-h-24 overflow-y-auto scroll-container space-y-0.5 text-[11px] text-[#475569] dark:text-[#CBD5E1]">
+                        {receiptItems.map((line, i) => (
+                          <li key={`${line}-${i}`} className="truncate">
+                            · {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -854,17 +1250,35 @@ export function QuickAddModal({
               <div>
                 <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                      Գումար (֏)
-                    </label>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                        Գումար ({inputCurrency})
+                      </label>
+                      <div className="inline-flex items-center gap-1">
+                        {(['AMD', 'USD', 'EUR', 'RUB', 'GEL'] as const).map((code) => (
+                          <button
+                            key={code}
+                            type="button"
+                            onClick={() => void handleSelectCurrency(code)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold cursor-pointer transition-colors ${
+                              inputCurrency === code
+                                ? 'bg-[#2563EB] text-white'
+                                : 'bg-[#F1F5F9] dark:bg-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
+                            }`}
+                          >
+                            {code}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <input
                       ref={amountRef}
                       type="number"
-                      min="1"
+                      min={inputCurrency === 'AMD' ? '1' : '0.01'}
                       step="any"
                       value={txAmount}
                       onChange={(e) => setTxAmount(e.target.value)}
-                      placeholder="10000"
+                      placeholder={inputCurrency === 'AMD' ? '10000' : '100'}
                       className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums rounded-xl input-field"
                     />
                   </div>
@@ -891,18 +1305,49 @@ export function QuickAddModal({
                   </div>
                 </div>
 
-                <div className="mt-2 grid grid-cols-4 gap-1.5">
-                  {QUICK_AMOUNTS_AMD.map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => handleQuickPreset(preset)}
-                      className="min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] active:scale-[0.96] transition-all cursor-pointer"
-                    >
-                      +{preset.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
+                {inputCurrency !== 'AMD' && (
+                  <div className="mt-2 px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Coins className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                      <span className="text-[#64748B] dark:text-[#94A3B8]">
+                        1 {inputCurrency} =
+                      </span>
+                      {fxLoading ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2563EB]" />
+                      ) : (
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={customFxRate}
+                          onChange={(e) => setCustomFxRate(e.target.value)}
+                          placeholder="Փոխարժեք"
+                          aria-label={`${inputCurrency} փոխարժեք`}
+                          className="w-20 min-h-[28px] px-2 py-0.5 text-xs font-mono tabular-nums rounded-lg input-field"
+                        />
+                      )}
+                      <span className="text-[#64748B] dark:text-[#94A3B8]">֏</span>
+                    </div>
+                    <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+                      = {formatMoney(convertedAmountAMD)}
+                    </span>
+                  </div>
+                )}
+
+                {inputCurrency === 'AMD' && (
+                  <div className="mt-2 grid grid-cols-4 gap-1.5">
+                    {QUICK_AMOUNTS_AMD.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleQuickPreset(preset)}
+                        className="min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] active:scale-[0.96] transition-all cursor-pointer"
+                      >
+                        +{preset.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="relative">
@@ -1012,6 +1457,60 @@ export function QuickAddModal({
               </div>
 
               <div>
+                <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                  #Թեգեր (ըստ ցանկության)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val.endsWith(',')) {
+                        handleAddTag(val.slice(0, -1));
+                      } else {
+                        setTagInput(val);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && tagInput.trim()) {
+                        e.preventDefault();
+                        handleAddTag(tagInput);
+                      }
+                    }}
+                    placeholder="Օրինակ՝ գործուղում, ընտանիք (Enter)"
+                    className="flex-1 min-w-0 min-h-[38px] px-3 py-1.5 text-xs sm:text-sm rounded-xl input-field"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddTag(tagInput)}
+                    disabled={!tagInput.trim()}
+                    className="min-h-[38px] px-3 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] hover:border-[#2563EB] disabled:opacity-45 cursor-pointer shrink-0"
+                  >
+                    + #թեգ
+                  </button>
+                </div>
+                {txTags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {txTags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() =>
+                          setTxTags((prev) => prev.filter((t) => t !== tag))
+                        }
+                        title="Սեղմեք՝ հեռացնելու համար"
+                        className="px-2 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-mono text-[#1D4ED8] dark:text-[#60A5FA] hover:border-rose-400 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>#{tag}</span>
+                        <X className="w-3 h-3 opacity-70" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
                     Քարտ / Դրամապանակ
@@ -1036,42 +1535,73 @@ export function QuickAddModal({
                 >
                   {cards.map((card) => {
                     const stats = cardStatsMap.get(card.id);
+                    const cur = normalizeCardCurrency(card.currency);
                     const bal = stats?.currentBalance ?? card.initialBalance;
                     return (
                       <option key={card.id} value={card.id}>
-                        {formatCardLabel(card)} ({formatMoney(bal, 'AMD')})
+                        {formatCardLabel(card)} ({formatCardMoney(bal, cur)})
                       </option>
                     );
                   })}
                   <option value="">Առանց քարտի (չկապված)</option>
                 </select>
 
-                {selectedCardStats && Number(txAmount) > 0 && (
-                  <p className="mt-1 text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
-                    {txType === 'expense' && txIsPending ? (
-                      'Սպասվող նախածախս · քարտի բալանսից դեռ չի հանվի'
-                    ) : (
-                      <>
-                        Քարտի բալանսը կդառնա՝{' '}
-                        <strong
-                          className={
-                            txType === 'income'
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-[#0F172A] dark:text-[#F8FAFC]'
-                          }
-                        >
-                          {formatMoney(
-                            selectedCardStats.currentBalance +
-                              (txType === 'income'
-                                ? Number(txAmount)
-                                : -Number(txAmount)),
-                            'AMD'
-                          )}
-                        </strong>
-                      </>
-                    )}
-                  </p>
-                )}
+                {selectedCardStats && convertedAmountAMD > 0 && (() => {
+                  const rawNum = Number(txAmount) || 0;
+                  const editingContribution =
+                    editingTx && editingTx.cardId === txCardId
+                      ? editingTx.type === 'income'
+                        ? getTxAmountInCardCurrency(
+                            editingTx,
+                            selectedCardCurrency,
+                            effectiveFxRates
+                          )
+                        : editingTx.isPending
+                          ? 0
+                          : -getTxAmountInCardCurrency(
+                              editingTx,
+                              selectedCardCurrency,
+                              effectiveFxRates
+                            )
+                      : 0;
+                  const nextNativeAmount =
+                    selectedCardCurrency === 'AMD'
+                      ? convertedAmountAMD
+                      : inputCurrency === selectedCardCurrency
+                        ? rawNum
+                        : convertFromAMD(
+                            convertedAmountAMD,
+                            selectedCardCurrency,
+                            effectiveFxRates
+                          );
+                  const nextContribution =
+                    txType === 'income' ? nextNativeAmount : -nextNativeAmount;
+                  const projectedCardBalance =
+                    selectedCardStats.currentBalance -
+                    editingContribution +
+                    nextContribution;
+
+                  return (
+                    <p className="mt-1 text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                      {txType === 'expense' && txIsPending ? (
+                        'Սպասվող նախածախս · քարտի բալանսից դեռ չի հանվի'
+                      ) : (
+                        <>
+                          Քարտի բալանսը կդառնա՝{' '}
+                          <strong
+                            className={`pa-sensitive ${
+                              txType === 'income'
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                            }`}
+                          >
+                            {formatCardMoney(projectedCardBalance, selectedCardCurrency)}
+                          </strong>
+                        </>
+                      )}
+                    </p>
+                  );
+                })()}
               </div>
 
               {txType === 'expense' && (
@@ -1109,6 +1639,20 @@ export function QuickAddModal({
                     </div>
                   </label>
                 </div>
+              )}
+
+              {!isEditing && txType === 'expense' && (
+                <SplitExpenseSection
+                  totalAmountAMD={convertedAmountAMD}
+                  enabled={splitEnabled}
+                  onToggleEnabled={setSplitEnabled}
+                  splitMode={splitMode}
+                  onChangeMode={setSplitMode}
+                  includeSelf={splitIncludeSelf}
+                  onToggleIncludeSelf={setSplitIncludeSelf}
+                  splits={splits}
+                  onChangeSplits={setSplits}
+                />
               )}
             </>
           )}
@@ -1152,10 +1696,28 @@ export function QuickAddModal({
                 />
               </div>
 
-              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                    Սկզբնական բալանս (֏)
+                    Արժույթ
+                  </label>
+                  <select
+                    value={cardCurrency}
+                    onChange={(e) =>
+                      setCardCurrency(normalizeCardCurrency(e.target.value))
+                    }
+                    className="w-full min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
+                  >
+                    {CARD_CURRENCIES.map((cur) => (
+                      <option key={cur} value={cur}>
+                        {CARD_CURRENCY_META[cur].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
+                    Սկզբնական բալանս ({CARD_CURRENCY_META[cardCurrency].symbol})
                   </label>
                   <input
                     type="number"
@@ -1248,9 +1810,37 @@ export function QuickAddModal({
           {mode === 'task' && (
             <>
               <div>
-                <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                  Անելիքի անվանում
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                    Անելիքի անվանում
+                  </label>
+                  {voiceRecorder.isSupported && (
+                    <button
+                      type="button"
+                      disabled={voiceTranscribing}
+                      onClick={() => void handleQuickVoiceToggle()}
+                      className={`min-h-[26px] px-2 py-0.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                        voiceRecorder.isRecording
+                          ? 'bg-rose-600 border-rose-600 text-white'
+                          : 'border-[#E2E8F0] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                      }`}
+                    >
+                      {voiceTranscribing ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : voiceRecorder.isRecording ? (
+                        <>
+                          <Square className="w-2.5 h-2.5 fill-current" />
+                          <span className="font-mono tabular-nums">{voiceRecorder.elapsedSec}վ</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3 h-3 text-[#2563EB] dark:text-[#60A5FA]" />
+                          <span>Ձայնով</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <input
                   ref={taskInputRef}
                   type="text"
@@ -1422,6 +2012,40 @@ export function QuickAddModal({
                   />
                 </div>
               </div>
+
+              <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC]/80 dark:bg-[#0B1120] p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-[#475569] dark:text-[#CBD5E1]">
+                    Նախատեսվող ծախս (ըստ ցանկության)
+                  </span>
+                  <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                    Ավտոմատ նախածախս մատյանում
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5">
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={taskExpectedAmount}
+                    onChange={(e) => setTaskExpectedAmount(e.target.value)}
+                    placeholder="Գումար (֏), օր. 8000"
+                    className="w-full min-h-[38px] px-3 py-1.5 text-xs sm:text-sm font-mono tabular-nums rounded-xl input-field"
+                  />
+                  <select
+                    value={taskExpectedCategory}
+                    onChange={(e) => setTaskExpectedCategory(e.target.value)}
+                    disabled={!Number(taskExpectedAmount)}
+                    className="w-full min-h-[38px] px-3 py-1.5 text-xs sm:text-sm rounded-xl input-field disabled:opacity-50"
+                  >
+                    {expenseCategoriesForTask.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </>
           )}
 
@@ -1447,9 +2071,37 @@ export function QuickAddModal({
           {mode === 'note' && (
             <>
               <div>
-                <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                  Վերնագիր
-                </label>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                    Վերնագիր
+                  </label>
+                  {voiceRecorder.isSupported && (
+                    <button
+                      type="button"
+                      disabled={voiceTranscribing}
+                      onClick={() => void handleQuickVoiceToggle()}
+                      className={`min-h-[26px] px-2 py-0.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                        voiceRecorder.isRecording
+                          ? 'bg-rose-600 border-rose-600 text-white'
+                          : 'border-[#E2E8F0] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                      }`}
+                    >
+                      {voiceTranscribing ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : voiceRecorder.isRecording ? (
+                        <>
+                          <Square className="w-2.5 h-2.5 fill-current" />
+                          <span className="font-mono tabular-nums">{voiceRecorder.elapsedSec}վ</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3 h-3 text-[#2563EB] dark:text-[#60A5FA]" />
+                          <span>Թելադրել</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <input
                   ref={noteInputRef}
                   type="text"
@@ -1761,9 +2413,9 @@ export function QuickAddModal({
             </>
           )}
 
-          {error && (
+          {(error || voiceRecorder.error) && (
             <p className="text-xs text-rose-600 dark:text-rose-400" role="alert">
-              {error}
+              {error || voiceRecorder.error}
             </p>
           )}
 

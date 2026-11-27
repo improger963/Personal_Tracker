@@ -1,8 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
-  ArrowDown,
-  ArrowUp,
   ArrowUpDown,
   Bot,
   CalendarDays,
@@ -15,6 +13,7 @@ import {
   Plus,
   Repeat,
   Search,
+  Sparkles,
   Timer,
   Trash2,
   X,
@@ -29,7 +28,13 @@ import {
 import { EmptyStatePlaceholder } from './ui/Skeleton';
 import { FocusTimerCard } from './FocusTimerCard';
 import { scrollToTopInstant } from '../utils/scroll';
-import { BrokenDownSubtask, breakdownTaskWithAI } from '../services/smartAi';
+import {
+  BrokenDownSubtask,
+  DayPlanResult,
+  breakdownTaskWithAI,
+  planDayWithAI,
+} from '../services/smartAi';
+import { getCurrentHHMM } from '../utils/notifications';
 import {
   FocusGoal,
   FocusSession,
@@ -39,8 +44,10 @@ import {
   Task,
   TaskPriority,
   TaskScheduleType,
+  Transaction,
 } from '../types';
 import {
+  formatMoney,
   formatShortDate,
   getLastNDaysISO,
   getTodayISO,
@@ -61,11 +68,16 @@ interface PlannerViewProps {
   activePage: PlannerPageTab;
   onSelectPage: (page: PlannerPageTab) => void;
   tasks: Task[];
+  transactions?: Transaction[];
+  onConfirmPreExpense?: (txId: string) => void;
   onAddTask?: (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => void;
   onOpenNewTaskModal: () => void;
   onEditTask: (task: Task) => void;
   onToggleTask: (id: string) => void;
   onUpdateTaskPriority: (id: string, priority: TaskPriority) => void;
+  onBatchUpdateTasks?: (
+    updates: Array<{ id: string; dueTime?: string; priority?: TaskPriority }>
+  ) => void;
   onDeleteTask: (id: string) => void;
   onClearCompleted: () => void;
   habits: Habit[];
@@ -144,11 +156,14 @@ export const PlannerView = memo(function PlannerView({
   activePage,
   onSelectPage,
   tasks,
+  transactions = [],
+  onConfirmPreExpense,
   onAddTask,
   onOpenNewTaskModal,
   onEditTask,
   onToggleTask,
   onUpdateTaskPriority,
+  onBatchUpdateTasks,
   onDeleteTask,
   onClearCompleted,
   habits,
@@ -164,6 +179,10 @@ export const PlannerView = memo(function PlannerView({
   onCompleteFocusSession,
 }: PlannerViewProps) {
   const prefersReducedMotion = useReducedMotion();
+  const txById = useMemo(
+    () => new Map(transactions.map((t) => [t.id, t])),
+    [transactions]
+  );
 
   // Inline rapid task composer state
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
@@ -175,6 +194,11 @@ export const PlannerView = memo(function PlannerView({
   const [aiSubtasks, setAiSubtasks] = useState<
     Array<BrokenDownSubtask & { selected: boolean }>
   >([]);
+
+  // AI Day Planner state
+  const [dayPlanLoading, setDayPlanLoading] = useState(false);
+  const [dayPlanError, setDayPlanError] = useState('');
+  const [dayPlanPreview, setDayPlanPreview] = useState<DayPlanResult | null>(null);
 
   const handleQuickTaskSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,6 +272,53 @@ export const PlannerView = memo(function PlannerView({
 
   const todayISO = getTodayISO();
   const last7Days = useMemo(() => getLastNDaysISO(7), [todayISO]);
+
+  const handlePlanDayAI = async () => {
+    if (dayPlanLoading) return;
+    const candidates = tasks
+      .filter((t) => !isTaskCompletedOnDate(t, todayISO))
+      .slice(0, 20)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        priority: t.priority ?? 'medium',
+        dueTime: t.dueTime,
+        isOverdue: isTaskOverdue(t, todayISO),
+      }));
+    if (candidates.length === 0) {
+      setDayPlanError('Պլանավորման համար ակտիվ անելիքներ չկան։');
+      return;
+    }
+    setDayPlanLoading(true);
+    setDayPlanError('');
+    try {
+      const plan = await planDayWithAI({
+        todayISO,
+        currentHHMM: getCurrentHHMM(),
+        focusGoal: focusGoal?.title,
+        tasks: candidates,
+      });
+      setDayPlanPreview(plan);
+    } catch (err) {
+      setDayPlanError(
+        err instanceof Error ? err.message : 'Հնարավոր չեղավ կազմել օրվա պլանը։'
+      );
+    } finally {
+      setDayPlanLoading(false);
+    }
+  };
+
+  const handleApplyDayPlan = () => {
+    if (!dayPlanPreview || !onBatchUpdateTasks) return;
+    onBatchUpdateTasks(
+      dayPlanPreview.allocations.map((a) => ({
+        id: a.taskId,
+        dueTime: a.dueTime,
+        priority: a.priority,
+      }))
+    );
+    setDayPlanPreview(null);
+  };
 
   const {
     completedCount,
@@ -426,16 +497,99 @@ export const PlannerView = memo(function PlannerView({
                 title="Անելիքներ և ժամանակացույց"
                 subtitle={`${activeCount} ընթացիկ անելիք · ${overdueCount} ժամկետանց`}
                 actions={
-                  <button
-                    type="button"
-                    onClick={onOpenNewTaskModal}
-                    className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
-                  >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span>Նոր անելիք</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {onBatchUpdateTasks && activeCount > 0 && (
+                      <button
+                        type="button"
+                        disabled={dayPlanLoading}
+                        onClick={() => void handlePlanDayAI()}
+                        className="min-h-[38px] px-3 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs sm:text-sm font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer disabled:opacity-50"
+                      >
+                        {dayPlanLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 shrink-0" />
+                        )}
+                        <span>{dayPlanLoading ? 'Պլանավորում է…' : 'AI օրվա պլան'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={onOpenNewTaskModal}
+                      className="min-h-[38px] px-3.5 py-2 rounded-xl btn-primary text-xs sm:text-sm inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span>Նոր անելիք</span>
+                    </button>
+                  </div>
                 }
               />
+
+              {dayPlanError && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/8 px-4 py-2.5 text-xs text-rose-700 dark:text-rose-300 flex items-center justify-between gap-2">
+                  <span>{dayPlanError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDayPlanError('')}
+                    className="text-[#64748B] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {dayPlanPreview && (
+                <SectionCard
+                  title="AI առաջարկվող օրվա ժամանակացույց"
+                  subtitle={dayPlanPreview.strategyTip}
+                  icon={Sparkles}
+                  headerRight={
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleApplyDayPlan}
+                        className="min-h-[32px] px-3 py-1 rounded-lg btn-primary text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Կիրառել բոլորին ({dayPlanPreview.allocations.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDayPlanPreview(null)}
+                        aria-label="Փակել առաջարկը"
+                        className="min-h-[32px] min-w-[32px] rounded-lg flex items-center justify-center text-[#64748B] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  }
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {dayPlanPreview.allocations.map((alloc) => {
+                      const matched = tasks.find((t) => t.id === alloc.taskId);
+                      if (!matched) return null;
+                      return (
+                        <div
+                          key={alloc.taskId}
+                          className="px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0 flex items-center gap-2">
+                            <span className="font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums shrink-0">
+                              {alloc.dueTime}
+                            </span>
+                            <span className="truncate font-medium text-[#0F172A] dark:text-[#F8FAFC]">
+                              {matched.title}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                            {PRIORITY_LABELS[alloc.priority]}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SectionCard>
+              )}
 
               <MetricStrip
                 items={[
@@ -490,7 +644,7 @@ export const PlannerView = memo(function PlannerView({
                         className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
                       />
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       <select
                         value={quickTaskPriority}
                         onChange={(e) =>
@@ -709,67 +863,24 @@ export const PlannerView = memo(function PlannerView({
                       ))}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94A3B8]">
-                        <ArrowUpDown className="w-3.5 h-3.5" aria-hidden="true" />
-                        <span>Տեսակավորել․</span>
-                      </span>
-                      <div
-                        className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle max-w-full"
-                        role="group"
-                        aria-label="Անելիքների տեսակավորում"
+                    <div className="flex items-center gap-2">
+                      <ArrowUpDown
+                        className="w-3.5 h-3.5 text-[#64748B] dark:text-[#94A3B8] shrink-0"
+                        aria-hidden="true"
+                      />
+                      <select
+                        value={sortBy}
+                        onChange={(e) =>
+                          setSortBy(e.target.value as TaskSortMode)
+                        }
+                        aria-label="Տեսակավորել անելիքները"
+                        className="min-h-[34px] px-2.5 py-1 text-xs rounded-xl input-field cursor-pointer"
                       >
-                        <button
-                          type="button"
-                          onClick={() => setSortBy('priority-desc')}
-                          aria-pressed={sortBy === 'priority-desc'}
-                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
-                            sortBy === 'priority-desc'
-                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                          }`}
-                        >
-                          <ArrowDown className="w-3 h-3 text-rose-600 dark:text-rose-400" />
-                          <span>Կարևորից</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSortBy('priority-asc')}
-                          aria-pressed={sortBy === 'priority-asc'}
-                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1 transition-colors cursor-pointer whitespace-nowrap ${
-                            sortBy === 'priority-asc'
-                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                          }`}
-                        >
-                          <ArrowUp className="w-3 h-3" />
-                          <span>Սովորականից</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSortBy('date-asc')}
-                          aria-pressed={sortBy === 'date-asc'}
-                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            sortBy === 'date-asc'
-                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                          }`}
-                        >
-                          Ըստ ժամկետի
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSortBy('newest')}
-                          aria-pressed={sortBy === 'newest'}
-                          className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
-                            sortBy === 'newest'
-                              ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
-                              : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
-                          }`}
-                        >
-                          Նորերը
-                        </button>
-                      </div>
+                        <option value="priority-desc">Կարևորից սովորական</option>
+                        <option value="priority-asc">Սովորականից կարևոր</option>
+                        <option value="date-asc">Ըստ ժամկետի</option>
+                        <option value="newest">Նոր ավելացվածներ</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -818,6 +929,15 @@ export const PlannerView = memo(function PlannerView({
                       const dueToday = isTaskDueOnDate(task, todayISO);
                       const nextDue = getTaskNextDueDate(task, todayISO);
                       const isOverdue = isTaskOverdue(task, todayISO);
+                      const linkedTx = task.linkedTxId
+                        ? txById.get(task.linkedTxId)
+                        : undefined;
+                      const expectedAmt =
+                        task.expectedAmount && task.expectedAmount > 0
+                          ? task.expectedAmount
+                          : linkedTx?.amount;
+                      const expectedCat =
+                        task.expectedCategory || linkedTx?.category;
 
                       return (
                         <div
@@ -922,6 +1042,16 @@ export const PlannerView = memo(function PlannerView({
                                     <span className="font-mono">{task.dueTime}</span>
                                   </>
                                 )}
+                                {expectedAmt && expectedAmt > 0 && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="pa-sensitive font-mono text-amber-600 dark:text-amber-400 font-medium">
+                                      Նախածախս՝ -{formatMoney(expectedAmt, 'AMD')}
+                                      {expectedCat ? ` (${expectedCat})` : ''}
+                                      {linkedTx && !linkedTx.isPending ? ' ✓' : ''}
+                                    </span>
+                                  </>
+                                )}
                                 {doneToday && (
                                   <>
                                     <span aria-hidden="true">·</span>
@@ -935,6 +1065,16 @@ export const PlannerView = memo(function PlannerView({
                           </button>
 
                           <div className="pl-8 sm:pl-0 flex items-center justify-between sm:justify-end gap-1.5 shrink-0">
+                            {linkedTx?.isPending && onConfirmPreExpense && (
+                              <button
+                                type="button"
+                                onClick={() => onConfirmPreExpense(linkedTx.id)}
+                                className="min-h-[34px] px-2.5 py-1 rounded-lg bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                              >
+                                Հաստատել ծախսը
+                              </button>
+                            )}
+
                             <select
                               value={taskPriority}
                               onChange={(e) =>

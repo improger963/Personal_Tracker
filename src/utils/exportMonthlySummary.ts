@@ -24,6 +24,7 @@ export interface MonthlySummaryReportInput {
   elapsedDays: number;
   daysInSelectedMonth: number;
   isCurrentMonth: boolean;
+  initialBalance?: number;
 }
 
 export interface CategoryStat {
@@ -79,12 +80,17 @@ export function buildMonthlySummaryStats(
       t.category !== INTERNAL_TRANSFER_CATEGORY &&
       isDateInCycle(t.date, input.selectedMonth, payday)
   );
-  const openingBalance = input.transactions
-    .filter(
-      (t) =>
-        t.category !== INTERNAL_TRANSFER_CATEGORY && t.date < bounds.startDate
-    )
-    .reduce((s, t) => s + (t.type === 'income' ? t.amount : (t.isPending ? 0 : -t.amount)), 0);
+  const safeInitial = Number.isFinite(input.initialBalance)
+    ? (input.initialBalance as number)
+    : 0;
+  const openingBalance =
+    safeInitial +
+    input.transactions
+      .filter(
+        (t) =>
+          t.category !== INTERNAL_TRANSFER_CATEGORY && t.date < bounds.startDate
+      )
+      .reduce((s, t) => s + (t.type === 'income' ? t.amount : (t.isPending ? 0 : -t.amount)), 0);
 
   const incomeTxs = monthTxs.filter((t) => t.type === 'income');
   const expenseTxs = monthTxs.filter((t) => t.type === 'expense' && !t.isPending);

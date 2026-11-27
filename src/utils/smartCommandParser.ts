@@ -296,7 +296,7 @@ export function parseSmartCommand(
 
   // Check explicit Task prefix
   const taskPrefixMatch = working.match(
-    /^(?:անելիք|գործ|հիշեցում|task|todo)\s*[:\-]?\s+(.+)$/i
+    /^(?:անելիք|գործ|հիշեցում|task|todo)\s*[:՝\-]?\s+(.+)$/i
   );
   if (taskPrefixMatch) {
     let body = taskPrefixMatch[1].trim();
@@ -326,7 +326,7 @@ export function parseSmartCommand(
 
   // Check explicit Note prefix
   const notePrefixMatch = working.match(
-    /^(?:նշում|միտք|note)\s*[:\-]?\s+(.+)$/i
+    /^(?:նշում|միտք|note)\s*[:՝\-]?\s+(.+)$/i
   );
   if (notePrefixMatch) {
     const body = notePrefixMatch[1].trim();

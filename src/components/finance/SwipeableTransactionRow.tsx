@@ -22,7 +22,7 @@ import {
   formatShortDate,
   getTransactionIncomeKind,
 } from '../../data/defaults';
-import { formatCardLabel } from '../../utils/cardBalances';
+import { formatCardLabel, formatCardMoney } from '../../utils/cardBalances';
 
 interface SwipeableTransactionRowProps {
   tx: Transaction;
@@ -248,6 +248,10 @@ export function SwipeableTransactionRow({
   };
 
   const cardMeta = card ? ` · ${formatCardLabel(card)}` : '';
+  const tagsMeta =
+    tx.tags && tx.tags.length > 0
+      ? ` · ${tx.tags.map((tag) => `#${tag}`).join(' · ')}`
+      : '';
 
   const desktopMeta = `${
     tx.type === 'income'
@@ -255,11 +259,18 @@ export function SwipeableTransactionRow({
       : tx.isPending
         ? 'Սպասվող նախածախս'
         : 'Ծախս'
-  } · ${tx.category}${cardMeta} · ${formatShortDate(tx.date)}${tx.date > todayISO ? ' (ապագա)' : ''}`;
+  } · ${tx.category}${cardMeta} · ${formatShortDate(tx.date)}${tx.date > todayISO ? ' (ապագա)' : ''}${tagsMeta}`;
 
   const mobileMeta = `${tx.category}${cardMeta} · ${formatShortDate(tx.date)}${
     tx.date > todayISO ? ' (ապագա)' : ''
-  }`;
+  }${tagsMeta}`;
+
+  const hasNativeFx =
+    typeof tx.cardAmount === 'number' &&
+    Number.isFinite(tx.cardAmount) &&
+    tx.cardAmount > 0 &&
+    tx.cardCurrency &&
+    tx.cardCurrency !== 'AMD';
 
   return (
     <motion.div
@@ -401,6 +412,11 @@ export function SwipeableTransactionRow({
                 <span className="pa-sensitive text-sm font-semibold font-mono tabular-nums whitespace-nowrap text-amber-600 dark:text-amber-400">
                   (-{formatMoney(tx.amount, currency)})
                 </span>
+                {hasNativeFx && tx.cardCurrency && (
+                  <span className="pa-sensitive block text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                    ({formatCardMoney(tx.cardAmount!, tx.cardCurrency)})
+                  </span>
+                )}
                 <span className="block text-[10px] text-[#94A3B8] tabular-nums">
                   չհանված
                 </span>
@@ -422,16 +438,24 @@ export function SwipeableTransactionRow({
               )}
             </div>
           ) : (
-            <span
-              className={`pa-sensitive text-sm font-semibold font-mono tabular-nums whitespace-nowrap sm:mr-1 ${
-                tx.type === 'income'
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : 'text-[#0F172A] dark:text-[#F8FAFC]'
-              }`}
-            >
-              {tx.type === 'income' ? '+' : '-'}
-              {formatMoney(tx.amount, currency)}
-            </span>
+            <div className="text-right sm:mr-1">
+              <span
+                className={`pa-sensitive text-sm font-semibold font-mono tabular-nums whitespace-nowrap block ${
+                  tx.type === 'income'
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                }`}
+              >
+                {tx.type === 'income' ? '+' : '-'}
+                {formatMoney(tx.amount, currency)}
+              </span>
+              {hasNativeFx && tx.cardCurrency && (
+                <span className="pa-sensitive block text-[10px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                  {tx.type === 'income' ? '+' : '-'}
+                  {formatCardMoney(tx.cardAmount!, tx.cardCurrency)}
+                </span>
+              )}
+            </div>
           )}
 
           {/* Desktop/Tablet inline action buttons (hidden in selectionMode) */}

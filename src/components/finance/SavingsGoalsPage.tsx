@@ -56,6 +56,7 @@ export function SavingsGoalsPage({
     mode: 'add' | 'withdraw';
   } | null>(null);
   const [goalActionAmount, setGoalActionAmount] = useState('');
+  const [goalActionError, setGoalActionError] = useState('');
   const [goalRecordLedger, setGoalRecordLedger] = useState(true);
   const [monthlyPace, setMonthlyPace] = useState<number>(50000);
 
@@ -106,7 +107,12 @@ export function SavingsGoalsPage({
 
   const openGoalAction = (goal: SavingsGoal, mode: 'add' | 'withdraw') => {
     setGoalActionModal({ goal, mode });
-    setGoalActionAmount('10000');
+    setGoalActionAmount(
+      mode === 'withdraw'
+        ? String(Math.min(10000, goal.currentAmount))
+        : '10000'
+    );
+    setGoalActionError('');
     setGoalRecordLedger(true);
   };
 
@@ -114,7 +120,18 @@ export function SavingsGoalsPage({
     e.preventDefault();
     if (!goalActionModal) return;
     const raw = Math.round(Number(goalActionAmount));
-    if (!raw || raw <= 0) return;
+    if (!raw || raw <= 0) {
+      setGoalActionError('Մուտքագրեք դրական գումար։');
+      return;
+    }
+    if (
+      goalActionModal.mode === 'withdraw' &&
+      raw > goalActionModal.goal.currentAmount
+    ) {
+      setGoalActionError('Հանվող գումարը չի կարող գերազանցել կուտակված մնացորդը։');
+      return;
+    }
+    setGoalActionError('');
     const delta = goalActionModal.mode === 'add' ? raw : -raw;
     onAdjustGoal(goalActionModal.goal.id, delta, goalRecordLedger);
     setGoalActionModal(null);
@@ -192,15 +209,24 @@ export function SavingsGoalsPage({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {savingsGoals.map((goal) => {
-            const pct = Math.min(
-              100,
-              Math.round(
-                (goal.currentAmount / Math.max(1, goal.targetAmount)) * 100
-              )
-            );
-            const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
+            const safeTarget = Math.max(0, goal.targetAmount);
+            const safeCurrent = Math.max(0, goal.currentAmount);
+            const rawPct =
+              safeTarget > 0
+                ? Math.min(100, Math.max(0, (safeCurrent / safeTarget) * 100))
+                : 0;
             const isDone =
-              goal.completed || goal.currentAmount >= goal.targetAmount;
+              goal.completed || (safeTarget > 0 && safeCurrent >= safeTarget);
+            const roundedPct = Math.round(rawPct);
+            const displayPct = isDone
+              ? 100
+              : safeCurrent === 0
+                ? 0
+                : rawPct > 0 && roundedPct === 0
+                  ? 1
+                  : Math.min(99, roundedPct);
+            const barWidth = isDone ? 100 : rawPct > 0 ? Math.max(3, rawPct) : 0;
+            const remaining = Math.max(0, safeTarget - safeCurrent);
             const daysLeft = goal.deadline
               ? daysBetweenISO(todayISO, goal.deadline)
               : null;
@@ -245,7 +271,7 @@ export function SavingsGoalsPage({
                         type="button"
                         onClick={() => onEditGoal(goal)}
                         aria-label={`Խմբագրել ${goal.title}`}
-                        className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -253,7 +279,7 @@ export function SavingsGoalsPage({
                         type="button"
                         onClick={() => onDeleteGoal(goal.id)}
                         aria-label={`Ջնջել ${goal.title}`}
-                        className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -263,20 +289,42 @@ export function SavingsGoalsPage({
                   <div className="space-y-2">
                     <div className="flex items-baseline justify-between gap-2 tabular-nums">
                       <span className="pa-sensitive text-lg font-bold font-mono text-[#0F172A] dark:text-[#F8FAFC]">
-                        {formatMoney(goal.currentAmount, currency)}
+                        {formatMoney(safeCurrent, currency)}
                       </span>
                       <span className="pa-sensitive text-xs font-mono text-[#64748B] dark:text-[#94A3B8]">
-                        / {formatMoney(goal.targetAmount, currency)} ({pct}%)
+                        / {formatMoney(safeTarget, currency)}
                       </span>
                     </div>
 
-                    <div className="h-2 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+                    <div className="flex items-center gap-2.5">
                       <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          isDone ? 'bg-emerald-500' : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                        role="progressbar"
+                        aria-valuenow={displayPct}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={`${goal.title} առաջընթաց՝ ${displayPct}%`}
+                        className="h-2.5 flex-1 rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden"
+                      >
+                        <div
+                          className={`h-full rounded-full transition-[width,background-color] duration-300 ease-out motion-reduce:transition-none ${
+                            isDone
+                              ? 'bg-emerald-500'
+                              : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                          }`}
+                          style={{ width: `${barWidth}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`text-xs font-mono font-semibold tabular-nums shrink-0 min-w-[3.2ch] text-right ${
+                          isDone
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : displayPct > 0
+                              ? 'text-[#1D4ED8] dark:text-[#60A5FA]'
+                              : 'text-[#64748B] dark:text-[#94A3B8]'
                         }`}
-                        style={{ width: `${Math.max(4, pct)}%` }}
-                      />
+                      >
+                        {displayPct}%
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between gap-2 text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
@@ -333,35 +381,6 @@ export function SavingsGoalsPage({
           title="Կուտակման տեմպի հաշվիչ"
           subtitle="Ընտրեք ամսական հատկացումը՝ տեսնելու բոլոր գանձանակների լրացման մոտավոր ժամկետը"
           icon={Calculator}
-          headerRight={
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[25000, 50000, 100000, 150000].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setMonthlyPace(preset)}
-                  className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-xs font-mono tabular-nums transition-colors cursor-pointer ${
-                    monthlyPace === preset
-                      ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                      : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
-                  }`}
-                >
-                  {formatMoney(preset, currency)}
-                </button>
-              ))}
-              <input
-                type="number"
-                min="1000"
-                step="5000"
-                value={monthlyPace}
-                onChange={(e) =>
-                  setMonthlyPace(Math.max(1000, Number(e.target.value) || 0))
-                }
-                aria-label="Ամսական հատկացում"
-                className="w-28 min-h-[34px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
-              />
-            </div>
-          }
         >
           {(() => {
             const months = Math.max(
@@ -369,17 +388,47 @@ export function SavingsGoalsPage({
               Math.ceil(activeGoalsNeedTotal / Math.max(1, monthlyPace))
             );
             return (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-[#475569] dark:text-[#CBD5E1] tabular-nums">
-                  Մնացած{' '}
-                  <strong className="pa-sensitive font-mono text-[#0F172A] dark:text-[#F8FAFC]">
-                    {formatMoney(activeGoalsNeedTotal, currency)}
-                  </strong>{' '}
-                  գումարը հավաքելու համար կպահանջվի՝
-                </p>
-                <p className="text-sm sm:text-base font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
-                </p>
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {[25000, 50000, 100000, 150000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setMonthlyPace(preset)}
+                      className={`min-h-[36px] px-3 py-1 rounded-xl border text-xs font-mono tabular-nums transition-colors cursor-pointer ${
+                        monthlyPace === preset
+                          ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                      }`}
+                    >
+                      {formatMoney(preset, currency)}
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1000"
+                    step="5000"
+                    value={monthlyPace}
+                    onChange={(e) =>
+                      setMonthlyPace(Math.max(1000, Number(e.target.value) || 0))
+                    }
+                    aria-label="Ամսական հատկացում"
+                    className="w-32 min-h-[36px] px-3 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#F1F5F9] dark:border-[#1E293B]">
+                  <p className="text-sm text-[#475569] dark:text-[#CBD5E1] tabular-nums">
+                    Մնացած{' '}
+                    <strong className="pa-sensitive font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                      {formatMoney(activeGoalsNeedTotal, currency)}
+                    </strong>{' '}
+                    գումարը հավաքելու համար կպահանջվի՝
+                  </p>
+                  <p className="text-sm sm:text-base font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
+                  </p>
+                </div>
               </div>
             );
           })()}
@@ -417,30 +466,131 @@ export function SavingsGoalsPage({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                Գումար (֏)
-              </label>
+              <div className="flex items-center justify-between gap-2 text-xs mb-1">
+                <label
+                  htmlFor="goal-action-amount"
+                  className="font-medium text-[#64748B] dark:text-[#94A3B8]"
+                >
+                  Գումար (֏)
+                </label>
+                {goalActionModal.mode === 'withdraw' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGoalActionAmount(
+                        String(goalActionModal.goal.currentAmount)
+                      );
+                      setGoalActionError('');
+                    }}
+                    className="pa-sensitive text-[#2563EB] dark:text-[#60A5FA] font-semibold hover:underline cursor-pointer tabular-nums"
+                  >
+                    Ամբողջը (
+                    {formatMoney(goalActionModal.goal.currentAmount, currency)})
+                  </button>
+                )}
+              </div>
               <input
+                id="goal-action-amount"
                 type="number"
                 min="1"
+                max={
+                  goalActionModal.mode === 'withdraw'
+                    ? Math.max(1, goalActionModal.goal.currentAmount)
+                    : undefined
+                }
                 step="any"
                 value={goalActionAmount}
-                onChange={(e) => setGoalActionAmount(e.target.value)}
+                onChange={(e) => {
+                  setGoalActionAmount(e.target.value);
+                  if (goalActionError) setGoalActionError('');
+                }}
                 autoFocus
                 className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums rounded-xl input-field"
               />
+              {goalActionError && (
+                <p className="mt-1.5 text-xs text-rose-600 dark:text-rose-400" role="alert">
+                  {goalActionError}
+                </p>
+              )}
               <div className="mt-2 grid grid-cols-4 gap-1.5">
                 {GOAL_QUICK_PRESETS.map((amt) => (
                   <button
                     key={amt}
                     type="button"
-                    onClick={() => setGoalActionAmount(String(amt))}
+                    onClick={() => {
+                      const nextAmt =
+                        goalActionModal.mode === 'withdraw'
+                          ? Math.min(amt, goalActionModal.goal.currentAmount)
+                          : amt;
+                      setGoalActionAmount(String(nextAmt));
+                      setGoalActionError('');
+                    }}
                     className="min-h-[30px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] cursor-pointer"
                   >
                     {amt.toLocaleString()}
                   </button>
                 ))}
               </div>
+
+              {(() => {
+                const parsedDelta = Math.round(Number(goalActionAmount));
+                const targetAmt = Math.max(1, goalActionModal.goal.targetAmount);
+                const projectedAmount =
+                  parsedDelta > 0
+                    ? goalActionModal.mode === 'add'
+                      ? goalActionModal.goal.currentAmount + parsedDelta
+                      : Math.max(0, goalActionModal.goal.currentAmount - parsedDelta)
+                    : goalActionModal.goal.currentAmount;
+                const projRawPct = Math.min(
+                  100,
+                  Math.max(0, (projectedAmount / targetAmt) * 100)
+                );
+                const projRounded = Math.round(projRawPct);
+                const projPct =
+                  projectedAmount >= targetAmt
+                    ? 100
+                    : projectedAmount === 0
+                      ? 0
+                      : projRawPct > 0 && projRounded === 0
+                        ? 1
+                        : Math.min(99, projRounded);
+                const projBarWidth =
+                  projectedAmount >= targetAmt
+                    ? 100
+                    : projRawPct > 0
+                      ? Math.max(3, projRawPct)
+                      : 0;
+                const projDone = projectedAmount >= targetAmt;
+
+                return (
+                  <div className="mt-3 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                      <span>Նոր առաջընթաց</span>
+                      <span className="pa-sensitive font-mono">
+                        {formatMoney(projectedAmount, currency)} /{' '}
+                        {formatMoney(targetAmt, currency)} ({projPct}%)
+                      </span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-valuenow={projPct}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`Կանխատեսվող առաջընթաց՝ ${projPct}%`}
+                      className="h-2 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden"
+                    >
+                      <div
+                        className={`h-full rounded-full transition-[width,background-color] duration-200 ease-out motion-reduce:transition-none ${
+                          projDone
+                            ? 'bg-emerald-500'
+                            : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                        }`}
+                        style={{ width: `${projBarWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <label className="flex items-start gap-2.5 p-3 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] cursor-pointer">

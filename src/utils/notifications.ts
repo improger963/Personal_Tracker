@@ -775,9 +775,10 @@ async function playWavBase64(
 export async function speakNotificationText(
   text: string,
   settings: NotificationSettings,
-  options?: { urgent?: boolean }
+  options?: { urgent?: boolean; maxChars?: number }
 ): Promise<{ engine: 'gemini' | 'browser' | 'none'; error?: string }> {
-  const cleanText = text.trim().slice(0, 320);
+  const cap = Math.min(600, Math.max(120, options?.maxChars ?? 360));
+  const cleanText = text.trim().slice(0, cap);
   if (!cleanText) return { engine: 'none' };
 
   stopNotificationVoice();

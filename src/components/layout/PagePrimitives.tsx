@@ -16,15 +16,19 @@ interface MonthCycleNavProps {
   selectedMonth: string;
   payday: number;
   onShiftMonth: (delta: number) => void;
+  className?: string;
 }
 
 export function MonthCycleNav({
   selectedMonth,
   payday,
   onShiftMonth,
+  className = '',
 }: MonthCycleNavProps) {
   return (
-    <div className="inline-flex items-center border border-[#CBD5E1]/90 dark:border-[#233049] rounded-xl bg-white dark:bg-[#0D1422] shadow-[0_1px_2px_rgba(15,23,42,0.03)] shrink-0">
+    <div
+      className={`inline-flex items-center border border-[#CBD5E1]/90 dark:border-[#233049] rounded-xl bg-white dark:bg-[#0D1422] shadow-[0_1px_2px_rgba(15,23,42,0.03)] shrink-0 ${className}`}
+    >
       <button
         type="button"
         onClick={() => onShiftMonth(-1)}
@@ -121,7 +125,7 @@ export function MetricStrip({ items }: { items: MetricStripItem[] }) {
         return (
           <div
             key={item.id}
-            className={`min-w-0 px-4 py-4 sm:px-5 sm:py-4.5 transition-colors hover:bg-[#F8FAFC]/70 dark:hover:bg-[#111A2C]/60 ${borderClasses}`}
+            className={`min-w-0 px-4 py-4 sm:px-5 sm:py-4.5 ${borderClasses}`}
           >
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] sm:text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
@@ -147,7 +151,11 @@ export function MetricStrip({ items }: { items: MetricStripItem[] }) {
             {(item.hint || (item.action && item.hint)) && (
               <div className="mt-1.5 flex items-center justify-between gap-2 min-w-0">
                 {item.hint && (
-                  <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                  <p
+                    className={`text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums ${
+                      item.sensitive ? 'pa-sensitive' : ''
+                    }`}
+                  >
                     {item.hint}
                   </p>
                 )}
@@ -229,7 +237,7 @@ export function SubPageTabs<T extends string>({
 
 interface SectionCardProps {
   title?: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   icon?: LucideIcon;
   headerRight?: React.ReactNode;
   children: React.ReactNode;
@@ -270,9 +278,9 @@ export function SectionCard({
                 </h2>
               )}
               {subtitle && (
-                <p className="text-[11px] sm:text-xs text-[#64748B] dark:text-[#94A3B8] truncate">
+                <div className="text-[11px] sm:text-xs text-[#64748B] dark:text-[#94A3B8] truncate">
                   {subtitle}
-                </p>
+                </div>
               )}
             </div>
           </div>

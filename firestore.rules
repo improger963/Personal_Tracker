@@ -52,7 +52,7 @@ service cloud.firestore {
 
     function isValidWorkspaceSettings(data, userId) {
       return data.keys().hasAll(['userId', 'primaryIncome', 'notificationSettings', 'isDark', 'serverCreatedAt', 'serverUpdatedAt'])
-        && data.keys().hasOnly(['userId', 'primaryIncome', 'focusGoal', 'notificationSettings', 'isDark', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.keys().hasOnly(['userId', 'primaryIncome', 'focusGoal', 'notificationSettings', 'isDark', 'customCategories', 'serverCreatedAt', 'serverUpdatedAt'])
         && data.userId is string && data.userId == userId
         && data.isDark is bool
         && data.primaryIncome is map
@@ -103,20 +103,36 @@ service cloud.firestore {
           && data.focusGoal.completed is bool
           && data.focusGoal.date is string && data.focusGoal.date.size() <= 20
         ))
+        && (!('customCategories' in data) || (
+          data.customCategories is list
+          && data.customCategories.size() <= 40
+          && (data.customCategories.size() == 0 || (
+            data.customCategories[0] is map
+            && data.customCategories[0].keys().hasAll(['id', 'name', 'type', 'color'])
+            && data.customCategories[0].keys().hasOnly(['id', 'name', 'type', 'color'])
+            && data.customCategories[0].id is string && data.customCategories[0].id.size() >= 1 && data.customCategories[0].id.size() <= 128
+            && data.customCategories[0].name is string && data.customCategories[0].name.size() >= 1 && data.customCategories[0].name.size() <= 80
+            && data.customCategories[0].type in ['income', 'expense']
+            && data.customCategories[0].color is string && data.customCategories[0].color.size() >= 1 && data.customCategories[0].color.size() <= 24
+          ))
+        ))
         && data.serverCreatedAt is timestamp
         && data.serverUpdatedAt is timestamp;
     }
 
     function isValidTransaction(data, userId, docId) {
       return data.keys().hasAll(['userId', 'id', 'type', 'amount', 'title', 'category', 'date', 'createdAt', 'serverCreatedAt', 'serverUpdatedAt'])
-        && data.keys().hasOnly(['userId', 'id', 'type', 'incomeKind', 'amount', 'title', 'category', 'date', 'createdAt', 'primaryCycleKey', 'isPending', 'cardId', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.keys().hasOnly(['userId', 'id', 'type', 'incomeKind', 'amount', 'cardAmount', 'cardCurrency', 'title', 'category', 'tags', 'date', 'createdAt', 'primaryCycleKey', 'isPending', 'cardId', 'serverCreatedAt', 'serverUpdatedAt'])
         && data.userId is string && data.userId == userId
         && isValidId(data.id) && data.id == docId
         && data.type in ['income', 'expense']
         && (!('incomeKind' in data) || data.incomeKind in ['monthly', 'extra', 'one_time'])
         && data.amount is number && data.amount > 0
+        && (!('cardAmount' in data) || (data.cardAmount is number && data.cardAmount > 0))
+        && (!('cardCurrency' in data) || data.cardCurrency in ['AMD', 'USD', 'EUR', 'RUB', 'GEL'])
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
         && data.category is string && data.category.size() >= 1 && data.category.size() <= 80
+        && (!('tags' in data) || (data.tags is list && data.tags.size() <= 8 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40))))
         && data.date is string && data.date.size() >= 10 && data.date.size() <= 20
         && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 50
         && (!('primaryCycleKey' in data) || (data.primaryCycleKey is string && data.primaryCycleKey.size() <= 20))
@@ -136,7 +152,7 @@ service cloud.firestore {
         && data.cardType in ['arca', 'visa', 'mastercard', 'other', 'cash']
         && data.color in ['blue', 'purple', 'emerald', 'amber', 'rose', 'slate']
         && data.initialBalance is number && data.initialBalance >= -100000000 && data.initialBalance <= 1000000000
-        && data.currency == 'AMD'
+        && data.currency in ['AMD', 'USD', 'EUR', 'RUB', 'GEL']
         && (!('isDefault' in data) || data.isDefault is bool)
         && data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 50
         && data.serverCreatedAt is timestamp
@@ -145,7 +161,7 @@ service cloud.firestore {
 
     function isValidTask(data, userId, docId) {
       return data.keys().hasAll(['userId', 'id', 'title', 'completed', 'priority', 'date', 'createdAt', 'serverCreatedAt', 'serverUpdatedAt'])
-        && data.keys().hasOnly(['userId', 'id', 'title', 'completed', 'priority', 'dueTime', 'date', 'createdAt', 'scheduleType', 'repeatInterval', 'repeatEveryDays', 'selectedWeekdays', 'completedDates', 'serverCreatedAt', 'serverUpdatedAt'])
+        && data.keys().hasOnly(['userId', 'id', 'title', 'completed', 'priority', 'dueTime', 'date', 'createdAt', 'scheduleType', 'repeatInterval', 'repeatEveryDays', 'selectedWeekdays', 'completedDates', 'expectedAmount', 'expectedCategory', 'linkedTxId', 'serverCreatedAt', 'serverUpdatedAt'])
         && data.userId is string && data.userId == userId
         && isValidId(data.id) && data.id == docId
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 240
@@ -159,6 +175,9 @@ service cloud.firestore {
         && (!('repeatEveryDays' in data) || (data.repeatEveryDays is number && data.repeatEveryDays >= 1 && data.repeatEveryDays <= 365))
         && (!('selectedWeekdays' in data) || (data.selectedWeekdays is list && data.selectedWeekdays.size() <= 7 && (data.selectedWeekdays.size() == 0 || data.selectedWeekdays[0] is number)))
         && (!('completedDates' in data) || (data.completedDates is list && data.completedDates.size() <= 366 && (data.completedDates.size() == 0 || data.completedDates[0] is string)))
+        && (!('expectedAmount' in data) || (data.expectedAmount is number && data.expectedAmount > 0))
+        && (!('expectedCategory' in data) || (data.expectedCategory is string && data.expectedCategory.size() >= 1 && data.expectedCategory.size() <= 80))
+        && (!('linkedTxId' in data) || isValidId(data.linkedTxId))
         && data.serverCreatedAt is timestamp
         && data.serverUpdatedAt is timestamp;
     }
@@ -325,7 +344,7 @@ service cloud.firestore {
           && incoming().userId == existing().userId
           && incoming().serverCreatedAt == existing().serverCreatedAt
           && incoming().serverUpdatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['primaryIncome', 'focusGoal', 'notificationSettings', 'isDark', 'serverUpdatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['primaryIncome', 'focusGoal', 'notificationSettings', 'isDark', 'customCategories', 'serverUpdatedAt']);
         allow delete: if false;
       }
 
@@ -344,7 +363,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().serverCreatedAt == existing().serverCreatedAt
           && incoming().serverUpdatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'incomeKind', 'amount', 'title', 'category', 'date', 'primaryCycleKey', 'isPending', 'cardId', 'serverUpdatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'incomeKind', 'amount', 'cardAmount', 'cardCurrency', 'title', 'category', 'tags', 'date', 'primaryCycleKey', 'isPending', 'cardId', 'serverUpdatedAt']);
         allow delete: if isVerifiedOwner(userId) && isValidId(txId);
       }
 
@@ -382,7 +401,7 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().serverCreatedAt == existing().serverCreatedAt
           && incoming().serverUpdatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'completed', 'priority', 'dueTime', 'date', 'scheduleType', 'repeatInterval', 'repeatEveryDays', 'selectedWeekdays', 'completedDates', 'serverUpdatedAt']);
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'completed', 'priority', 'dueTime', 'date', 'scheduleType', 'repeatInterval', 'repeatEveryDays', 'selectedWeekdays', 'completedDates', 'expectedAmount', 'expectedCategory', 'linkedTxId', 'serverUpdatedAt']);
         allow delete: if isVerifiedOwner(userId) && isValidId(taskId);
       }
 

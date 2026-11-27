@@ -282,6 +282,8 @@ export const SpendingTrendLineCard = memo(function SpendingTrendLineCard({
 
   return (
     <SectionCard
+      className="h-full flex flex-col"
+      bodyClassName="flex-1 flex flex-col justify-between"
       title="Ամսական ծախսերի միտումը նախորդ ցիկլի համեմատ"
       subtitle={`${currentCycleLabel} · համեմատություն ${prevCycleLabel}-ի հետ`}
       icon={paceDeltaAmount <= 0 ? TrendingDown : TrendingUp}

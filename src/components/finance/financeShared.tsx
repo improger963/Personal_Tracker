@@ -28,7 +28,7 @@ export function normalizeFinancePageTab(value?: string | null): FinancePageTab {
   return 'ledger';
 }
 
-export type TxSortMode = 'date-desc' | 'amount-desc' | 'amount-asc';
+export type TxSortMode = 'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc';
 
 export const DONUT_COLORS = [
   '#3B82F6', // electric cobalt

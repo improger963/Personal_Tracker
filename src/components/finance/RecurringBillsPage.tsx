@@ -341,6 +341,7 @@ export function RecurringBillsPage({
               selectedMonth={selectedMonth}
               payday={effectivePayday}
               onShiftMonth={onShiftMonth}
+              className="lg:hidden"
             />
             {unpaidBills.length > 1 && (
               <button
@@ -1254,26 +1255,29 @@ export function RecurringBillsPage({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                     {monthlyStatus === 'paid' || monthlyStatus === 'confirmed' ? (
                       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 px-2">
                         <CheckCircle2 className="w-4 h-4" />
                         <span>Վճարված է</span>
                       </span>
-                    ) : monthlyStatus === 'skipped' ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#64748B] dark:text-[#94A3B8] px-2">
-                        <SkipForward className="w-3.5 h-3.5" />
-                        <span>Բաց թողնված</span>
-                      </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => handlePayRecurringBill(bill)}
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-                      >
-                        <Repeat className="w-3.5 h-3.5" />
-                        <span>Գրանցել վճարումը</span>
-                      </button>
+                      <>
+                        {monthlyStatus === 'skipped' && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#64748B] dark:text-[#94A3B8] px-1.5">
+                            <SkipForward className="w-3.5 h-3.5" />
+                            <span>Բաց թողնված</span>
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handlePayRecurringBill(bill)}
+                          className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                        >
+                          <Repeat className="w-3.5 h-3.5" />
+                          <span>Գրանցել վճարումը</span>
+                        </button>
+                      </>
                     )}
                     {onToggleBillActive && (
                       <button

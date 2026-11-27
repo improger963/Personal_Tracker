@@ -5,20 +5,40 @@ import {
   ArrowRight,
   Bot,
   Check,
+  CheckCheck,
   Loader2,
+  Mic,
   Plus,
   RotateCcw,
   Send,
+  Square,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import {
   AssistantSuggestedAction,
   SmartWorkspaceContext,
   askSmartAssistant,
+  askSmartAssistantStream,
+  transcribeAudioWithAI,
 } from '../services/smartAi';
-import { formatMoney } from '../data/defaults';
+import { formatMoney, getInitialNotificationSettings } from '../data/defaults';
 import { FinancePageTab } from './finance/financeShared';
-import { PlannerPageTab, TaskPriority } from '../types';
+import {
+  DebtItem,
+  NotificationSettings,
+  PlannerPageTab,
+  RecurringBill,
+  SavingsGoal,
+  TaskPriority,
+} from '../types';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import {
+  speakNotificationText,
+  stopNotificationVoice,
+  subscribeVoicePlaybackState,
+} from '../utils/notifications';
 
 interface ChatMessage {
   id: string;
@@ -34,6 +54,7 @@ interface SmartAssistantModalProps {
   context: SmartWorkspaceContext;
   todayISO: string;
   defaultCardId?: string;
+  notificationSettings?: NotificationSettings;
   onAddTransaction: (tx: {
     type: 'income' | 'expense';
     amount: number;
@@ -51,6 +72,11 @@ interface SmartAssistantModalProps {
     scheduleType: 'one_time';
   }) => void;
   onAddNote: (note: { title: string; content: string; pinned: boolean }) => void;
+  onAddHabit?: (title: string) => void;
+  onAddGoal?: (goal: Omit<SavingsGoal, 'id' | 'createdAt'>) => void;
+  onAddDebt?: (debt: Omit<DebtItem, 'id' | 'createdAt'>) => void;
+  onAddRecurringBill?: (bill: Omit<RecurringBill, 'id'>) => void;
+  onSaveBudget?: (category: string, limit: number) => void;
   onNavigateFinance: (page: FinancePageTab) => void;
   onNavigatePlanner: (page: PlannerPageTab) => void;
   onNavigateNotes: () => void;
@@ -58,9 +84,9 @@ interface SmartAssistantModalProps {
 
 const STARTER_PROMPTS = [
   'Ամփոփիր իմ ընթացիկ ֆինանսական վիճակը և գլխավոր ռիսկերը',
+  'Կարո՞ղ եմ թույլ տալ 250,000 ֏ գնում այս ամիս',
   'Որտե՞ղ կարող եմ կրճատել ծախսերս այս ցիկլում',
   'Կազմիր այսօրվա առաջնահերթ անելիքների պլանը',
-  'Ինչպե՞ս արագացնել խնայողության նպատակներիս հասնելը',
 ];
 
 export function SmartAssistantModal({
@@ -69,9 +95,15 @@ export function SmartAssistantModal({
   context,
   todayISO,
   defaultCardId,
+  notificationSettings,
   onAddTransaction,
   onAddTask,
   onAddNote,
+  onAddHabit,
+  onAddGoal,
+  onAddDebt,
+  onAddRecurringBill,
+  onSaveBudget,
   onNavigateFinance,
   onNavigatePlanner,
   onNavigateNotes,
@@ -80,20 +112,31 @@ export function SmartAssistantModal({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState(initialPrompt ?? '');
   const [loading, setLoading] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [isTtsSpeaking, setIsTtsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const autoSentInitialRef = useRef(false);
   const requestAbortRef = useRef<AbortController | null>(null);
 
+  const voiceRecorder = useVoiceRecorder();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
+    const unsubSpeak = subscribeVoicePlaybackState((speaking) => {
+      setIsTtsSpeaking(speaking);
+      if (!speaking) setSpeakingMsgId(null);
+    });
     return () => {
       window.removeEventListener('keydown', onKey);
       requestAbortRef.current?.abort();
+      stopNotificationVoice();
+      unsubSpeak();
     };
   }, [onClose]);
 
@@ -104,6 +147,8 @@ export function SmartAssistantModal({
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
 
   const sendMessage = async (textOverride?: string) => {
     const text = (textOverride ?? input).trim();
@@ -121,43 +166,104 @@ export function SmartAssistantModal({
       role: 'user',
       text,
     };
+    const streamId = `m-${Date.now() + 1}`;
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
     setLoading(true);
+    setStreamingMsgId(streamId);
 
+    const history = nextMessages.slice(-7, -1).map((m) => ({
+      role: m.role,
+      text: m.text,
+    }));
+
+    let hasReceivedDelta = false;
     try {
-      const history = nextMessages.slice(-7, -1).map((m) => ({
-        role: m.role,
-        text: m.text,
-      }));
-      const result = await askSmartAssistant({
+      await askSmartAssistantStream({
         message: text,
         history,
         context,
         signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `m-${Date.now()}`,
-          role: 'model',
-          text: result.reply,
-          actions: result.suggestedActions,
-          executedActionKeys: [],
+        onDelta: (chunk) => {
+          if (controller.signal.aborted) return;
+          if (!hasReceivedDelta) {
+            hasReceivedDelta = true;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: streamId,
+                role: 'model',
+                text: chunk,
+                actions: [],
+                executedActionKeys: [],
+              },
+            ]);
+          } else {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === streamId ? { ...m, text: m.text + chunk } : m
+              )
+            );
+          }
         },
-      ]);
+        onActions: (actions) => {
+          if (controller.signal.aborted) return;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamId ? { ...m, actions } : m
+            )
+          );
+        },
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (!hasReceivedDelta && !controller.signal.aborted) {
+        try {
+          const result = await askSmartAssistant({
+            message: text,
+            history,
+            context,
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) return;
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: streamId,
+              role: 'model',
+              text: result.reply,
+              actions: result.suggestedActions,
+              executedActionKeys: [],
+            },
+          ]);
+          return;
+        } catch (fallbackErr) {
+          if (fallbackErr instanceof DOMException && fallbackErr.name === 'AbortError') return;
+          setError(
+            fallbackErr instanceof Error
+              ? fallbackErr.message
+              : 'Հնարավոր չեղավ ստանալ պատասխան։'
+          );
+          return;
+        }
+      }
       setError(
         err instanceof Error ? err.message : 'Հնարավոր չեղավ ստանալ պատասխան։'
       );
     } finally {
       if (requestAbortRef.current === controller) {
         setLoading(false);
+        setStreamingMsgId(null);
         requestAbortRef.current = null;
       }
     }
+  };
+
+  const handleStopStreaming = () => {
+    requestAbortRef.current?.abort();
+    requestAbortRef.current = null;
+    setLoading(false);
+    setStreamingMsgId(null);
   };
 
   useEffect(() => {
@@ -169,8 +275,7 @@ export function SmartAssistantModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPrompt]);
 
-  const handleRunAction = (msgId: string, idx: number, action: AssistantSuggestedAction) => {
-    const actionKey = `${msgId}:${idx}`;
+  const executeSingleAction = (action: AssistantSuggestedAction): boolean => {
     if (action.kind === 'navigate' && action.route) {
       const r = action.route;
       if (
@@ -184,21 +289,20 @@ export function SmartAssistantModal({
       ) {
         onNavigateFinance(r);
         onClose();
-        return;
+        return false;
       }
       if (r === 'tasks' || r === 'habits' || r === 'focus') {
         onNavigatePlanner(r);
         onClose();
-        return;
+        return false;
       }
       if (r === 'notes') {
         onNavigateNotes();
         onClose();
-        return;
+        return false;
       }
+      return false;
     }
-
-    let didExecute = false;
 
     if (action.kind === 'add_transaction' && action.amount && action.amount > 0) {
       onAddTransaction({
@@ -210,8 +314,10 @@ export function SmartAssistantModal({
         date: todayISO,
         cardId: defaultCardId,
       });
-      didExecute = true;
-    } else if (action.kind === 'add_task') {
+      return true;
+    }
+
+    if (action.kind === 'add_task') {
       onAddTask({
         title: action.title?.trim() || action.label,
         priority:
@@ -222,16 +328,84 @@ export function SmartAssistantModal({
         dueTime: action.dueTime,
         scheduleType: 'one_time',
       });
-      didExecute = true;
-    } else if (action.kind === 'add_note') {
+      return true;
+    }
+
+    if (action.kind === 'add_note') {
       onAddNote({
         title: action.title?.trim() || action.label,
         content: action.content?.trim() || action.label,
         pinned: false,
       });
-      didExecute = true;
+      return true;
     }
 
+    if (action.kind === 'add_habit' && onAddHabit) {
+      const title = action.title?.trim() || action.label;
+      if (!title) return false;
+      onAddHabit(title);
+      return true;
+    }
+
+    if (action.kind === 'add_goal' && onAddGoal) {
+      const targetAmount = Math.round(Number(action.targetAmount ?? action.amount ?? 0));
+      if (targetAmount <= 0) return false;
+      onAddGoal({
+        title: action.title?.trim() || action.label,
+        targetAmount,
+        currentAmount: 0,
+        completed: false,
+      });
+      return true;
+    }
+
+    if (action.kind === 'add_debt' && onAddDebt) {
+      const amount = Math.round(Number(action.amount ?? 0));
+      const person = (action.person || action.title || '').trim();
+      if (amount <= 0 || !person) return false;
+      onAddDebt({
+        person,
+        direction: action.direction === 'owed_to_me' ? 'lent' : 'borrowed',
+        totalAmount: amount,
+        paidAmount: 0,
+        note: action.title && action.title !== person ? action.title : undefined,
+        settled: false,
+      });
+      return true;
+    }
+
+    if (action.kind === 'add_bill' && onAddRecurringBill) {
+      const amount = Math.round(Number(action.amount ?? 0));
+      if (amount <= 0) return false;
+      onAddRecurringBill({
+        title: action.title?.trim() || action.label,
+        amount,
+        category: action.category?.trim() || 'Կոմունալ',
+        frequency: action.frequency === 'daily' ? 'daily' : 'monthly',
+        dayOfMonth: Math.min(31, Math.max(1, Math.round(action.dayOfMonth ?? 10))),
+        active: true,
+      });
+      return true;
+    }
+
+    if (action.kind === 'set_budget' && onSaveBudget) {
+      const limit = Math.round(Number(action.limit ?? action.amount ?? 0));
+      const category = action.category?.trim();
+      if (limit <= 0 || !category) return false;
+      onSaveBudget(category, limit);
+      return true;
+    }
+
+    return false;
+  };
+
+  const handleRunAction = (
+    msgId: string,
+    idx: number,
+    action: AssistantSuggestedAction
+  ) => {
+    const actionKey = `${msgId}:${idx}`;
+    const didExecute = executeSingleAction(action);
     if (!didExecute) return;
 
     setMessages((prev) =>
@@ -244,6 +418,68 @@ export function SmartAssistantModal({
           : m
       )
     );
+  };
+
+  const handleRunAllActions = (msg: ChatMessage) => {
+    if (!msg.actions || msg.actions.length === 0) return;
+    const newlyDone: string[] = [];
+    msg.actions.forEach((action, idx) => {
+      if (action.kind === 'navigate') return;
+      const actionKey = `${msg.id}:${idx}`;
+      if (msg.executedActionKeys?.includes(actionKey)) return;
+      if (executeSingleAction(action)) {
+        newlyDone.push(actionKey);
+      }
+    });
+    if (newlyDone.length === 0) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id
+          ? {
+              ...m,
+              executedActionKeys: [...(m.executedActionKeys ?? []), ...newlyDone],
+            }
+          : m
+      )
+    );
+  };
+
+  const handleVoiceToggle = async () => {
+    setError(null);
+    if (voiceRecorder.isRecording) {
+      const payload = await voiceRecorder.stopRecording();
+      if (!payload) return;
+      setTranscribing(true);
+      try {
+        const text = await transcribeAudioWithAI({
+          audioBase64: payload.audioBase64,
+          mimeType: payload.mimeType,
+        });
+        setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text));
+        inputRef.current?.focus();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Չհաջողվեց տեքստավորել ձայնագրությունը։'
+        );
+      } finally {
+        setTranscribing(false);
+      }
+    } else {
+      await voiceRecorder.startRecording();
+    }
+  };
+
+  const handleSpeakReply = async (msg: ChatMessage) => {
+    if (isTtsSpeaking && speakingMsgId === msg.id) {
+      stopNotificationVoice();
+      setSpeakingMsgId(null);
+      return;
+    }
+    setSpeakingMsgId(msg.id);
+    const activeSettings = notificationSettings ?? getInitialNotificationSettings();
+    await speakNotificationText(msg.text, activeSettings, { maxChars: 600 });
   };
 
   return (
@@ -292,6 +528,7 @@ export function SmartAssistantModal({
                 onClick={() => {
                   requestAbortRef.current?.abort();
                   requestAbortRef.current = null;
+                  stopNotificationVoice();
                   setLoading(false);
                   setMessages([]);
                   setError(null);
@@ -324,8 +561,9 @@ export function SmartAssistantModal({
                   Հարցրեք ձեր ֆինանսների, բյուջեի կամ օրակարգի մասին
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94A3B8] leading-relaxed">
-                  Օգնականը վերլուծում է ձեր ընթացիկ ցիկլի մնացորդը, ծախսերի կանխատեսումը,
-                  նպատակներն ու այսօրվա անելիքները և առաջարկում կոնկրետ քայլեր։
+                  Օգնականը վերլուծում է ձեր ընթացիկ ցիկլի մնացորդը, վերջին գործարքները,
+                  բյուջեի կանխատեսումը, վճարումներն ու օրակարգը և կարող է ստեղծել
+                  գործարքներ, բյուջեներ, նպատակներ, պարտքեր, սովորություններ կամ անելիքներ։
                 </p>
               </div>
 
@@ -344,56 +582,98 @@ export function SmartAssistantModal({
               </div>
             </div>
           ) : (
-            messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed space-y-2.5 ${
-                    msg.role === 'user'
-                      ? 'bg-[#2563EB] text-white'
-                      : 'bg-[#F8FAFC] dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#1E293B] text-[#0F172A] dark:text-[#F8FAFC]'
-                  }`}
-                >
-                  <p className="whitespace-pre-line break-words">{msg.text}</p>
+            messages.map((msg) => {
+              const executableActions = (msg.actions ?? []).filter(
+                (a, idx) =>
+                  a.kind !== 'navigate' &&
+                  !msg.executedActionKeys?.includes(`${msg.id}:${idx}`)
+              );
+              const isMsgSpeaking = isTtsSpeaking && speakingMsgId === msg.id;
 
-                  {msg.role === 'model' && msg.actions && msg.actions.length > 0 && (
-                    <div className="pt-2 border-t border-[#E2E8F0]/80 dark:border-[#1E293B] flex flex-wrap gap-2">
-                      {msg.actions.map((action, idx) => {
-                        const actionKey = `${msg.id}:${idx}`;
-                        const done = msg.executedActionKeys?.includes(actionKey);
-                        return (
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed space-y-2.5 ${
+                      msg.role === 'user'
+                        ? 'bg-[#2563EB] text-white'
+                        : 'bg-[#F8FAFC] dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#1E293B] text-[#0F172A] dark:text-[#F8FAFC]'
+                    }`}
+                  >
+                    <p className="whitespace-pre-line break-words">{msg.text}</p>
+
+                    {msg.role === 'model' && (
+                      <div className="pt-1.5 border-t border-[#E2E8F0]/70 dark:border-[#1E293B] flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSpeakReply(msg)}
+                          className="min-h-[28px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] text-[11px] font-medium text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {isMsgSpeaking ? (
+                            <>
+                              <VolumeX className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Կանգնեցնել</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                              <span>Լսել</span>
+                            </>
+                          )}
+                        </button>
+
+                        {executableActions.length >= 2 && (
                           <button
-                            key={actionKey}
                             type="button"
-                            disabled={done}
-                            onClick={() => handleRunAction(msg.id, idx, action)}
-                            className={`min-h-[32px] px-3 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
-                              done
-                                ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 cursor-default'
-                                : 'bg-white dark:bg-[#0F172A] border border-[#CBD5E1] dark:border-[#26334D] text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] cursor-pointer'
-                            }`}
+                            onClick={() => handleRunAllActions(msg)}
+                            className="min-h-[28px] px-2.5 py-1 rounded-lg bg-[#EFF6FF] dark:bg-[#172554] text-[11px] font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:opacity-90 inline-flex items-center gap-1 cursor-pointer"
                           >
-                            {done ? (
-                              <Check className="w-3.5 h-3.5" />
-                            ) : action.kind === 'navigate' ? (
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            ) : (
-                              <Plus className="w-3.5 h-3.5" />
-                            )}
-                            <span>{done ? `${action.label} · Կատարված` : action.label}</span>
+                            <CheckCheck className="w-3.5 h-3.5" />
+                            <span>Կատարել բոլորը ({executableActions.length})</span>
                           </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
+
+                    {msg.role === 'model' && msg.actions && msg.actions.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {msg.actions.map((action, idx) => {
+                          const actionKey = `${msg.id}:${idx}`;
+                          const done = msg.executedActionKeys?.includes(actionKey);
+                          return (
+                            <button
+                              key={actionKey}
+                              type="button"
+                              disabled={done}
+                              onClick={() => handleRunAction(msg.id, idx, action)}
+                              className={`min-h-[32px] px-3 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                                done
+                                  ? 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 cursor-default'
+                                  : 'bg-white dark:bg-[#0F172A] border border-[#CBD5E1] dark:border-[#26334D] text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] cursor-pointer'
+                              }`}
+                            >
+                              {done ? (
+                                <Check className="w-3.5 h-3.5" />
+                              ) : action.kind === 'navigate' ? (
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              ) : (
+                                <Plus className="w-3.5 h-3.5" />
+                              )}
+                              <span>{done ? `${action.label} · Կատարված` : action.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
 
-          {loading && (
+          {loading && !messages.some((m) => m.id === streamingMsgId) && (
             <div className="flex justify-start">
               <div className="rounded-2xl px-4 py-3 bg-[#F8FAFC] dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#1E293B] inline-flex items-center gap-2 text-xs text-[#2563EB] dark:text-[#60A5FA] font-medium">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -402,11 +682,11 @@ export function SmartAssistantModal({
             </div>
           )}
 
-          {error && (
+          {(error || voiceRecorder.error) && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/8 px-3.5 py-2.5 flex items-center justify-between gap-2 text-xs text-rose-700 dark:text-rose-300">
               <div className="flex items-center gap-2 min-w-0">
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
+                <span>{error || voiceRecorder.error}</span>
               </div>
             </div>
           )}
@@ -422,23 +702,74 @@ export function SmartAssistantModal({
           }}
           className="px-4 sm:px-6 py-3.5 pb-[calc(0.9rem+env(safe-area-inset-bottom))] border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex items-center gap-2 shrink-0"
         >
+          {voiceRecorder.isSupported && (
+            <button
+              type="button"
+              disabled={loading || transcribing}
+              onClick={() => void handleVoiceToggle()}
+              aria-label={
+                voiceRecorder.isRecording
+                  ? 'Կանգնեցնել ձայնագրությունը'
+                  : 'Ձայնային հարցում'
+              }
+              title={
+                voiceRecorder.isRecording
+                  ? 'Սեղմեք՝ ավարտելու համար'
+                  : 'Հարցնել ձայնով'
+              }
+              className={`min-h-[42px] px-3 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer shrink-0 disabled:opacity-45 ${
+                voiceRecorder.isRecording
+                  ? 'bg-rose-600 border-rose-600 text-white'
+                  : 'bg-white dark:bg-[#0F172A] border-[#CBD5E1] dark:border-[#26334D] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6]'
+              }`}
+            >
+              {transcribing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : voiceRecorder.isRecording ? (
+                <>
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                  <span className="font-mono tabular-nums">{voiceRecorder.elapsedSec}վ</span>
+                </>
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+            </button>
+          )}
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Գրեք հարց կամ հրահանգ (օր.՝ ինչպե՞ս պլանավորել բյուջեն)..."
+            placeholder={
+              voiceRecorder.isRecording
+                ? 'Լսում եմ… խոսեք հայերենով'
+                : transcribing
+                  ? 'Ձայնագրությունը վերածվում է տեքստի…'
+                  : 'Գրեք կամ թելադրեք հարց / հրահանգ…'
+            }
             className="flex-1 min-w-0 min-h-[42px] px-3.5 py-2 text-sm rounded-xl input-field"
           />
-          <button
-            type="submit"
-            disabled={!input.trim() || loading}
-            aria-label="Ուղարկել հարցումը"
-            className="min-h-[42px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
-          >
-            <Send className="w-4 h-4" />
-            <span className="hidden sm:inline">Հարցնել</span>
-          </button>
+          {loading ? (
+            <button
+              type="button"
+              onClick={handleStopStreaming}
+              aria-label="Կանգնեցնել պատասխանը"
+              className="min-h-[42px] px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span className="hidden sm:inline">Դադարեցնել</span>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim() || voiceRecorder.isRecording || transcribing}
+              aria-label="Ուղարկել հարցումը"
+              className="min-h-[42px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              <Send className="w-4 h-4" />
+              <span className="hidden sm:inline">Հարցնել</span>
+            </button>
+          )}
         </form>
       </motion.div>
     </div>

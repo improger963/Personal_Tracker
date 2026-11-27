@@ -24,13 +24,17 @@ import { formatMoney } from '../../data/defaults';
 import {
   CARD_SURFACE_CLASSES,
   CARD_TYPE_META,
+  FxRatesToAmd,
   computeCardStats,
+  convertToAMD,
+  formatCardMoney,
 } from '../../utils/cardBalances';
 
 interface CardsSectionProps {
   cards: BankCard[];
   transactions: Transaction[];
   currency: Currency;
+  fxRates?: FxRatesToAmd | null;
   selectedCardFilter: string;
   onSelectCardFilter: (cardId: string) => void;
   onOpenNewCardModal: () => void;
@@ -46,6 +50,7 @@ export function CardsSection({
   cards,
   transactions,
   currency,
+  fxRates,
   selectedCardFilter,
   onSelectCardFilter,
   onOpenNewCardModal,
@@ -57,8 +62,8 @@ export function CardsSection({
   onOpenTransferModal,
 }: CardsSectionProps) {
   const cardStats = useMemo(
-    () => cards.map((card) => computeCardStats(card, transactions)),
-    [cards, transactions]
+    () => cards.map((card) => computeCardStats(card, transactions, fxRates)),
+    [cards, transactions, fxRates]
   );
 
   const { totalCardsBalance, totalInflow, totalOutflow } = useMemo(() => {
@@ -66,12 +71,12 @@ export function CardsSection({
     let inc = 0;
     let exp = 0;
     for (const s of cardStats) {
-      bal += s.currentBalance;
-      inc += s.totalIncome;
-      exp += s.totalExpense;
+      bal += s.currentBalanceAMD;
+      inc += convertToAMD(s.totalIncome, s.currency, fxRates);
+      exp += convertToAMD(s.totalExpense, s.currency, fxRates);
     }
     return { totalCardsBalance: bal, totalInflow: inc, totalOutflow: exp };
-  }, [cardStats]);
+  }, [cardStats, fxRates]);
 
   return (
     <PageShell>
@@ -158,7 +163,9 @@ export function CardsSection({
           {cardStats.map(
             ({
               card,
+              currency: cardCurrency,
               currentBalance,
+              currentBalanceAMD,
               totalIncome,
               totalExpense,
               pendingExpense,
@@ -203,6 +210,11 @@ export function CardsSection({
                             <span className="text-[11px] font-semibold tracking-wide text-white/85">
                               {typeMeta.shortLabel}
                             </span>
+                            {cardCurrency !== 'AMD' && (
+                              <span className="text-[11px] font-mono font-semibold text-white/85">
+                                · {cardCurrency}
+                              </span>
+                            )}
                             {card.isDefault && (
                               <span className="text-[11px] font-medium text-white/75">
                                 · Հիմնական
@@ -254,8 +266,13 @@ export function CardsSection({
                           Ընթացիկ բալանս
                         </span>
                         <p className="pa-sensitive mt-0.5 text-xl sm:text-2xl font-mono font-semibold tracking-tight tabular-nums text-white truncate">
-                          {formatMoney(currentBalance, currency)}
+                          {formatCardMoney(currentBalance, cardCurrency)}
                         </p>
+                        {cardCurrency !== 'AMD' && (
+                          <span className="pa-sensitive block text-[11px] font-mono text-white/75 tabular-nums mt-0.5">
+                            ≈ {formatMoney(currentBalanceAMD, currency)}
+                          </span>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
                         {card.cardType !== 'cash' && (
@@ -293,17 +310,17 @@ export function CardsSection({
                     </div>
 
                     <div className="pa-sensitive relative pt-2.5 border-t border-white/15 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums text-white/80">
-                      <span>Սկիզբ՝ {formatMoney(card.initialBalance, currency)}</span>
+                      <span>Սկիզբ՝ {formatCardMoney(card.initialBalance, cardCurrency)}</span>
                       <div className="flex items-center gap-2">
                         {totalIncome > 0 && (
-                          <span>+{formatMoney(totalIncome, currency)}</span>
+                          <span>+{formatCardMoney(totalIncome, cardCurrency)}</span>
                         )}
                         {totalExpense > 0 && (
-                          <span>-{formatMoney(totalExpense, currency)}</span>
+                          <span>-{formatCardMoney(totalExpense, cardCurrency)}</span>
                         )}
                         {pendingExpense > 0 && (
                           <span className="text-amber-200">
-                            (սպաս. -{formatMoney(pendingExpense, currency)})
+                            (սպաս. -{formatCardMoney(pendingExpense, cardCurrency)})
                           </span>
                         )}
                       </div>
@@ -311,11 +328,11 @@ export function CardsSection({
                   </div>
 
                   {/* Direct Manual Actions Bar */}
-                  <div className="p-3 flex items-center gap-1.5 bg-[#F8FAFC]/80 dark:bg-[#090F1B]">
+                  <div className="p-3 flex flex-wrap items-center gap-1.5 bg-[#F8FAFC]/80 dark:bg-[#090F1B]">
                     <button
                       type="button"
                       onClick={() => onQuickCardIncome(card.id)}
-                      className="flex-1 min-h-[36px] px-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-h-[40px] sm:min-h-[36px] px-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
                     >
                       <ArrowDownLeft className="w-3.5 h-3.5 shrink-0" />
                       <span>Մուտք</span>
@@ -324,7 +341,7 @@ export function CardsSection({
                     <button
                       type="button"
                       onClick={() => onQuickCardExpense(card.id)}
-                      className="flex-1 min-h-[36px] px-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
+                      className="flex-1 min-h-[40px] sm:min-h-[36px] px-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap"
                     >
                       <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
                       <span>Ելք</span>
@@ -337,7 +354,7 @@ export function CardsSection({
                       }
                       aria-pressed={isFiltered}
                       title="Զտել մատյանը այս քարտով"
-                      className={`min-h-[36px] px-2.5 rounded-xl border text-xs font-medium inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                      className={`min-h-[40px] sm:min-h-[36px] px-2.5 rounded-xl border text-xs font-medium inline-flex items-center justify-center gap-1 transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
                         isFiltered
                           ? 'border-[#2563EB] bg-[#2563EB] text-white dark:bg-[#3B82F6] dark:border-[#3B82F6] dark:text-[#060B16]'
                           : 'border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'

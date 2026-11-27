@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -22,9 +23,11 @@ import {
   Download,
   FileDown,
   FileText,
+  Hash,
   LineChart as LineChartIcon,
   PieChart as PieChartIcon,
   Repeat,
+  ShieldCheck,
   SlidersHorizontal,
   TrendingUp,
   Upload,
@@ -43,6 +46,7 @@ import { SpendingTrendLineCard } from './SpendingTrendLineCard';
 import {
   BudgetLimit,
   Currency,
+  CustomCategory,
   IncomeKind,
   Transaction,
 } from '../../types';
@@ -57,7 +61,8 @@ import {
   getCycleShortLabel,
   isDateInCycle,
 } from '../../utils/financialCycle';
-import { INTERNAL_TRANSFER_CATEGORY } from '../../utils/cardBalances';
+import { FxRatesToAmd, INTERNAL_TRANSFER_CATEGORY } from '../../utils/cardBalances';
+import { NetWorthAndRunwaySummary, RunwayTier } from '../../utils/netWorthAndRunway';
 import { classify503020Category } from '../../utils/smartCommandParser';
 import {
   buildMonthlySummaryStats,
@@ -102,6 +107,7 @@ interface AnalyticsAndReportsPageProps {
   budgets: BudgetLimit[];
   cycleMetrics: CycleDayMetrics;
   openingBalance: number;
+  cardsInitialBalance?: number;
   totalIncome: number;
   totalExpense: number;
   netSavings: number;
@@ -142,9 +148,35 @@ interface AnalyticsAndReportsPageProps {
   expenseByCategory: Record<string, number>;
   onNotify?: (message: string) => void;
   onSelectCategoryFilter?: (cat: string) => void;
+  onSelectTagFilter?: (tag: string) => void;
+  customCategories?: CustomCategory[];
+  fxRates?: FxRatesToAmd | null;
+  netWorthSummary?: NetWorthAndRunwaySummary;
   onExportJSON: () => void;
   onRequestImportJSON: () => void;
 }
+
+const RUNWAY_TIER_META: Record<
+  RunwayTier,
+  { label: string; textClass: string }
+> = {
+  critical: {
+    label: 'Կրիտիկական (< 1 ամիս)',
+    textClass: 'text-rose-600 dark:text-rose-400',
+  },
+  caution: {
+    label: 'Զգուշացում (1–3 ամիս)',
+    textClass: 'text-amber-600 dark:text-amber-400',
+  },
+  healthy: {
+    label: 'Առողջ (3–6 ամիս)',
+    textClass: 'text-emerald-600 dark:text-emerald-400',
+  },
+  strong: {
+    label: 'Հուսալի (6+ ամիս)',
+    textClass: 'text-[#2563EB] dark:text-[#60A5FA]',
+  },
+};
 
 export function AnalyticsAndReportsPage({
   selectedMonth,
@@ -160,6 +192,7 @@ export function AnalyticsAndReportsPage({
   budgets,
   cycleMetrics,
   openingBalance,
+  cardsInitialBalance = 0,
   totalIncome,
   totalExpense,
   netSavings,
@@ -191,6 +224,8 @@ export function AnalyticsAndReportsPage({
   expenseByCategory,
   onNotify,
   onSelectCategoryFilter,
+  onSelectTagFilter,
+  netWorthSummary,
   onExportJSON,
   onRequestImportJSON,
 }: AnalyticsAndReportsPageProps) {
@@ -354,6 +389,27 @@ export function AnalyticsAndReportsPage({
     };
   }, [expenseTransactions, totalIncome]);
 
+  const tagBreakdown = useMemo(() => {
+    const map = new Map<string, { tag: string; amount: number; count: number }>();
+    let maxTagAmount = 0;
+    for (const tx of expenseTransactions) {
+      if (tx.isPending || tx.category === INTERNAL_TRANSFER_CATEGORY) continue;
+      if (!tx.tags || tx.tags.length === 0) continue;
+      for (const rawTag of tx.tags) {
+        const clean = rawTag.trim();
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        const prev = map.get(key) ?? { tag: clean, amount: 0, count: 0 };
+        prev.amount += tx.amount;
+        prev.count += 1;
+        if (prev.amount > maxTagAmount) maxTagAmount = prev.amount;
+        map.set(key, prev);
+      }
+    }
+    const items = Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+    return { items, maxTagAmount };
+  }, [expenseTransactions]);
+
   const handleExportSummaryText = () => {
     const stats = buildMonthlySummaryStats({
       selectedMonth,
@@ -366,6 +422,7 @@ export function AnalyticsAndReportsPage({
       elapsedDays: cycleMetrics.elapsedDays,
       daysInSelectedMonth: cycleMetrics.totalDays,
       isCurrentMonth: cycleMetrics.isCurrentCycle,
+      initialBalance: cardsInitialBalance,
     });
     downloadMonthlySummaryText(stats);
     onNotify?.('Ամսական ամփոփումը արտահանվեց տեքստային ֆորմատով (.txt)');
@@ -386,6 +443,7 @@ export function AnalyticsAndReportsPage({
         elapsedDays: cycleMetrics.elapsedDays,
         daysInSelectedMonth: cycleMetrics.totalDays,
         isCurrentMonth: cycleMetrics.isCurrentCycle,
+        initialBalance: cardsInitialBalance,
       });
       await downloadMonthlySummaryPDF(stats);
       onNotify?.('Ամսական ամփոփումը արտահանվեց PDF ֆորմատով');
@@ -412,6 +470,7 @@ export function AnalyticsAndReportsPage({
               selectedMonth={selectedMonth}
               payday={effectivePayday}
               onShiftMonth={onShiftMonth}
+              className="lg:hidden"
             />
             <button
               type="button"
@@ -518,6 +577,204 @@ export function AnalyticsAndReportsPage({
         currency={currency}
         transactions={transactions}
       />
+
+      {netWorthSummary && (
+        <SectionCard
+          title="Զուտ կապիտալ և անվտանգության բարձիկ"
+          subtitle="Կանխիկ և քարտեր + խնայողություն + տված պարտքեր − վերցրած պարտքեր · 6 ցիկլի պատմություն"
+          icon={ShieldCheck}
+          headerRight={
+            <span
+              className={`text-xs font-semibold ${
+                RUNWAY_TIER_META[netWorthSummary.runwayTier].textClass
+              }`}
+            >
+              {RUNWAY_TIER_META[netWorthSummary.runwayTier].label}
+            </span>
+          }
+        >
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0] dark:divide-[#1E293B]">
+              <div className="py-2 sm:pr-4">
+                <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Զուտ կապիտալ (Net Worth)
+                </span>
+                <p
+                  className={`pa-sensitive font-mono text-lg sm:text-xl font-bold mt-0.5 tabular-nums ${
+                    netWorthSummary.netWorth >= 0
+                      ? 'text-[#0F172A] dark:text-[#F8FAFC]'
+                      : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {netWorthSummary.netWorth > 0 ? '+' : ''}
+                  {formatMoney(netWorthSummary.netWorth, currency)}
+                </p>
+              </div>
+              <div className="py-2 sm:px-4">
+                <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Անվտանգության բարձիկ (Runway)
+                </span>
+                <p
+                  className={`font-mono text-lg sm:text-xl font-bold mt-0.5 tabular-nums ${
+                    RUNWAY_TIER_META[netWorthSummary.runwayTier].textClass
+                  }`}
+                >
+                  {netWorthSummary.runwayDays} օր{' '}
+                  <span className="text-xs font-normal text-[#64748B] dark:text-[#94A3B8]">
+                    ({netWorthSummary.runwayMonths} ամիս)
+                  </span>
+                </p>
+              </div>
+              <div className="py-2 sm:pl-4">
+                <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  60-օրյա միջին օրական ծախս
+                </span>
+                <p className="pa-sensitive font-mono text-lg sm:text-xl font-bold text-[#0F172A] dark:text-[#F8FAFC] mt-0.5 tabular-nums">
+                  {netWorthSummary.hasBurnData
+                    ? formatMoney(netWorthSummary.avgDailyBurn, currency)
+                    : 'Տվյալներ չկան'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
+              <div>
+                <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Իրացվելի միջոցներ
+                </span>
+                <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                  {formatMoney(netWorthSummary.liquidCashAMD, currency)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Խնայողության նպատակներ
+                </span>
+                <span className="pa-sensitive font-mono font-semibold text-emerald-600 dark:text-emerald-400">
+                  +{formatMoney(netWorthSummary.savingsGoalsTotal, currency)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Ինձ են պարտք
+                </span>
+                <span className="pa-sensitive font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA]">
+                  +{formatMoney(netWorthSummary.lentPendingTotal, currency)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Ես եմ պարտք
+                </span>
+                <span className="pa-sensitive font-mono font-semibold text-rose-600 dark:text-rose-400">
+                  -{formatMoney(netWorthSummary.borrowedPendingTotal, currency)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
+                  Չվճարված հաշիվներ
+                </span>
+                <span className="pa-sensitive font-mono font-semibold text-amber-600 dark:text-amber-400">
+                  {formatMoney(netWorthSummary.unpaidBillsAMD, currency)}
+                </span>
+              </div>
+            </div>
+
+            {netWorthSummary.history.length > 0 && (
+              <div className="h-[220px] w-full pt-1">
+                <ResponsiveContainer width="100%" height={220} minWidth={0}>
+                  <AreaChart
+                    data={netWorthSummary.history}
+                    margin={{ top: 10, right: 12, left: -8, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="netWorthAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#2563EB" stopOpacity={0.28} />
+                        <stop offset="95%" stopColor="#2563EB" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      vertical={false}
+                      strokeDasharray="3 3"
+                      stroke="currentColor"
+                      className="text-[#E2E8F0] dark:text-[#1E293B]"
+                    />
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 11, fill: 'currentColor' }}
+                      className="text-[#64748B] dark:text-[#94A3B8]"
+                      dy={6}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      tickLine={false}
+                      width={54}
+                      tickFormatter={formatAxisCompact}
+                      tick={{ fontSize: 11, fill: 'currentColor' }}
+                      className="text-[#94A3B8] dark:text-[#64748B] font-mono"
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload || payload.length === 0) return null;
+                        const pt = payload[0]?.payload as
+                          | NetWorthAndRunwaySummary['history'][number]
+                          | undefined;
+                        if (!pt) return null;
+                        return (
+                          <div className="rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] px-3.5 py-2.5 shadow-xl text-xs space-y-1 min-w-[180px] tabular-nums">
+                            <p className="font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+                              {formatCycleLabel(pt.monthKey, effectivePayday)}
+                            </p>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[#64748B] dark:text-[#94A3B8]">
+                                Զուտ կապիտալ
+                              </span>
+                              <span className="font-mono font-bold text-[#2563EB] dark:text-[#60A5FA]">
+                                {formatMoney(pt.netWorth, currency)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[#64748B] dark:text-[#94A3B8]">
+                                Մնացորդ
+                              </span>
+                              <span className="font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                                {formatMoney(pt.cashBalance, currency)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[#64748B] dark:text-[#94A3B8]">
+                                Խնայողություն
+                              </span>
+                              <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                                {formatMoney(pt.savingsTotal, currency)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="netWorth"
+                      name="Զուտ կապիտալ"
+                      stroke="#2563EB"
+                      strokeWidth={2.5}
+                      fill="url(#netWorthAreaGrad)"
+                      dot={{ r: 3, fill: '#2563EB', strokeWidth: 0 }}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
+                      isAnimationActive={!prefersReducedMotion}
+                      animationDuration={550}
+                      animationEasing="ease-out"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+        </SectionCard>
+      )}
 
       {/* 1. Monthly Income & Expense Dynamics (6m / 12m) */}
       <SectionCard
@@ -1166,7 +1423,7 @@ export function AnalyticsAndReportsPage({
                   key={m.monthKey}
                   type="button"
                   onClick={() => onChangeMonth(m.monthKey)}
-                  className={`w-full py-2.5 px-2 -mx-2 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm transition-colors cursor-pointer ${
+                  className={`w-full py-2.5 px-2.5 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm transition-colors cursor-pointer ${
                     isSelected
                       ? 'bg-[#EFF6FF] dark:bg-[#172554]/50'
                       : 'hover:bg-[#F8FAFC] dark:hover:bg-[#162033]'
@@ -1595,7 +1852,9 @@ export function AnalyticsAndReportsPage({
                   <div className="h-2 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden relative">
                     <div
                       className={`h-full rounded-full transition-all duration-300 ${row.barClass}`}
-                      style={{ width: `${Math.min(100, row.actualPct)}%` }}
+                      style={{
+                        width: `${Math.max(0, Math.min(100, row.actualPct))}%`,
+                      }}
                     />
                   </div>
                   <p className="pa-sensitive text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
@@ -1618,6 +1877,59 @@ export function AnalyticsAndReportsPage({
           )}
         </SectionCard>
       </div>
+
+      {/* 7. Expenses Breakdown by #Tags */}
+      <SectionCard
+        title="Ծախսեր ըստ #թեգերի"
+        subtitle={`Այս ցիկլում նշված հեշթեգերով ծախսերի ամփոփում · ${cycleLabel}`}
+        icon={Hash}
+      >
+        {tagBreakdown.items.length === 0 ? (
+          <EmptyStatePlaceholder
+            compact
+            icon={Hash}
+            title="Այս ցիկլում #թեգերով ծախսեր չկան"
+            description="Գործարք ավելացնելիս ավելացրեք #սուրճ կամ #ճանապարհ՝ խմբավորված վերլուծություն տեսնելու համար։"
+          />
+        ) : (
+          <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+            {tagBreakdown.items.map((item) => {
+              const widthPct =
+                tagBreakdown.maxTagAmount > 0
+                  ? Math.max(4, Math.round((item.amount / tagBreakdown.maxTagAmount) * 100))
+                  : 0;
+              return (
+                <button
+                  key={item.tag}
+                  type="button"
+                  onClick={() => onSelectTagFilter?.(item.tag)}
+                  className="w-full py-2.5 px-2 rounded-lg text-left hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors cursor-pointer space-y-1.5"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs sm:text-sm">
+                    <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                      <span className="font-mono text-[#2563EB] dark:text-[#60A5FA]">
+                        #{item.tag}
+                      </span>{' '}
+                      <span className="text-[11px] text-[#94A3B8] font-mono tabular-nums">
+                        · {item.count} գործարք
+                      </span>
+                    </span>
+                    <span className="pa-sensitive font-mono font-semibold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
+                      {formatMoney(item.amount, currency)}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-[#2563EB] dark:bg-[#3B82F6] transition-all duration-300"
+                      style={{ width: `${widthPct}%` }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </SectionCard>
     </PageShell>
   );
 }

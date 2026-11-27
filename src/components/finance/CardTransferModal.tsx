@@ -4,21 +4,32 @@ import { ArrowRight, ArrowLeftRight, X } from 'lucide-react';
 import { BankCard, Currency, Transaction } from '../../types';
 import { formatMoney, getTodayISO } from '../../data/defaults';
 import {
+  CARD_CURRENCY_META,
+  FxRatesToAmd,
   computeCardStats,
+  convertFromAMD,
+  convertToAMD,
   formatCardLabel,
+  formatCardMoney,
+  normalizeCardCurrency,
 } from '../../utils/cardBalances';
 import { QUICK_AMOUNTS_AMD } from './financeShared';
+
+const FX_QUICK_AMOUNTS = [10, 50, 100, 500];
 
 interface CardTransferModalProps {
   cards: BankCard[];
   transactions: Transaction[];
   currency: Currency;
+  fxRates?: FxRatesToAmd | null;
   initialFromCardId?: string;
   onClose: () => void;
   onTransfer: (params: {
     fromCardId: string;
     toCardId: string;
     amount: number;
+    toAmount?: number;
+    amountAMD?: number;
     date: string;
     note?: string;
   }) => void;
@@ -28,6 +39,7 @@ export function CardTransferModal({
   cards,
   transactions,
   currency,
+  fxRates,
   initialFromCardId,
   onClose,
   onTransfer,
@@ -37,12 +49,13 @@ export function CardTransferModal({
     initialFromCardId && cards.some((c) => c.id === initialFromCardId)
       ? initialFromCardId
       : cards[0]?.id ?? '';
-  const defaultTo =
-    cards.find((c) => c.id !== defaultFrom)?.id ?? '';
+  const defaultTo = cards.find((c) => c.id !== defaultFrom)?.id ?? '';
 
   const [fromCardId, setFromCardId] = useState(defaultFrom);
   const [toCardId, setToCardId] = useState(defaultTo);
   const [amountStr, setAmountStr] = useState('');
+  const [toAmountStr, setToAmountStr] = useState('');
+  const [isToAmountManual, setIsToAmountManual] = useState(false);
   const [date, setDate] = useState(getTodayISO());
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
@@ -64,19 +77,69 @@ export function CardTransferModal({
   const cardStatsMap = useMemo(() => {
     const map = new Map<string, ReturnType<typeof computeCardStats>>();
     for (const card of cards) {
-      map.set(card.id, computeCardStats(card, transactions));
+      map.set(card.id, computeCardStats(card, transactions, fxRates));
     }
     return map;
-  }, [cards, transactions]);
+  }, [cards, transactions, fxRates]);
 
   const fromStats = cardStatsMap.get(fromCardId);
   const toStats = cardStatsMap.get(toCardId);
+  const fromCurrency = normalizeCardCurrency(fromStats?.card.currency);
+  const toCurrency = normalizeCardCurrency(toStats?.card.currency);
+  const isCrossCurrency = fromCurrency !== toCurrency;
+
   const parsedAmount = Number(amountStr);
-  const validAmount = Number.isFinite(parsedAmount) && parsedAmount > 0 ? Math.round(parsedAmount) : 0;
+  const validAmount =
+    Number.isFinite(parsedAmount) && parsedAmount > 0
+      ? fromCurrency === 'AMD'
+        ? Math.round(parsedAmount)
+        : Math.round(parsedAmount * 100) / 100
+      : 0;
+
+  const amountAMD =
+    validAmount > 0 ? convertToAMD(validAmount, fromCurrency, fxRates) : 0;
+
+  useEffect(() => {
+    if (!isCrossCurrency) {
+      setToAmountStr('');
+      setIsToAmountManual(false);
+      return;
+    }
+    if (!isToAmountManual) {
+      if (validAmount > 0) {
+        const autoDest = convertFromAMD(amountAMD, toCurrency, fxRates);
+        setToAmountStr(autoDest > 0 ? String(autoDest) : '');
+      } else {
+        setToAmountStr('');
+      }
+    }
+  }, [
+    isCrossCurrency,
+    isToAmountManual,
+    validAmount,
+    amountAMD,
+    toCurrency,
+    fxRates,
+  ]);
+
+  const parsedToAmount = Number(toAmountStr);
+  const validToAmount = isCrossCurrency
+    ? Number.isFinite(parsedToAmount) && parsedToAmount > 0
+      ? toCurrency === 'AMD'
+        ? Math.round(parsedToAmount)
+        : Math.round(parsedToAmount * 100) / 100
+      : convertFromAMD(amountAMD, toCurrency, fxRates)
+    : validAmount;
+
+  const quickPresets =
+    fromCurrency === 'AMD' || fromCurrency === 'RUB'
+      ? QUICK_AMOUNTS_AMD
+      : FX_QUICK_AMOUNTS;
 
   const handleSwap = () => {
     setFromCardId(toCardId);
     setToCardId(fromCardId);
+    setIsToAmountManual(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -94,11 +157,17 @@ export function CardTransferModal({
       setError('Մուտքագրեք ճիշտ գումար։');
       return;
     }
+    if (isCrossCurrency && (!validToAmount || validToAmount <= 0)) {
+      setError('Մուտքագրեք ստացվող ճիշտ գումարը։');
+      return;
+    }
 
     onTransfer({
       fromCardId,
       toCardId,
       amount: validAmount,
+      toAmount: isCrossCurrency ? validToAmount : undefined,
+      amountAMD: amountAMD > 0 ? amountAMD : undefined,
       date: date || getTodayISO(),
       note: note.trim() || undefined,
     });
@@ -170,6 +239,7 @@ export function CardTransferModal({
                 onChange={(e) => {
                   const next = e.target.value;
                   setFromCardId(next);
+                  setIsToAmountManual(false);
                   if (next === toCardId) {
                     const alt = cards.find((c) => c.id !== next);
                     if (alt) setToCardId(alt.id);
@@ -179,9 +249,10 @@ export function CardTransferModal({
               >
                 {cards.map((c) => {
                   const st = cardStatsMap.get(c.id);
+                  const ccy = normalizeCardCurrency(c.currency);
                   return (
                     <option key={c.id} value={c.id}>
-                      {formatCardLabel(c)} ({formatMoney(st?.currentBalance ?? c.initialBalance, currency)})
+                      {formatCardLabel(c)} ({formatCardMoney(st?.currentBalance ?? c.initialBalance, ccy)})
                     </option>
                   );
                 })}
@@ -209,6 +280,7 @@ export function CardTransferModal({
                 onChange={(e) => {
                   const next = e.target.value;
                   setToCardId(next);
+                  setIsToAmountManual(false);
                   if (next === fromCardId) {
                     const alt = cards.find((c) => c.id !== next);
                     if (alt) setFromCardId(alt.id);
@@ -218,9 +290,10 @@ export function CardTransferModal({
               >
                 {cards.map((c) => {
                   const st = cardStatsMap.get(c.id);
+                  const ccy = normalizeCardCurrency(c.currency);
                   return (
                     <option key={c.id} value={c.id}>
-                      {formatCardLabel(c)} ({formatMoney(st?.currentBalance ?? c.initialBalance, currency)})
+                      {formatCardLabel(c)} ({formatCardMoney(st?.currentBalance ?? c.initialBalance, ccy)})
                     </option>
                   );
                 })}
@@ -231,16 +304,16 @@ export function CardTransferModal({
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8] mb-1">
-                Գումար (֏)
+                Գումար ({CARD_CURRENCY_META[fromCurrency].symbol})
               </label>
               <input
                 ref={amountRef}
                 type="number"
-                min="1"
+                min="0.01"
                 step="any"
                 value={amountStr}
                 onChange={(e) => setAmountStr(e.target.value)}
-                placeholder="20000"
+                placeholder={fromCurrency === 'AMD' ? '20000' : '100'}
                 className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums rounded-xl input-field"
               />
             </div>
@@ -257,12 +330,50 @@ export function CardTransferModal({
             </div>
           </div>
 
+          {isCrossCurrency && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
+                  Ստացվող գումար ({toCurrency})
+                </label>
+                {isToAmountManual && validAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsToAmountManual(false)}
+                    className="text-[11px] font-medium text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+                  >
+                    Հաշվել փոխարժեքով
+                  </button>
+                )}
+              </div>
+              <input
+                type="number"
+                min="0.01"
+                step="any"
+                value={toAmountStr}
+                onChange={(e) => {
+                  setIsToAmountManual(true);
+                  setToAmountStr(e.target.value);
+                }}
+                placeholder={toCurrency === 'AMD' ? '39000' : '100'}
+                className="w-full min-h-[42px] px-3 py-2 text-sm font-mono tabular-nums rounded-xl input-field"
+              />
+              {amountAMD > 0 && (
+                <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] font-mono tabular-nums">
+                  Համարժեք՝ ≈ {formatMoney(amountAMD, currency)}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-4 gap-1.5">
-            {QUICK_AMOUNTS_AMD.map((preset) => (
+            {quickPresets.map((preset) => (
               <button
                 key={preset}
                 type="button"
-                onClick={() => setAmountStr(String((Number(amountStr) || 0) + preset))}
+                onClick={() =>
+                  setAmountStr(String((Number(amountStr) || 0) + preset))
+                }
                 className="min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] transition-all cursor-pointer"
               >
                 +{preset.toLocaleString()}
@@ -289,11 +400,16 @@ export function CardTransferModal({
                 <span className="text-[#64748B] dark:text-[#94A3B8] truncate">
                   {fromStats.card.name}
                 </span>
-                <span className="font-mono flex items-center gap-1.5 shrink-0">
-                  <span className="text-[#64748B]">{formatMoney(fromStats.currentBalance, currency)}</span>
+                <span className="pa-sensitive font-mono flex items-center gap-1.5 shrink-0">
+                  <span className="text-[#64748B]">
+                    {formatCardMoney(fromStats.currentBalance, fromCurrency)}
+                  </span>
                   <ArrowRight className="w-3 h-3 text-[#94A3B8]" />
                   <strong className="text-rose-600 dark:text-rose-400">
-                    {formatMoney(fromStats.currentBalance - validAmount, currency)}
+                    {formatCardMoney(
+                      fromStats.currentBalance - validAmount,
+                      fromCurrency
+                    )}
                   </strong>
                 </span>
               </div>
@@ -301,11 +417,16 @@ export function CardTransferModal({
                 <span className="text-[#64748B] dark:text-[#94A3B8] truncate">
                   {toStats.card.name}
                 </span>
-                <span className="font-mono flex items-center gap-1.5 shrink-0">
-                  <span className="text-[#64748B]">{formatMoney(toStats.currentBalance, currency)}</span>
+                <span className="pa-sensitive font-mono flex items-center gap-1.5 shrink-0">
+                  <span className="text-[#64748B]">
+                    {formatCardMoney(toStats.currentBalance, toCurrency)}
+                  </span>
                   <ArrowRight className="w-3 h-3 text-[#94A3B8]" />
                   <strong className="text-emerald-600 dark:text-emerald-400">
-                    {formatMoney(toStats.currentBalance + validAmount, currency)}
+                    {formatCardMoney(
+                      toStats.currentBalance + validToAmount,
+                      toCurrency
+                    )}
                   </strong>
                 </span>
               </div>
@@ -338,3 +459,4 @@ export function CardTransferModal({
     </div>
   );
 }
+

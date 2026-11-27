@@ -1,9 +1,10 @@
-import { memo, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import {
   CheckSquare,
   Clock,
   Download,
+  FileSpreadsheet,
   Plus,
   Receipt,
   Repeat,
@@ -20,17 +21,17 @@ import {
 } from '../layout/PagePrimitives';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import { SwipeableTransactionRow } from './SwipeableTransactionRow';
+import { StatementImportModal } from './StatementImportModal';
 import {
   BankCard,
   Currency,
+  CustomCategory,
   IncomeKind,
   PrimaryIncomeConfig,
   Transaction,
   TransactionType,
 } from '../../types';
 import {
-  EXPENSE_CATEGORIES,
-  INCOME_CATEGORIES,
   INCOME_KINDS,
   formatMoney,
   getTodayISO,
@@ -38,13 +39,15 @@ import {
 } from '../../data/defaults';
 import { TxSortMode } from './financeShared';
 import { findAutoCategorizableTransactions } from '../../utils/transactionAutoCategory';
-import { formatCardLabel } from '../../utils/cardBalances';
+import { FxRatesToAmd, formatCardLabel } from '../../utils/cardBalances';
+import {
+  mergeExpenseCategories,
+  mergeIncomeCategories,
+} from '../../utils/customCategories';
 import { formatCycleLabel } from '../../utils/financialCycle';
 import { RecurringBillSuggestion } from '../../utils/recurringBills';
 
-const ALL_CATEGORIES = Array.from(
-  new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES])
-);
+const LEDGER_PAGE_SIZE = 50;
 
 interface TransactionsLedgerPageProps {
   selectedMonth: string;
@@ -52,12 +55,21 @@ interface TransactionsLedgerPageProps {
   effectivePayday: number;
   currency: Currency;
   cards: BankCard[];
+  customCategories?: CustomCategory[];
+  fxRates?: FxRatesToAmd | null;
   filterCardId: string;
   onFilterCardChange: (cardId: string) => void;
+  filterCategory?: string;
+  onFilterCategoryChange?: (category: string) => void;
+  filterTag?: string;
+  onFilterTagChange?: (tag: string) => void;
   monthTransactions: Transaction[];
   allTransactions: Transaction[];
   onOpenNewTransactionModal: () => void;
   onEditTransaction: (tx: Transaction) => void;
+  onImportTransactions?: (
+    items: Array<Omit<Transaction, 'id' | 'createdAt'>>
+  ) => void;
   onAutoCategorizeTransactions?: (
     updates: Array<{ id: string; category: string; incomeKind?: IncomeKind }>
   ) => void;
@@ -82,6 +94,8 @@ interface TransactionsLedgerPageProps {
   onConvertSuggestionToBill?: (suggestion: RecurringBillSuggestion) => void;
   onOpenSuggestionInBills?: (suggestion: RecurringBillSuggestion) => void;
   onDismissBillSuggestion?: (key: string) => void;
+  trendCard?: React.ReactNode;
+  categoryPieCard?: React.ReactNode;
 }
 
 export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
@@ -90,12 +104,19 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   effectivePayday,
   currency,
   cards,
+  customCategories = [],
+  fxRates,
   filterCardId,
   onFilterCardChange,
+  filterCategory: controlledFilterCategory,
+  onFilterCategoryChange,
+  filterTag: controlledFilterTag,
+  onFilterTagChange,
   monthTransactions,
   allTransactions,
   onOpenNewTransactionModal,
   onEditTransaction,
+  onImportTransactions,
   onAutoCategorizeTransactions,
   onDeleteTransaction,
   onDuplicateTransaction,
@@ -118,6 +139,8 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   onConvertSuggestionToBill,
   onOpenSuggestionInBills,
   onDismissBillSuggestion,
+  trendCard,
+  categoryPieCard,
 }: TransactionsLedgerPageProps) {
   const todayISO = getTodayISO();
   const cycleLabel = formatCycleLabel(selectedMonth, effectivePayday);
@@ -125,10 +148,17 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   const [openSwipeTxId, setOpenSwipeTxId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showImportModal, setShowImportModal] = useState(false);
 
+  const [searchAllMonths, setSearchAllMonths] = useState(false);
   const [filterType, setFilterType] = useState<'all' | TransactionType | 'pending'>('all');
   const [filterIncomeKind, setFilterIncomeKind] = useState<'all' | IncomeKind>('all');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [internalFilterCategory, setInternalFilterCategory] = useState<string>('all');
+  const filterCategory = controlledFilterCategory ?? internalFilterCategory;
+  const setFilterCategory = onFilterCategoryChange ?? setInternalFilterCategory;
+  const [internalFilterTag, setInternalFilterTag] = useState<string>('all');
+  const filterTag = controlledFilterTag ?? internalFilterTag;
+  const setFilterTag = onFilterTagChange ?? setInternalFilterTag;
   const [filterDateMode, setFilterDateMode] = useState<'all' | 'specific' | 'range'>('all');
   const [filterDateSpecific, setFilterDateSpecific] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
@@ -137,12 +167,35 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(LEDGER_PAGE_SIZE);
 
-  const allCategories = ALL_CATEGORIES;
+  const allCategories = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...mergeExpenseCategories(customCategories),
+          ...mergeIncomeCategories(customCategories),
+        ])
+      ),
+    [customCategories]
+  );
+
+  const scopedTransactions = searchAllMonths ? allTransactions : monthTransactions;
+
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const tx of scopedTransactions) {
+      if (!tx.tags) continue;
+      for (const tag of tx.tags) {
+        if (tag) tagSet.add(tag);
+      }
+    }
+    return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
+  }, [scopedTransactions]);
 
   const pendingCount = useMemo(
-    () => monthTransactions.filter((t) => t.type === 'expense' && t.isPending).length,
-    [monthTransactions]
+    () => scopedTransactions.filter((t) => t.type === 'expense' && t.isPending).length,
+    [scopedTransactions]
   );
 
   const searchSuggestions = useMemo(() => {
@@ -192,17 +245,21 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
   );
 
   const hasActiveFilters =
+    searchAllMonths ||
     filterType !== 'all' ||
     filterIncomeKind !== 'all' ||
     filterCategory !== 'all' ||
+    filterTag !== 'all' ||
     filterCardId !== 'all' ||
     filterDateMode !== 'all' ||
     searchQuery.trim() !== '';
 
   const clearLedgerFilters = () => {
+    setSearchAllMonths(false);
     setFilterType('all');
     setFilterIncomeKind('all');
     setFilterCategory('all');
+    setFilterTag('all');
     onFilterCardChange('all');
     setFilterDateMode('all');
     setFilterDateSpecific('');
@@ -211,10 +268,29 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
     setSearchQuery('');
   };
 
+  useEffect(() => {
+    setVisibleCount(LEDGER_PAGE_SIZE);
+  }, [
+    selectedMonth,
+    searchAllMonths,
+    filterType,
+    filterIncomeKind,
+    filterCategory,
+    filterTag,
+    filterCardId,
+    filterDateMode,
+    filterDateSpecific,
+    filterDateFrom,
+    filterDateTo,
+    txSort,
+    searchQuery,
+  ]);
+
   const filteredTransactions = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
+    const qTag = q.replace(/^#/, '');
     const numericQ = q ? Number(q) : NaN;
-    return monthTransactions
+    return scopedTransactions
       .filter((t) => {
         if (filterType === 'all') return true;
         if (filterType === 'pending') return t.type === 'expense' && t.isPending;
@@ -227,6 +303,15 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
       })
       .filter((t) =>
         filterCategory === 'all' ? true : t.category === filterCategory
+      )
+      .filter((t) =>
+        filterTag === 'all'
+          ? true
+          : Boolean(
+              t.tags?.some(
+                (tag) => tag.toLowerCase() === filterTag.toLowerCase()
+              )
+            )
       )
       .filter((t) => {
         if (filterCardId === 'all') return true;
@@ -247,6 +332,12 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
         if (!q) return true;
         if (t.title.toLowerCase().includes(q)) return true;
         if (t.category.toLowerCase().includes(q)) return true;
+        if (
+          qTag &&
+          t.tags?.some((tag) => tag.toLowerCase().includes(qTag))
+        ) {
+          return true;
+        }
         const linkedCard = t.cardId ? cardsById.get(t.cardId) : undefined;
         if (linkedCard && formatCardLabel(linkedCard).toLowerCase().includes(q)) {
           return true;
@@ -260,13 +351,15 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
       .sort((a, b) => {
         if (txSort === 'amount-desc') return b.amount - a.amount;
         if (txSort === 'amount-asc') return a.amount - b.amount;
+        if (txSort === 'date-asc') return a.date.localeCompare(b.date);
         return b.date.localeCompare(a.date);
       });
   }, [
-    monthTransactions,
+    scopedTransactions,
     filterType,
     filterIncomeKind,
     filterCategory,
+    filterTag,
     filterCardId,
     filterDateMode,
     filterDateSpecific,
@@ -276,6 +369,16 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
     cardsById,
     txSort,
   ]);
+
+  const visibleTransactions = useMemo(
+    () => filteredTransactions.slice(0, visibleCount),
+    [filteredTransactions, visibleCount]
+  );
+
+  const remainingCount = Math.max(
+    0,
+    filteredTransactions.length - visibleTransactions.length
+  );
 
   const filteredNet = useMemo(
     () =>
@@ -298,7 +401,18 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               selectedMonth={selectedMonth}
               payday={effectivePayday}
               onShiftMonth={onShiftMonth}
+              className="lg:hidden"
             />
+            {onImportTransactions && (
+              <button
+                type="button"
+                onClick={() => setShowImportModal(true)}
+                className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#0F172A] dark:text-[#F8FAFC] inline-flex items-center gap-1.5 hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+                <span>Ներմուծել</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onExportCSV}
@@ -372,6 +486,33 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
         ]}
       />
 
+      {(trendCard || categoryPieCard) && (
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-stretch">
+          {trendCard && (
+            <div
+              className={
+                categoryPieCard
+                  ? 'xl:col-span-7 min-w-0 flex flex-col'
+                  : 'xl:col-span-12 min-w-0'
+              }
+            >
+              {trendCard}
+            </div>
+          )}
+          {categoryPieCard && (
+            <div
+              className={
+                trendCard
+                  ? 'xl:col-span-5 min-w-0 flex flex-col'
+                  : 'xl:col-span-12 min-w-0'
+              }
+            >
+              {categoryPieCard}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Full-Width Transactions Ledger */}
       <section className="surface-card overflow-hidden">
         <div className="p-4 sm:px-6 border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col gap-3">
@@ -409,7 +550,32 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               ))}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="inline-flex items-center p-0.5 rounded-xl surface-subtle text-xs">
+                <button
+                  type="button"
+                  onClick={() => setSearchAllMonths(false)}
+                  className={`min-h-[32px] px-2.5 rounded-lg font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                    !searchAllMonths
+                      ? 'bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] shadow-xs'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  Այս ցիկլ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSearchAllMonths(true)}
+                  className={`min-h-[32px] px-2.5 rounded-lg font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                    searchAllMonths
+                      ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  Բոլոր ամիսներ
+                </button>
+              </div>
+
               {filteredTransactions.length > 0 &&
                 (onBulkDeleteTransactions || onBulkAssignCard) && (
                   <button
@@ -449,6 +615,22 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               ))}
             </select>
 
+            {(availableTags.length > 0 || filterTag !== 'all') && (
+              <select
+                value={filterTag}
+                onChange={(e) => setFilterTag(e.target.value)}
+                aria-label="Զտել ըստ թեգի"
+                className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+              >
+                <option value="all">Բոլոր #թեգերը</option>
+                {availableTags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    #{tag}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {cards.length > 0 && (
               <select
                 value={filterCardId}
@@ -473,8 +655,22 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
             >
               <option value="date-desc">Նորից հին</option>
+              <option value="date-asc">Հնից նոր</option>
               <option value="amount-desc">Գումար՝ մեծից փոքր</option>
               <option value="amount-asc">Գումար՝ փոքրից մեծ</option>
+            </select>
+
+            <select
+              value={filterDateMode}
+              onChange={(e) =>
+                setFilterDateMode(e.target.value as 'all' | 'specific' | 'range')
+              }
+              aria-label="Զտել ըստ օրվա"
+              className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+            >
+              <option value="all">Բոլոր օրերը</option>
+              <option value="specific">Կոնկրետ օր</option>
+              <option value="range">Ժամանակահատված</option>
             </select>
 
             <div className="relative flex-1 min-w-[200px] sm:max-w-xs ml-auto">
@@ -487,7 +683,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 onBlur={() => {
                   setTimeout(() => setIsSearchFocused(false), 200);
                 }}
-                placeholder="Որոնել (անուն, կատեգորիա, գումար)..."
+                placeholder="Որոնել (անուն, #թեգ, գումար)..."
                 className="w-full min-h-[38px] pl-9 pr-8 py-1.5 text-sm rounded-xl input-field"
               />
               {searchQuery && (
@@ -566,7 +762,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                           }}
                           className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] font-mono text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-between transition-colors cursor-pointer"
                         >
-                          <span>{formatMoney(Number(a), currency)}</span>
+                          <span className="pa-sensitive">{formatMoney(Number(a), currency)}</span>
                           <span className="text-[10px] text-[#94A3B8] shrink-0 ml-2">գումար</span>
                         </button>
                       ))}
@@ -607,60 +803,54 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
             </div>
           )}
 
-          {/* Date Filter Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-[#F1F5F9] dark:border-[#1E293B]">
-            <div className="flex items-center gap-1 flex-wrap">
-              {[
-                { id: 'all' as const, label: 'Բոլոր օրերը' },
-                { id: 'specific' as const, label: 'Կոնկրետ օր' },
-                { id: 'range' as const, label: 'Ժամանակահատված (Դիապազոն)' },
-              ].map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => setFilterDateMode(mode.id)}
-                  className={`min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer tabular-nums ${
-                    filterDateMode === mode.id
-                      ? 'bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                      : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A]'
-                  }`}
-                >
-                  {mode.label}
-                </button>
-              ))}
+          {/* Conditional Date Inputs */}
+          {filterDateMode !== 'all' && (
+            <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-[#F1F5F9] dark:border-[#1E293B]">
+              {filterDateMode === 'specific' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Օր․</span>
+                  <input
+                    type="date"
+                    value={filterDateSpecific}
+                    onChange={(e) => setFilterDateSpecific(e.target.value)}
+                    className="min-h-[34px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                  />
+                </div>
+              )}
+
+              {filterDateMode === 'range' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Սկսած՝</span>
+                  <input
+                    type="date"
+                    value={filterDateFrom}
+                    onChange={(e) => setFilterDateFrom(e.target.value)}
+                    className="min-h-[34px] px-2 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                  />
+                  <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Մինչև՝</span>
+                  <input
+                    type="date"
+                    value={filterDateTo}
+                    onChange={(e) => setFilterDateTo(e.target.value)}
+                    className="min-h-[34px] px-2 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDateMode('all');
+                  setFilterDateSpecific('');
+                  setFilterDateFrom('');
+                  setFilterDateTo('');
+                }}
+                className="text-[11px] font-medium text-[#2563EB] dark:text-[#60A5FA] hover:underline cursor-pointer"
+              >
+                Մաքրել օրերը
+              </button>
             </div>
-
-            {filterDateMode === 'specific' && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Օր․</span>
-                <input
-                  type="date"
-                  value={filterDateSpecific}
-                  onChange={(e) => setFilterDateSpecific(e.target.value)}
-                  className="min-h-[34px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
-                />
-              </div>
-            )}
-
-            {filterDateMode === 'range' && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Սկսած՝</span>
-                <input
-                  type="date"
-                  value={filterDateFrom}
-                  onChange={(e) => setFilterDateFrom(e.target.value)}
-                  className="min-h-[34px] px-2 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
-                />
-                <span className="text-xs text-[#64748B] dark:text-[#94A3B8]">Մինչև՝</span>
-                <input
-                  type="date"
-                  value={filterDateTo}
-                  onChange={(e) => setFilterDateTo(e.target.value)}
-                  className="min-h-[34px] px-2 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
-                />
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Auto-Categorize Existing 'Այլ' Transactions Banner */}
@@ -875,7 +1065,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
 
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
               <AnimatePresence initial={false}>
-                {filteredTransactions.map((tx) => (
+                {visibleTransactions.map((tx) => (
                   <SwipeableTransactionRow
                     key={tx.id}
                     tx={tx}
@@ -911,9 +1101,26 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               </AnimatePresence>
             </div>
 
+            {remainingCount > 0 && (
+              <div className="px-4 py-3 border-t border-[#F1F5F9] dark:border-[#1E293B] flex justify-center bg-white dark:bg-[#0F172A]">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setVisibleCount((prev) => prev + LEDGER_PAGE_SIZE)
+                  }
+                  className="min-h-[36px] px-4 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-xs font-semibold text-[#2563EB] dark:text-[#60A5FA] transition-colors cursor-pointer tabular-nums"
+                >
+                  Ցուցադրել ավելին (+{remainingCount})
+                </button>
+              </div>
+            )}
+
             <div className="px-4 sm:px-6 py-3 border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex flex-wrap items-center justify-between gap-2 text-xs text-[#64748B] dark:text-[#94A3B8] tabular-nums">
               <div className="flex items-center gap-2">
-                <span>Ցուցադրված է {filteredTransactions.length} գործարք</span>
+                <span>
+                  Ցուցադրված է {visibleTransactions.length}-ը{' '}
+                  {filteredTransactions.length}-ից
+                </span>
                 {hasActiveFilters && (
                   <>
                     <span aria-hidden="true">·</span>
@@ -935,6 +1142,17 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
           </>
         )}
       </section>
+
+      {showImportModal && onImportTransactions && (
+        <StatementImportModal
+          cards={cards}
+          transactions={allTransactions}
+          customCategories={customCategories}
+          fxRates={fxRates}
+          onClose={() => setShowImportModal(false)}
+          onImportTransactions={onImportTransactions}
+        />
+      )}
     </PageShell>
   );
 });

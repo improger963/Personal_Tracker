@@ -1,10 +1,101 @@
-import { BankCard, CardColor, CardType, Transaction } from '../types';
+import { BankCard, CardColor, CardCurrency, CardType, Transaction } from '../types';
 
 export const INTERNAL_TRANSFER_CATEGORY = 'Քարտերի փոխանցում';
 
+export const CARD_CURRENCIES: CardCurrency[] = ['AMD', 'USD', 'EUR', 'RUB', 'GEL'];
+
+export const CARD_CURRENCY_META: Record<
+  CardCurrency,
+  { symbol: string; label: string; shortLabel: string }
+> = {
+  AMD: { symbol: '֏', label: 'ՀՀ դրամ (AMD)', shortLabel: 'AMD' },
+  USD: { symbol: '$', label: 'ԱՄՆ դոլար (USD)', shortLabel: 'USD' },
+  EUR: { symbol: '€', label: 'Եվրո (EUR)', shortLabel: 'EUR' },
+  RUB: { symbol: '₽', label: 'Ռուբլի (RUB)', shortLabel: 'RUB' },
+  GEL: { symbol: '₾', label: 'Լարի (GEL)', shortLabel: 'GEL' },
+};
+
+export const FALLBACK_FX_TO_AMD: Record<CardCurrency, number> = {
+  AMD: 1,
+  USD: 390,
+  EUR: 420,
+  RUB: 4.1,
+  GEL: 145,
+};
+
+export type FxRatesToAmd = Partial<Record<'USD' | 'EUR' | 'RUB' | 'GEL', number>>;
+
+export function normalizeCardCurrency(raw?: unknown): CardCurrency {
+  if (raw === 'USD' || raw === 'EUR' || raw === 'RUB' || raw === 'GEL') {
+    return raw;
+  }
+  return 'AMD';
+}
+
+export function getRateToAMD(
+  currency: CardCurrency | undefined,
+  fxRates?: FxRatesToAmd | null
+): number {
+  const code = normalizeCardCurrency(currency);
+  if (code === 'AMD') return 1;
+  const live = fxRates?.[code];
+  if (typeof live === 'number' && Number.isFinite(live) && live > 0) {
+    return live;
+  }
+  return FALLBACK_FX_TO_AMD[code];
+}
+
+export function convertToAMD(
+  amount: number,
+  currency: CardCurrency | undefined,
+  fxRates?: FxRatesToAmd | null
+): number {
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * getRateToAMD(currency, fxRates));
+}
+
+export function convertFromAMD(
+  amountAMD: number,
+  targetCurrency: CardCurrency | undefined,
+  fxRates?: FxRatesToAmd | null
+): number {
+  if (!Number.isFinite(amountAMD)) return 0;
+  const code = normalizeCardCurrency(targetCurrency);
+  if (code === 'AMD') return Math.round(amountAMD);
+  const rate = getRateToAMD(code, fxRates);
+  if (rate <= 0) return 0;
+  return Math.round((amountAMD / rate) * 100) / 100;
+}
+
+const AMD_FORMATTER = new Intl.NumberFormat('hy-AM', {
+  maximumFractionDigits: 0,
+});
+
+const FX_FORMATTER = new Intl.NumberFormat('hy-AM', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+export function formatCardMoney(
+  amount: number,
+  currency: CardCurrency = 'AMD'
+): string {
+  const code = normalizeCardCurrency(currency);
+  const safe = Number.isFinite(amount) ? amount : 0;
+  const sign = safe < 0 ? '-' : '';
+  const abs = Math.abs(safe);
+  const formatted =
+    code === 'AMD'
+      ? AMD_FORMATTER.format(Math.round(abs))
+      : FX_FORMATTER.format(Math.round(abs * 100) / 100);
+  return `${sign}${formatted} ${CARD_CURRENCY_META[code].symbol}`;
+}
+
 export interface CardComputedStats {
   card: BankCard;
+  currency: CardCurrency;
   currentBalance: number;
+  currentBalanceAMD: number;
   totalIncome: number;
   totalExpense: number;
   pendingExpense: number;
@@ -99,10 +190,30 @@ export const ARMENIAN_BANK_PRESETS: {
   { name: 'Կանխիկ դրամապանակ', cardType: 'cash', color: 'emerald' },
 ];
 
+export function getTxAmountInCardCurrency(
+  tx: Transaction,
+  cardCurrency: CardCurrency,
+  fxRates?: FxRatesToAmd | null
+): number {
+  const code = normalizeCardCurrency(cardCurrency);
+  if (code === 'AMD') return tx.amount;
+  if (
+    typeof tx.cardAmount === 'number' &&
+    Number.isFinite(tx.cardAmount) &&
+    tx.cardAmount > 0 &&
+    (!tx.cardCurrency || tx.cardCurrency === code)
+  ) {
+    return tx.cardAmount;
+  }
+  return convertFromAMD(tx.amount, code, fxRates);
+}
+
 export function computeCardStats(
   card: BankCard,
-  transactions: Transaction[]
+  transactions: Transaction[],
+  fxRates?: FxRatesToAmd | null
 ): CardComputedStats {
+  const currency = normalizeCardCurrency(card.currency);
   let totalIncome = 0;
   let totalExpense = 0;
   let pendingExpense = 0;
@@ -111,29 +222,82 @@ export function computeCardStats(
   for (const tx of transactions) {
     if (tx.cardId !== card.id) continue;
     txCount += 1;
+    const nativeAmount = getTxAmountInCardCurrency(tx, currency, fxRates);
     if (tx.type === 'income') {
-      totalIncome += tx.amount;
+      totalIncome += nativeAmount;
     } else if (tx.isPending) {
-      pendingExpense += tx.amount;
+      pendingExpense += nativeAmount;
     } else {
-      totalExpense += tx.amount;
+      totalExpense += nativeAmount;
     }
   }
 
+  const rawBalance =
+    (Number.isFinite(card.initialBalance) ? card.initialBalance : 0) +
+    totalIncome -
+    totalExpense;
+  const currentBalance =
+    currency === 'AMD'
+      ? Math.round(rawBalance)
+      : Math.round(rawBalance * 100) / 100;
+
   return {
-    card,
-    currentBalance: card.initialBalance + totalIncome - totalExpense,
-    totalIncome,
-    totalExpense,
-    pendingExpense,
+    card: { ...card, currency },
+    currency,
+    currentBalance,
+    currentBalanceAMD: convertToAMD(currentBalance, currency, fxRates),
+    totalIncome:
+      currency === 'AMD'
+        ? Math.round(totalIncome)
+        : Math.round(totalIncome * 100) / 100,
+    totalExpense:
+      currency === 'AMD'
+        ? Math.round(totalExpense)
+        : Math.round(totalExpense * 100) / 100,
+    pendingExpense:
+      currency === 'AMD'
+        ? Math.round(pendingExpense)
+        : Math.round(pendingExpense * 100) / 100,
     txCount,
   };
 }
 
 export function formatCardLabel(card: BankCard): string {
-  return card.last4 ? `${card.name} •••• ${card.last4}` : card.name;
+  const code = normalizeCardCurrency(card.currency);
+  const base = card.last4 ? `${card.name} •••• ${card.last4}` : card.name;
+  return code === 'AMD' ? base : `${base} (${code})`;
 }
 
 export function getDefaultCard(cards: BankCard[]): BankCard | undefined {
   return cards.find((c) => c.isDefault) ?? cards[0];
+}
+
+export function getTotalCardsInitialBalanceAMD(
+  cards: BankCard[],
+  fxRates?: FxRatesToAmd | null
+): number {
+  return cards.reduce((sum, card) => {
+    const initial = Number.isFinite(card.initialBalance)
+      ? card.initialBalance
+      : 0;
+    return sum + convertToAMD(initial, normalizeCardCurrency(card.currency), fxRates);
+  }, 0);
+}
+
+export function getTotalCardsInitialBalance(
+  cards: BankCard[],
+  fxRates?: FxRatesToAmd | null
+): number {
+  return getTotalCardsInitialBalanceAMD(cards, fxRates);
+}
+
+export function getTotalCardsBalanceAMD(
+  cards: BankCard[],
+  transactions: Transaction[],
+  fxRates?: FxRatesToAmd | null
+): number {
+  return cards.reduce(
+    (sum, card) => sum + computeCardStats(card, transactions, fxRates).currentBalanceAMD,
+    0
+  );
 }

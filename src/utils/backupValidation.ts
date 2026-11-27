@@ -3,6 +3,7 @@ import {
   BudgetLimit,
   CardColor,
   CardType,
+  CustomCategory,
   DebtItem,
   FocusGoal,
   FocusSession,
@@ -20,6 +21,8 @@ import {
 } from '../types';
 import { getTodayISO, normalizeNotificationSettings } from '../data/defaults';
 import { clampPayday } from './financialCycle';
+import { normalizeCardCurrency } from './cardBalances';
+import { normalizeTags } from './customCategories';
 
 export interface SanitizedBackupData {
   cards?: BankCard[];
@@ -32,6 +35,7 @@ export interface SanitizedBackupData {
   savingsGoals?: SavingsGoal[];
   debts?: DebtItem[];
   focusSessions?: FocusSession[];
+  customCategories?: CustomCategory[];
   primaryIncome?: PrimaryIncomeConfig;
   focusGoal?: FocusGoal | null;
   notificationSettings?: ReturnType<typeof normalizeNotificationSettings>;
@@ -73,9 +77,10 @@ function asNonNegNum(value: unknown, fallback = 0): number {
   return Math.round(value);
 }
 
-function asFiniteNum(value: unknown, fallback = 0): number {
+function asFiniteDecimal(value: unknown, fallback = 0, decimals = 2): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  return Math.round(value);
+  const factor = Math.pow(10, decimals);
+  return Math.round(value * factor) / factor;
 }
 
 function asStrArray(value: unknown, maxItems = 500): string[] {
@@ -108,14 +113,19 @@ export function sanitizeBackupPayload(raw: unknown): SanitizedBackupData | null 
       const id = asStr(item.id, 120) || fallbackId('card', idx);
       if (!name || seen.has(id)) return;
       seen.add(id);
+      const currency = normalizeCardCurrency(item.currency);
+      const initialBalance =
+        currency === 'AMD'
+          ? Math.round(asFiniteDecimal(item.initialBalance, 0, 0))
+          : asFiniteDecimal(item.initialBalance, 0, 2);
       cards.push({
         id,
         name,
         last4: asStr(item.last4, 4).replace(/\D/g, ''),
         cardType: VALID_CARD_TYPES.has(item.cardType as CardType) ? (item.cardType as CardType) : 'other',
         color: VALID_CARD_COLORS.has(item.color as CardColor) ? (item.color as CardColor) : 'blue',
-        initialBalance: asFiniteNum(item.initialBalance, 0),
-        currency: 'AMD',
+        initialBalance,
+        currency,
         isDefault: Boolean(item.isDefault),
         createdAt: asStr(item.createdAt, 40) || nowIso,
       });
@@ -150,6 +160,16 @@ export function sanitizeBackupPayload(raw: unknown): SanitizedBackupData | null 
         (item.incomeKind === 'monthly' || item.incomeKind === 'extra' || item.incomeKind === 'one_time')
       ) {
         tx.incomeKind = item.incomeKind;
+      }
+      if (typeof item.cardAmount === 'number' && Number.isFinite(item.cardAmount) && item.cardAmount > 0) {
+        tx.cardAmount = asFiniteDecimal(item.cardAmount, 0, 2);
+      }
+      if (typeof item.cardCurrency === 'string') {
+        tx.cardCurrency = normalizeCardCurrency(item.cardCurrency);
+      }
+      if (Array.isArray(item.tags)) {
+        const cleanTags = normalizeTags(asStrArray(item.tags, 8));
+        if (cleanTags.length > 0) tx.tags = cleanTags;
       }
       if (typeof item.primaryCycleKey === 'string' && /^\d{4}-\d{2}$/.test(item.primaryCycleKey)) {
         tx.primaryCycleKey = item.primaryCycleKey;
@@ -203,6 +223,12 @@ export function sanitizeBackupPayload(raw: unknown): SanitizedBackupData | null 
           /^\d{4}-\d{2}-\d{2}$/.test(d)
         );
       }
+      const expectedAmount = asPosNum(item.expectedAmount);
+      if (expectedAmount) task.expectedAmount = expectedAmount;
+      const expectedCategory = asStr(item.expectedCategory, 80);
+      if (expectedCategory) task.expectedCategory = expectedCategory;
+      const linkedTxId = asStr(item.linkedTxId, 120);
+      if (linkedTxId) task.linkedTxId = linkedTxId;
       tasks.push(task);
     });
     out.tasks = tasks;
@@ -423,6 +449,28 @@ export function sanitizeBackupPayload(raw: unknown): SanitizedBackupData | null 
     });
     out.focusSessions = sessions;
     out.importedRecordCount += sessions.length;
+  }
+
+  if (Array.isArray(raw.customCategories)) {
+    hasAnyRecognizedSection = true;
+    const seen = new Set<string>();
+    const cats: CustomCategory[] = [];
+    raw.customCategories.forEach((item, idx) => {
+      if (!isObj(item)) return;
+      const name = asStr(item.name, 80);
+      if (!name) return;
+      const type = item.type === 'income' ? 'income' : 'expense';
+      const dedupeKey = `${type}:${name.toLowerCase()}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      cats.push({
+        id: asStr(item.id, 120) || fallbackId('cat', idx),
+        name,
+        type,
+        color: asStr(item.color, 24) || '#2563EB',
+      });
+    });
+    out.customCategories = cats.slice(0, 40);
   }
 
   if (isObj(raw.primaryIncome) && typeof raw.primaryIncome.payday === 'number') {

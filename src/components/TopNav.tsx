@@ -17,7 +17,6 @@ import {
   Clock,
   Cloud,
   CloudOff,
-  Command,
   CreditCard,
   Download,
   Eye,
@@ -26,6 +25,7 @@ import {
   HandCoins,
   HelpCircle,
   LayoutDashboard,
+  Lock,
   LogOut,
   Mic,
   MicOff,
@@ -39,6 +39,7 @@ import {
   Repeat,
   RotateCcw,
   Search,
+  ShieldCheck,
   SkipForward,
   SlidersHorizontal,
   Square,
@@ -123,6 +124,9 @@ interface TopNavProps {
   onInstallPWA: () => void;
   totalBalance?: number;
   currency?: Currency;
+  isAppLockEnabled?: boolean;
+  onOpenAppLockSettings?: () => void;
+  onLockNow?: () => void;
   children: React.ReactNode;
 }
 
@@ -224,6 +228,9 @@ export const TopNav = memo(function TopNav({
   isOnline,
   onSignInGoogle,
   onSignOutGoogle,
+  isAppLockEnabled = false,
+  onOpenAppLockSettings,
+  onLockNow,
   canInstallPWA,
   onInstallPWA,
   totalBalance = 0,
@@ -641,56 +648,6 @@ export const TopNav = memo(function TopNav({
             </button>
           )}
 
-          {onOpenAssistant && (
-            <button
-              type="button"
-              onClick={onOpenAssistant}
-              aria-label="Բացել խելացի AI օգնականը"
-              className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#BFDBFE] dark:border-[#1E3A8A]/70 bg-[#EFF6FF]/75 dark:bg-[#172554]/45 text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-between hover:bg-[#EFF6FF] dark:hover:bg-[#172554]/70 transition-colors cursor-pointer"
-            >
-              <span className="inline-flex items-center gap-2 min-w-0">
-                <Bot className="w-4 h-4 shrink-0" />
-                <span className="truncate">AI օգնական</span>
-              </span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={onOpenCommandPalette}
-            aria-label="Արագ մուտք և որոնում (Ctrl+K)"
-            className="w-full min-h-[40px] px-3 py-2 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] flex items-center justify-between hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
-          >
-            <span className="inline-flex items-center gap-2 min-w-0">
-              <Search className="w-4 h-4 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
-              <span className="truncate">Արագ հրամաններ</span>
-            </span>
-            <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#26334D] text-[10px] font-mono text-[#64748B] dark:text-[#94A3B8]">
-              <Command className="w-2.5 h-2.5" />K
-            </kbd>
-          </button>
-
-          <button
-            type="button"
-            onClick={onTogglePrivacy}
-            aria-pressed={isPrivacyMode}
-            aria-label={isPrivacyMode ? 'Ցույց տալ գումարները' : 'Թաքցնել գումարները'}
-            className={`w-full min-h-[40px] px-3 py-2 rounded-xl border text-xs font-medium flex items-center justify-between transition-colors cursor-pointer ${
-              isPrivacyMode
-                ? 'border-[#2563EB]/50 bg-[#EFF6FF] dark:bg-[#172554]/50 text-[#1D4ED8] dark:text-[#60A5FA]'
-                : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#334155] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6]'
-            }`}
-          >
-            <span className="inline-flex items-center gap-2">
-              {isPrivacyMode ? (
-                <EyeOff className="w-4 h-4 shrink-0" />
-              ) : (
-                <Eye className="w-4 h-4 text-[#64748B] dark:text-[#94A3B8] shrink-0" />
-              )}
-              <span>{isPrivacyMode ? 'Գաղտնի ռեժիմ (Միացված)' : 'Թաքցնել գումարները'}</span>
-            </span>
-          </button>
-
           <button
             type="button"
             onClick={onToggleTheme}
@@ -709,6 +666,48 @@ export const TopNav = memo(function TopNav({
               Փոխել
             </span>
           </button>
+
+          {onOpenAppLockSettings && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={onOpenAppLockSettings}
+                aria-label="PIN և անվտանգություն"
+                className="flex-1 min-w-0 min-h-[38px] px-3 py-1.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] flex items-center justify-between hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer"
+              >
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <ShieldCheck
+                    className={`w-4 h-4 shrink-0 ${
+                      isAppLockEnabled
+                        ? 'text-emerald-600 dark:text-emerald-400'
+                        : 'text-[#64748B]'
+                    }`}
+                  />
+                  <span className="truncate">PIN կողպեք</span>
+                </span>
+                <span
+                  className={`text-[10px] font-semibold shrink-0 ${
+                    isAppLockEnabled
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  {isAppLockEnabled ? 'Ակտիվ' : 'Անջատ'}
+                </span>
+              </button>
+              {isAppLockEnabled && onLockNow && (
+                <button
+                  type="button"
+                  onClick={onLockNow}
+                  title="Կողպել հավելվածը հիմա"
+                  aria-label="Կողպել հավելվածը հիմա"
+                  className="min-h-[38px] min-w-[38px] rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] hover:text-[#2563EB] dark:hover:text-[#60A5FA] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
 
           {onOpenShortcutsGuide && (
             <button
@@ -808,7 +807,12 @@ export const TopNav = memo(function TopNav({
 
             {/* Right: Controls */}
             <div className="flex items-center gap-2 shrink-0">
-              {(activeTab === 'overview' || activeTab === 'finance') && (
+              {(activeTab === 'overview' ||
+                (activeTab === 'finance' &&
+                  (financePage === 'ledger' ||
+                    financePage === 'budgets' ||
+                    financePage === 'bills' ||
+                    financePage === 'analytics'))) && (
                 <div className="hidden lg:inline-flex items-center border border-[#E2E8F0] dark:border-[#1E293B] rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E]">
                   <button
                     type="button"
@@ -1013,6 +1017,53 @@ export const TopNav = memo(function TopNav({
                           </span>
                           <span className="text-[11px] text-[#64748B]">Փոխել</span>
                         </button>
+
+                        {onOpenAppLockSettings && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAccountMenuOpen(false);
+                                onOpenAppLockSettings();
+                              }}
+                              className="flex-1 min-h-[36px] px-2.5 py-1.5 rounded-xl flex items-center justify-between text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] cursor-pointer"
+                            >
+                              <span className="inline-flex items-center gap-2">
+                                <ShieldCheck
+                                  className={`w-3.5 h-3.5 ${
+                                    isAppLockEnabled
+                                      ? 'text-emerald-600 dark:text-emerald-400'
+                                      : 'text-[#64748B]'
+                                  }`}
+                                />
+                                <span>PIN և անվտանգություն</span>
+                              </span>
+                              <span
+                                className={`text-[10px] font-semibold ${
+                                  isAppLockEnabled
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-[#64748B]'
+                                }`}
+                              >
+                                {isAppLockEnabled ? 'Ակտիվ' : 'Անջատ'}
+                              </span>
+                            </button>
+                            {isAppLockEnabled && onLockNow && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setAccountMenuOpen(false);
+                                  onLockNow();
+                                }}
+                                aria-label="Կողպել հիմա"
+                                title="Կողպել հիմա"
+                                className="min-h-[36px] min-w-[36px] rounded-xl flex items-center justify-center text-[#475569] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#162033] cursor-pointer"
+                              >
+                                <Lock className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
 
                         {onOpenShortcutsGuide && (
                           <button
@@ -1703,13 +1754,13 @@ export const TopNav = memo(function TopNav({
                                                   <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
                                                     {item.title}
                                                   </p>
-                                                  <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                                                  <p className="pa-sensitive text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
                                                     {item.subtitle}
                                                   </p>
                                                 </div>
                                               </div>
                                               {item.amount !== undefined && (
-                                                <span className="text-xs font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
+                                                <span className="pa-sensitive text-xs font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
                                                   {formatMoney(item.amount)}
                                                 </span>
                                               )}
@@ -1838,14 +1889,14 @@ export const TopNav = memo(function TopNav({
                                                   <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate mt-0.5">
                                                     {item.title}
                                                   </p>
-                                                  <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                                                  <p className="pa-sensitive text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
                                                     {item.subtitle}
                                                   </p>
                                                 </div>
                                               </div>
                                               {item.amount !== undefined && (
                                                 <span
-                                                  className={`text-xs font-mono font-bold tabular-nums shrink-0 ${
+                                                  className={`pa-sensitive text-xs font-mono font-bold tabular-nums shrink-0 ${
                                                     isExceeded
                                                       ? 'text-rose-600 dark:text-rose-400'
                                                       : 'text-amber-600 dark:text-amber-400'
@@ -1917,13 +1968,13 @@ export const TopNav = memo(function TopNav({
                                                   <p className="text-xs font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
                                                     {item.title}
                                                   </p>
-                                                  <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                                                  <p className="pa-sensitive text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
                                                     {item.subtitle}
                                                   </p>
                                                 </div>
                                               </div>
                                               {item.amount !== undefined && (
-                                                <span className="text-xs font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
+                                                <span className="pa-sensitive text-xs font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC] shrink-0">
                                                   {formatMoney(item.amount)}
                                                 </span>
                                               )}

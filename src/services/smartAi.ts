@@ -1,30 +1,58 @@
 import {
   BankCard,
   BudgetLimit,
+  CustomCategory,
   DebtItem,
+  FocusGoal,
   Habit,
+  Note,
   RecurringBill,
   SavingsGoal,
   Task,
   TaskPriority,
   Transaction,
 } from '../types';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../data/defaults';
-import { INTERNAL_TRANSFER_CATEGORY, computeCardStats } from '../utils/cardBalances';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, getLastNDaysISO } from '../data/defaults';
+import {
+  FxRatesToAmd,
+  INTERNAL_TRANSFER_CATEGORY,
+  computeCardStats,
+  getTotalCardsInitialBalanceAMD,
+} from '../utils/cardBalances';
 import { computeBudgetForecast } from '../utils/budgetForecast';
-import { SafeToSpendMetrics, isDateInCycle } from '../utils/financialCycle';
+import {
+  SafeToSpendMetrics,
+  computeCycleFinancials,
+  isDateInCycle,
+  shiftMonthKey,
+} from '../utils/financialCycle';
 import { isTaskCompletedOnDate, isTaskDueOnDate, isTaskOverdue } from '../utils/taskSchedule';
 
 export interface AssistantSuggestedAction {
-  kind: 'add_transaction' | 'add_task' | 'add_note' | 'navigate';
+  kind:
+    | 'add_transaction'
+    | 'add_task'
+    | 'add_note'
+    | 'add_habit'
+    | 'add_goal'
+    | 'add_debt'
+    | 'add_bill'
+    | 'set_budget'
+    | 'navigate';
   label: string;
   txType?: 'expense' | 'income';
   amount?: number;
+  targetAmount?: number;
+  limit?: number;
   title?: string;
   category?: string;
   priority?: TaskPriority;
   dueTime?: string;
   content?: string;
+  person?: string;
+  direction?: 'owed_to_me' | 'i_owe';
+  frequency?: 'monthly' | 'daily';
+  dayOfMonth?: number;
   route?:
     | 'budgets'
     | 'analytics'
@@ -57,8 +85,21 @@ export interface SmartWorkspaceContext {
     remainingTodayAllowance: number;
     remainingDays: number;
   };
+  previousCycle: {
+    income: number;
+    expense: number;
+    netSavings: number;
+  };
   cards: Array<{ name: string; balance: number; isDefault?: boolean }>;
   topCategories: Array<{ category: string; spent: number }>;
+  recentTransactions: Array<{
+    date: string;
+    type: 'income' | 'expense';
+    amount: number;
+    category: string;
+    title: string;
+    isPending?: boolean;
+  }>;
   budgetForecast: {
     overallStatus: string;
     totalSpent: number;
@@ -66,12 +107,23 @@ export interface SmartWorkspaceContext {
     totalLimit: number;
     atRisk: Array<{ category: string; spent: number; projected: number; limit: number }>;
   };
+  upcomingBills: Array<{
+    title: string;
+    amount: number;
+    category: string;
+    dayOfMonth: number;
+    frequency: string;
+  }>;
   savingsGoals: Array<{ title: string; saved: number; target: number }>;
   activeDebts: Array<{ person: string; direction: string; remaining: number }>;
+  todayFocusGoal?: { title: string; completed: boolean } | null;
   todayTasks: Array<{ title: string; priority: string; done: boolean; dueTime?: string }>;
   overdueCount: number;
-  habits: Array<{ title: string; doneToday: boolean }>;
+  habits: Array<{ title: string; doneToday: boolean; weekCount: number }>;
+  notesSummary: Array<{ title: string; pinned?: boolean }>;
   activeBillsCount: number;
+  customExpenseCategories?: string[];
+  customIncomeCategories?: string[];
 }
 
 export function buildSmartWorkspaceContext(params: {
@@ -92,6 +144,10 @@ export function buildSmartWorkspaceContext(params: {
   tasks: Task[];
   habits: Habit[];
   recurringBills: RecurringBill[];
+  notes?: Note[];
+  focusGoal?: FocusGoal | null;
+  customCategories?: CustomCategory[];
+  fxRates?: FxRatesToAmd | null;
 }): SmartWorkspaceContext {
   const {
     todayISO,
@@ -111,6 +167,10 @@ export function buildSmartWorkspaceContext(params: {
     tasks,
     habits,
     recurringBills,
+    notes = [],
+    focusGoal = null,
+    customCategories = [],
+    fxRates,
   } = params;
 
   const byCat = new Map<string, number>();
@@ -128,6 +188,29 @@ export function buildSmartWorkspaceContext(params: {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 7)
     .map(([category, spent]) => ({ category, spent }));
+
+  const prevMonthKey = shiftMonthKey(selectedMonth, -1);
+  const cardsInitialBalance = getTotalCardsInitialBalanceAMD(cards, fxRates);
+  const prevCycle = computeCycleFinancials(
+    transactions,
+    prevMonthKey,
+    effectivePayday,
+    todayISO,
+    cardsInitialBalance
+  );
+
+  const recentTransactions = [...transactions]
+    .filter((tx) => tx.category !== INTERNAL_TRANSFER_CATEGORY)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 10)
+    .map((tx) => ({
+      date: tx.date,
+      type: tx.type,
+      amount: tx.amount,
+      category: tx.category,
+      title: tx.title,
+      isPending: tx.isPending,
+    }));
 
   const forecast = computeBudgetForecast({
     budgets,
@@ -148,6 +231,26 @@ export function buildSmartWorkspaceContext(params: {
     }));
 
   const overdueCount = tasks.filter((t) => isTaskOverdue(t, todayISO)).length;
+  const last7Dates = new Set(getLastNDaysISO(7).map((d) => d.date));
+
+  const upcomingBills = recurringBills
+    .filter((b) => b.active !== false)
+    .slice(0, 8)
+    .map((b) => ({
+      title: b.title,
+      amount: b.amount,
+      category: b.category,
+      dayOfMonth: b.dayOfMonth,
+      frequency: b.frequency ?? 'monthly',
+    }));
+
+  const notesSummary = [...notes]
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)))
+    .slice(0, 6)
+    .map((n) => ({
+      title: n.title,
+      pinned: n.pinned,
+    }));
 
   return {
     todayISO,
@@ -162,12 +265,18 @@ export function buildSmartWorkspaceContext(params: {
       remainingTodayAllowance: safeToSpend.remainingTodayAllowance,
       remainingDays: safeToSpend.remainingDaysInclusive,
     },
+    previousCycle: {
+      income: prevCycle.cycleIncome,
+      expense: prevCycle.cycleExpense,
+      netSavings: prevCycle.cycleNet,
+    },
     cards: cards.slice(0, 8).map((c) => ({
       name: c.name,
-      balance: computeCardStats(c, transactions).currentBalance,
+      balance: computeCardStats(c, transactions, fxRates).currentBalanceAMD,
       isDefault: c.isDefault,
     })),
     topCategories,
+    recentTransactions,
     budgetForecast: {
       overallStatus: forecast.overallStatus,
       totalSpent: forecast.totalSpent,
@@ -182,6 +291,7 @@ export function buildSmartWorkspaceContext(params: {
           limit: c.limit,
         })),
     },
+    upcomingBills,
     savingsGoals: savingsGoals.slice(0, 6).map((g) => ({
       title: g.title,
       saved: g.currentAmount,
@@ -195,13 +305,25 @@ export function buildSmartWorkspaceContext(params: {
         direction: d.direction,
         remaining: Math.max(0, d.totalAmount - d.paidAmount),
       })),
+    todayFocusGoal:
+      focusGoal && focusGoal.date === todayISO && focusGoal.title
+        ? { title: focusGoal.title, completed: focusGoal.completed }
+        : null,
     todayTasks,
     overdueCount,
     habits: habits.slice(0, 10).map((h) => ({
       title: h.title,
       doneToday: h.completedDates.includes(todayISO),
+      weekCount: h.completedDates.filter((d) => last7Dates.has(d)).length,
     })),
+    notesSummary,
     activeBillsCount: recurringBills.filter((b) => b.active !== false).length,
+    customExpenseCategories: customCategories
+      .filter((c) => c.type === 'expense')
+      .map((c) => c.name),
+    customIncomeCategories: customCategories
+      .filter((c) => c.type === 'income')
+      .map((c) => c.name),
   };
 }
 
@@ -247,6 +369,109 @@ export async function askSmartAssistant(params: {
     reply: data.reply,
     suggestedActions: Array.isArray(data.suggestedActions) ? data.suggestedActions : [],
   };
+}
+
+export async function askSmartAssistantStream(params: {
+  message: string;
+  history: AssistantChatTurn[];
+  context: SmartWorkspaceContext;
+  signal?: AbortSignal;
+  onDelta: (chunk: string) => void;
+  onActions?: (actions: AssistantSuggestedAction[]) => void;
+}): Promise<{ reply: string; suggestedActions: AssistantSuggestedAction[] }> {
+  const res = await fetch('/api/smart/assistant-stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: params.signal,
+    body: JSON.stringify({
+      message: params.message,
+      history: params.history,
+      context: params.context,
+    }),
+  });
+
+  if (!res.ok) {
+    const errData = await parseJsonSafe<{ error?: string }>(res);
+    throw new Error(errData.error || 'Չհաջողվեց ստանալ պատասխան AI օգնականից։');
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('text/event-stream') || !res.body) {
+    const fallback = await askSmartAssistant({
+      message: params.message,
+      history: params.history,
+      context: params.context,
+      signal: params.signal,
+    });
+    params.onDelta(fallback.reply);
+    if (fallback.suggestedActions.length > 0) {
+      params.onActions?.(fallback.suggestedActions);
+    }
+    return fallback;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let fullReply = '';
+  let suggestedActions: AssistantSuggestedAction[] = [];
+
+  const handleFrame = (rawFrame: string) => {
+    const lines = rawFrame.split('\n');
+    let eventName = 'message';
+    const dataParts: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        dataParts.push(line.slice(5).trim());
+      }
+    }
+
+    if (dataParts.length === 0) return;
+    const rawJson = dataParts.join('\n');
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(rawJson) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    if (eventName === 'delta' && typeof payload.text === 'string' && payload.text) {
+      fullReply += payload.text;
+      params.onDelta(payload.text);
+    } else if (eventName === 'actions' && Array.isArray(payload.suggestedActions)) {
+      suggestedActions = payload.suggestedActions as AssistantSuggestedAction[];
+      params.onActions?.(suggestedActions);
+    } else if (eventName === 'error' && typeof payload.error === 'string') {
+      throw new Error(payload.error);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+    let splitIdx = buffer.indexOf('\n\n');
+    while (splitIdx !== -1) {
+      const frame = buffer.slice(0, splitIdx).trim();
+      buffer = buffer.slice(splitIdx + 2);
+      if (frame) handleFrame(frame);
+      splitIdx = buffer.indexOf('\n\n');
+    }
+  }
+
+  if (buffer.trim()) {
+    handleFrame(buffer.trim());
+  }
+
+  if (!fullReply.trim()) {
+    throw new Error('Չհաջողվեց ստանալ պատասխան AI օգնականից։');
+  }
+
+  return { reply: fullReply, suggestedActions };
 }
 
 export interface AISmartParsedItem {
@@ -327,18 +552,118 @@ export async function parseCommandWithAI(params: {
     .filter((x): x is AISmartParsedItem => x !== null);
 }
 
+export async function transcribeAudioWithAI(params: {
+  audioBase64: string;
+  mimeType: string;
+}): Promise<string> {
+  const res = await fetch('/api/smart/transcribe-audio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await parseJsonSafe<{ text?: string; error?: string }>(res);
+  if (!res.ok || !data.text) {
+    throw new Error(data.error || 'Չհաջողվեց տեքստավորել ձայնագրությունը։');
+  }
+  return data.text.trim();
+}
+
+export interface DayPlanAllocation {
+  taskId: string;
+  dueTime: string;
+  priority: TaskPriority;
+}
+
+export interface DayPlanResult {
+  strategyTip: string;
+  allocations: DayPlanAllocation[];
+}
+
+export async function planDayWithAI(params: {
+  todayISO: string;
+  currentHHMM: string;
+  focusGoal?: string;
+  tasks: Array<{
+    id: string;
+    title: string;
+    priority: TaskPriority;
+    dueTime?: string;
+    isOverdue?: boolean;
+  }>;
+}): Promise<DayPlanResult> {
+  const res = await fetch('/api/smart/plan-day', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const data = await parseJsonSafe<{
+    strategyTip?: string;
+    allocations?: Array<Record<string, unknown>>;
+    error?: string;
+  }>(res);
+  if (!res.ok) {
+    throw new Error(data.error || 'Չհաջողվեց կազմել օրվա պլանը։');
+  }
+  const allocations: DayPlanAllocation[] = Array.isArray(data.allocations)
+    ? data.allocations
+        .map((a): DayPlanAllocation | null => {
+          const taskId = typeof a.taskId === 'string' ? a.taskId : '';
+          const dueTime =
+            typeof a.dueTime === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(a.dueTime)
+              ? a.dueTime
+              : '';
+          if (!taskId || !dueTime) return null;
+          return {
+            taskId,
+            dueTime,
+            priority: a.priority === 'high' || a.priority === 'low' ? a.priority : 'medium',
+          };
+        })
+        .filter((x): x is DayPlanAllocation => x !== null)
+    : [];
+  return {
+    strategyTip: typeof data.strategyTip === 'string' ? data.strategyTip : '',
+    allocations,
+  };
+}
+
+export type SupportedFxCode = 'USD' | 'EUR' | 'RUB' | 'GEL';
+
+export interface LiveFxRatesResult {
+  base: 'AMD';
+  rates: Record<SupportedFxCode, number>;
+  updatedAt: string;
+  cached?: boolean;
+}
+
+export async function fetchLiveFxRates(): Promise<LiveFxRatesResult> {
+  const res = await fetch('/api/finance/fx-rates');
+  const data = await parseJsonSafe<Partial<LiveFxRatesResult> & { error?: string }>(res);
+  if (!res.ok || !data.rates) {
+    throw new Error(
+      data.error || 'Արտարժույթի փոխարժեքները ժամանակավորապես անհասանելի են։'
+    );
+  }
+  return {
+    base: 'AMD',
+    rates: data.rates,
+    updatedAt: data.updatedAt || new Date().toISOString(),
+    cached: data.cached,
+  };
+}
+
 export interface ScannedReceiptResult {
   amount: number;
   title: string;
   category: string;
   date: string;
   itemsSummary?: string;
+  items?: string[];
 }
 
 export async function fileToReceiptPayload(
   file: File
 ): Promise<{ imageBase64: string; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' }> {
-  // Resize and normalize to crisp JPEG with white backdrop (<1.5MB) so transparent PNGs never turn black
   const bitmapUrl = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -390,6 +715,12 @@ export async function scanReceiptWithAI(params: {
   if (!res.ok) {
     throw new Error(data.error || 'Չհաջողվեց սկանավորել կտրոնը։');
   }
+  const items = Array.isArray(data.items)
+    ? data.items
+        .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+        .map((line) => line.trim())
+        .slice(0, 15)
+    : [];
   return {
     amount:
       typeof data.amount === 'number' && Number.isFinite(data.amount) && data.amount > 0
@@ -406,6 +737,7 @@ export async function scanReceiptWithAI(params: {
         ? data.date
         : params.todayISO,
     itemsSummary: typeof data.itemsSummary === 'string' ? data.itemsSummary.trim() : undefined,
+    items: items.length > 0 ? items : undefined,
   };
 }
 

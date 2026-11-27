@@ -1,32 +1,12 @@
 import React from 'react';
 import { AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
+import { APP_STORAGE_KEYS } from '../constants/storageKeys';
 
 interface ErrorBoundaryState {
   hasError: boolean;
   message: string;
   confirmReset: boolean;
 }
-
-const APP_STORAGE_KEYS = [
-  'pa_primary_income',
-  'pa_transactions',
-  'pa_cards',
-  'pa_tasks',
-  'pa_notes',
-  'pa_budgets',
-  'pa_recurring_bills',
-  'pa_habits',
-  'pa_savings_goals',
-  'pa_debts',
-  'pa_focus_sessions',
-  'pa_focus_goal',
-  'pa_notification_settings',
-  'pa_notif_snoozed',
-  'pa_finance_active_page',
-  'pa_planner_active_page',
-  'pa_privacy_mode',
-  'pa_theme_dark',
-];
 
 export class ErrorBoundary extends React.Component<
   { children: React.ReactNode },

@@ -1,0 +1,40 @@
+export const STORAGE_KEYS = {
+  FINANCE_ACTIVE_PAGE: 'pa_finance_active_page',
+  PLANNER_ACTIVE_PAGE: 'pa_planner_active_page',
+  THEME_DARK: 'pa_theme_dark',
+  PRIMARY_INCOME: 'pa_primary_income',
+  TRANSACTIONS: 'pa_transactions',
+  CARDS: 'pa_cards',
+  TASKS: 'pa_tasks',
+  NOTES: 'pa_notes',
+  BUDGETS: 'pa_budgets',
+  RECURRING_BILLS: 'pa_recurring_bills',
+  HABITS: 'pa_habits',
+  SAVINGS_GOALS: 'pa_savings_goals',
+  DEBTS: 'pa_debts',
+  FOCUS_SESSIONS: 'pa_focus_sessions',
+  FOCUS_GOAL: 'pa_focus_goal',
+  NOTIFICATION_SETTINGS: 'pa_notification_settings',
+  NOTIF_SNOOZED: 'pa_notif_snoozed',
+  PRIVACY_MODE: 'pa_privacy_mode',
+  CUSTOM_CATEGORIES: 'pa_custom_categories',
+  APP_LOCK: 'pa_app_lock_v1',
+} as const;
+
+export const APP_STORAGE_KEYS: readonly string[] = Object.values(STORAGE_KEYS);
+
+export const WORKSPACE_DATA_STORAGE_KEYS: readonly string[] = [
+  STORAGE_KEYS.PRIMARY_INCOME,
+  STORAGE_KEYS.TRANSACTIONS,
+  STORAGE_KEYS.CARDS,
+  STORAGE_KEYS.TASKS,
+  STORAGE_KEYS.NOTES,
+  STORAGE_KEYS.BUDGETS,
+  STORAGE_KEYS.RECURRING_BILLS,
+  STORAGE_KEYS.HABITS,
+  STORAGE_KEYS.SAVINGS_GOALS,
+  STORAGE_KEYS.DEBTS,
+  STORAGE_KEYS.FOCUS_SESSIONS,
+  STORAGE_KEYS.FOCUS_GOAL,
+  STORAGE_KEYS.CUSTOM_CATEGORIES,
+];

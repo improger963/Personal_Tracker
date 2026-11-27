@@ -1,8 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import { RotateCcw, X } from 'lucide-react';
-import { CloudSyncStatus, TopNav } from './components/TopNav';
+import { TopNav } from './components/TopNav';
 import type { QuickModalMode, QuickModalState } from './components/QuickAddModal';
 import {
   FinancePageTab,
@@ -14,23 +13,14 @@ import {
   ScrollToTopButton,
   TopRouteProgressBar,
 } from './components/ui/Skeleton';
+import { AppLockGate, AppLockSettingsModal } from './components/AppLockGate';
+import { CloudMergeModal } from './components/CloudMergeModal';
+import { STORAGE_KEYS } from './constants/storageKeys';
 import { scrollToTopInstant, scrollToTopSmooth } from './utils/scroll';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useOnlineStatus, usePWAInstall } from './hooks/usePWAInstall';
-import { auth, signInWithGoogle, signOutFirebase } from './firebase';
-import {
-  FullWorkspaceSnapshot,
-  WorkspaceSettingsPayload,
-  canonicalSerialize,
-  checkCloudWorkspaceExists,
-  collectionBuilders,
-  ensureUserDocuments,
-  getBudgetDocId,
-  subscribeUserWorkspace,
-  syncCollectionItems,
-  uploadFullWorkspaceToCloud,
-  upsertWorkspaceSettings,
-} from './services/firestoreSync';
+import { useAppLock } from './hooks/useAppLock';
+import { useWorkspaceCloudSync } from './hooks/useWorkspaceCloudSync';
 
 const loadOverviewView = () =>
   import('./components/OverviewView').then((m) => ({ default: m.OverviewView }));
@@ -74,7 +64,7 @@ const ShortcutsGuideModal = lazy(() =>
     default: m.ShortcutsGuideModal,
   }))
 );
-import { buildSmartWorkspaceContext } from './services/smartAi';
+import { buildSmartWorkspaceContext, fetchLiveFxRates } from './services/smartAi';
 import {
   ARMENIAN_MONTHS,
   formatMoney,
@@ -122,15 +112,21 @@ import {
   isTaskRepeating,
 } from './utils/taskSchedule';
 import {
+  FxRatesToAmd,
   INTERNAL_TRANSFER_CATEGORY,
-  computeCardStats,
+  convertToAMD,
+  formatCardMoney,
+  getTotalCardsInitialBalanceAMD,
+  normalizeCardCurrency,
 } from './utils/cardBalances';
+import { computeNetWorthAndRunway } from './utils/netWorthAndRunway';
 import { isMonthlyBillSettledForCycle } from './utils/recurringBills';
 import { sanitizeBackupPayload } from './utils/backupValidation';
 import {
   AppNotificationItem,
   BankCard,
   BudgetLimit,
+  CustomCategory,
   DebtItem,
   FocusGoal,
   FocusSession,
@@ -162,6 +158,7 @@ type UndoToastState = {
   id: number;
   message: string;
   onUndo?: () => void;
+  actionLabel?: string;
 };
 
 function createId(prefix: string): string {
@@ -177,7 +174,7 @@ export default function App() {
   const prefersReducedMotion = useReducedMotion();
   const [activeTab, setActiveTab] = useState<NavSection>('overview');
   const [rawFinancePage, setRawFinancePage] = useLocalStorage<string>(
-    'pa_finance_active_page',
+    STORAGE_KEYS.FINANCE_ACTIVE_PAGE,
     'ledger'
   );
   const financePage = useMemo(
@@ -185,7 +182,7 @@ export default function App() {
     [rawFinancePage]
   );
   const [plannerPage, setPlannerPage] = useLocalStorage<PlannerPageTab>(
-    'pa_planner_active_page',
+    STORAGE_KEYS.PLANNER_ACTIVE_PAGE,
     'tasks'
   );
   const [isRouteTransitioning, setIsRouteTransitioning] = useState(false);
@@ -193,7 +190,7 @@ export default function App() {
   const [todayKey, setTodayKey] = useState<string>(getTodayISO);
   const [currentHHMM, setCurrentHHMM] = useState<string>(() => getCurrentHHMM());
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [isDark, setIsDark] = useLocalStorage<boolean>('pa_theme_dark', true);
+  const [isDark, setIsDark] = useLocalStorage<boolean>(STORAGE_KEYS.THEME_DARK, true);
 
   const triggerRouteTransition = useCallback(() => {
     setIsRouteTransitioning(true);
@@ -272,7 +269,7 @@ export default function App() {
   }, []);
 
   const [primaryIncome, setPrimaryIncome] = useLocalStorage<PrimaryIncomeConfig>(
-    'pa_primary_income',
+    STORAGE_KEYS.PRIMARY_INCOME,
     getInitialPrimaryIncome
   );
   const effectivePayday = getEffectivePayday(primaryIncome);
@@ -282,52 +279,56 @@ export default function App() {
   );
 
   const [transactions, setTransactions] = useLocalStorage<Transaction[]>(
-    'pa_transactions',
+    STORAGE_KEYS.TRANSACTIONS,
     getInitialTransactions
   );
   const [cards, setCards] = useLocalStorage<BankCard[]>(
-    'pa_cards',
+    STORAGE_KEYS.CARDS,
     getInitialCards
   );
   const [tasks, setTasks] = useLocalStorage<Task[]>(
-    'pa_tasks',
+    STORAGE_KEYS.TASKS,
     getInitialTasks
   );
   const [notes, setNotes] = useLocalStorage<Note[]>(
-    'pa_notes',
+    STORAGE_KEYS.NOTES,
     getInitialNotes
   );
   const [budgets, setBudgets] = useLocalStorage<BudgetLimit[]>(
-    'pa_budgets',
+    STORAGE_KEYS.BUDGETS,
     getInitialBudgets
   );
   const [recurringBills, setRecurringBills] = useLocalStorage<RecurringBill[]>(
-    'pa_recurring_bills',
+    STORAGE_KEYS.RECURRING_BILLS,
     getInitialRecurringBills
   );
   const [habits, setHabits] = useLocalStorage<Habit[]>(
-    'pa_habits',
+    STORAGE_KEYS.HABITS,
     getInitialHabits
   );
   const [savingsGoals, setSavingsGoals] = useLocalStorage<SavingsGoal[]>(
-    'pa_savings_goals',
+    STORAGE_KEYS.SAVINGS_GOALS,
     getInitialSavingsGoals
   );
   const [debts, setDebts] = useLocalStorage<DebtItem[]>(
-    'pa_debts',
+    STORAGE_KEYS.DEBTS,
     getInitialDebts
   );
   const [focusSessions, setFocusSessions] = useLocalStorage<FocusSession[]>(
-    'pa_focus_sessions',
+    STORAGE_KEYS.FOCUS_SESSIONS,
     getInitialFocusSessions
   );
   const [focusGoal, setFocusGoal] = useLocalStorage<FocusGoal | null>(
-    'pa_focus_goal',
+    STORAGE_KEYS.FOCUS_GOAL,
     null
+  );
+  const [customCategories, setCustomCategories] = useLocalStorage<CustomCategory[]>(
+    STORAGE_KEYS.CUSTOM_CATEGORIES,
+    []
   );
   const [rawNotificationSettings, setNotificationSettings] =
     useLocalStorage<NotificationSettings>(
-      'pa_notification_settings',
+      STORAGE_KEYS.NOTIFICATION_SETTINGS,
       getInitialNotificationSettings
     );
   const notificationSettings = useMemo(
@@ -336,7 +337,7 @@ export default function App() {
   );
   const [snoozedUntilMap, setSnoozedUntilMap] = useLocalStorage<
     Record<string, number>
-  >('pa_notif_snoozed', {});
+  >(STORAGE_KEYS.NOTIF_SNOOZED, {});
   const [dismissedBannerIds, setDismissedBannerIds] = useState<string[]>([]);
   const [confirmModalState, setConfirmModalState] = useState<{
     bill: RecurringBill;
@@ -345,8 +346,6 @@ export default function App() {
     item?: AppNotificationItem;
   } | null>(null);
 
-  const [user, setUser] = useState<User | null>(null);
-  const [syncStatus, setSyncStatus] = useState<CloudSyncStatus>('idle');
   const isOnline = useOnlineStatus();
   const {
     canInstall: canInstallPWA,
@@ -356,9 +355,12 @@ export default function App() {
   } = usePWAInstall();
 
   const [isPrivacyMode, setIsPrivacyMode] = useLocalStorage<boolean>(
-    'pa_privacy_mode',
+    STORAGE_KEYS.PRIVACY_MODE,
     false
   );
+  const [liveFxRates, setLiveFxRates] = useState<FxRatesToAmd | null>(null);
+  const appLock = useAppLock();
+  const [appLockSettingsOpen, setAppLockSettingsOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsGuideOpen, setShortcutsGuideOpen] = useState(false);
   const [assistantModalState, setAssistantModalState] = useState<{
@@ -370,61 +372,75 @@ export default function App() {
   const toastTimerRef = useRef<number | null>(null);
   const alertedIdsRef = useRef<Set<string>>(new Set());
 
-  const knownMapsRef = useRef<{
-    transactions: Map<string, string>;
-    cards: Map<string, string>;
-    tasks: Map<string, string>;
-    notes: Map<string, string>;
-    budgets: Map<string, string>;
-    recurringBills: Map<string, string>;
-    habits: Map<string, string>;
-    savingsGoals: Map<string, string>;
-    debts: Map<string, string>;
-    focusSessions: Map<string, string>;
-  }>({
-    transactions: new Map(),
-    cards: new Map(),
-    tasks: new Map(),
-    notes: new Map(),
-    budgets: new Map(),
-    recurringBills: new Map(),
-    habits: new Map(),
-    savingsGoals: new Map(),
-    debts: new Map(),
-    focusSessions: new Map(),
-  });
-  const settingsExistsRef = useRef(false);
-  const cloudReadyRef = useRef(false);
-  const isApplyingRemoteRef = useRef(false);
-
-  const latestWorkspaceRef = useRef<FullWorkspaceSnapshot>(
-    null as unknown as FullWorkspaceSnapshot
-  );
-  latestWorkspaceRef.current = {
-    transactions,
-    cards,
-    tasks,
-    notes,
-    budgets,
-    recurringBills,
-    habits,
-    savingsGoals,
-    debts,
-    focusSessions,
-    settings: {
-      primaryIncome,
-      focusGoal,
-      notificationSettings,
-      isDark,
+  const showToast = useCallback(
+    (message: string, onUndo?: () => void, actionLabel?: string) => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      setToast({ id: Date.now(), message, onUndo, actionLabel });
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+      }, 5000);
     },
-  };
+    []
+  );
 
-  const showToast = useCallback((message: string, onUndo?: () => void) => {
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    setToast({ id: Date.now(), message, onUndo });
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
-    }, 5000);
+  const {
+    user,
+    syncStatus,
+    cloudConflict,
+    resolvingConflict,
+    resolveMergeConflict,
+    resolveUseCloudOnly,
+    downloadConflictLocalBackup,
+    handleSignInGoogle,
+    handleSignOutGoogle,
+  } = useWorkspaceCloudSync({
+    transactions,
+    setTransactions,
+    cards,
+    setCards,
+    tasks,
+    setTasks,
+    notes,
+    setNotes,
+    budgets,
+    setBudgets,
+    recurringBills,
+    setRecurringBills,
+    habits,
+    setHabits,
+    savingsGoals,
+    setSavingsGoals,
+    debts,
+    setDebts,
+    focusSessions,
+    setFocusSessions,
+    primaryIncome,
+    setPrimaryIncome,
+    focusGoal,
+    setFocusGoal,
+    notificationSettings,
+    setNotificationSettings,
+    isDark,
+    setIsDark,
+    customCategories,
+    setCustomCategories,
+    showToast,
+  });
+
+  useEffect(() => {
+    let active = true;
+    fetchLiveFxRates()
+      .then((res) => {
+        if (active && res?.rates) {
+          setLiveFxRates(res.rates);
+        }
+      })
+      .catch(() => {
+        // Fallback FX rates from cardBalances.ts remain active when offline
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Minute-boundary aligned clock sync (no wasted 15s full-App re-renders)
@@ -531,447 +547,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
   }, [setIsPrivacyMode]);
 
-  // Firebase Auth & Real-Time Firestore Workspace Subscription
-  useEffect(() => {
-    let workspaceUnsub: (() => void) | null = null;
-    let active = true;
-
-    const authUnsub = onAuthStateChanged(auth, async (nextUser) => {
-      if (workspaceUnsub) {
-        workspaceUnsub();
-        workspaceUnsub = null;
-      }
-
-      setUser(nextUser);
-      cloudReadyRef.current = false;
-
-      if (!nextUser) {
-        Object.values(knownMapsRef.current).forEach((m) => m.clear());
-        settingsExistsRef.current = false;
-        setSyncStatus('idle');
-        return;
-      }
-
-      setSyncStatus('syncing');
-      try {
-        await ensureUserDocuments(nextUser);
-        const exists = await checkCloudWorkspaceExists(nextUser.uid);
-        if (!active) return;
-
-        if (!exists) {
-          await uploadFullWorkspaceToCloud(
-            nextUser.uid,
-            latestWorkspaceRef.current
-          );
-        }
-        if (!active) return;
-
-        workspaceUnsub = subscribeUserWorkspace({
-          userId: nextUser.uid,
-          onTransactions: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.transactions = known;
-            setTransactions(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onCards: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.cards = known;
-            setCards(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onTasks: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.tasks = known;
-            setTasks(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onNotes: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.notes = known;
-            setNotes(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onBudgets: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.budgets = known;
-            setBudgets(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onRecurringBills: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.recurringBills = known;
-            setRecurringBills(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onHabits: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.habits = known;
-            setHabits(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onSavingsGoals: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.savingsGoals = known;
-            setSavingsGoals(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onDebts: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.debts = known;
-            setDebts(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onFocusSessions: (items, known) => {
-            isApplyingRemoteRef.current = true;
-            knownMapsRef.current.focusSessions = known;
-            setFocusSessions(items);
-            queueMicrotask(() => {
-              isApplyingRemoteRef.current = false;
-            });
-          },
-          onSettings: (settings, hasDoc) => {
-            settingsExistsRef.current = hasDoc;
-            if (settings) {
-              isApplyingRemoteRef.current = true;
-              if (settings.primaryIncome) {
-                setPrimaryIncome(settings.primaryIncome);
-              }
-              setFocusGoal(settings.focusGoal ?? null);
-              if (settings.notificationSettings) {
-                setNotificationSettings(
-                  normalizeNotificationSettings(settings.notificationSettings)
-                );
-              }
-              setIsDark(Boolean(settings.isDark));
-              queueMicrotask(() => {
-                isApplyingRemoteRef.current = false;
-              });
-            }
-          },
-          onSynced: () => {
-            cloudReadyRef.current = true;
-            setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-          },
-        });
-      } catch (err) {
-        console.error('Workspace cloud init failed:', err);
-        setSyncStatus('error');
-      }
-    });
-
-    return () => {
-      active = false;
-      authUnsub();
-      if (workspaceUnsub) workspaceUnsub();
-    };
-  }, [
-    setTransactions,
-    setCards,
-    setTasks,
-    setNotes,
-    setBudgets,
-    setRecurringBills,
-    setHabits,
-    setSavingsGoals,
-    setDebts,
-    setFocusSessions,
-    setPrimaryIncome,
-    setFocusGoal,
-    setNotificationSettings,
-    setIsDark,
-  ]);
-
-  // Debounced Local -> Cloud Sync for each collection and workspace settings
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'transactions',
-          items: transactions,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.transactions,
-          buildDoc: collectionBuilders.transactions,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, transactions]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'cards',
-          items: cards,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.cards,
-          buildDoc: collectionBuilders.cards,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, cards]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'tasks',
-          items: tasks,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.tasks,
-          buildDoc: collectionBuilders.tasks,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, tasks]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'notes',
-          items: notes,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.notes,
-          buildDoc: collectionBuilders.notes,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, notes]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'budgets',
-          items: budgets,
-          getId: (item) => getBudgetDocId(item.category),
-          knownSerializedMap: knownMapsRef.current.budgets,
-          buildDoc: collectionBuilders.budgets,
-          serializeForDiff: (b) =>
-            canonicalSerialize({ category: b.category, limit: b.limit }),
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, budgets]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'recurringBills',
-          items: recurringBills,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.recurringBills,
-          buildDoc: collectionBuilders.recurringBills,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, recurringBills]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'habits',
-          items: habits,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.habits,
-          buildDoc: collectionBuilders.habits,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, habits]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'savingsGoals',
-          items: savingsGoals,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.savingsGoals,
-          buildDoc: collectionBuilders.savingsGoals,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, savingsGoals]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'debts',
-          items: debts,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.debts,
-          buildDoc: collectionBuilders.debts,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, debts]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await syncCollectionItems({
-          userId: user.uid,
-          collectionName: 'focusSessions',
-          items: focusSessions,
-          getId: (item) => item.id,
-          knownSerializedMap: knownMapsRef.current.focusSessions,
-          buildDoc: collectionBuilders.focusSessions,
-          serializeForDiff: canonicalSerialize,
-        });
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [user, focusSessions]);
-
-  useEffect(() => {
-    if (!user || !cloudReadyRef.current || isApplyingRemoteRef.current) return;
-    const settingsPayload: WorkspaceSettingsPayload = {
-      primaryIncome,
-      focusGoal,
-      notificationSettings,
-      isDark,
-    };
-    const t = window.setTimeout(async () => {
-      try {
-        setSyncStatus('syncing');
-        await upsertWorkspaceSettings(
-          user.uid,
-          settingsPayload,
-          settingsExistsRef.current
-        );
-        settingsExistsRef.current = true;
-        setSyncStatus(navigator.onLine ? 'synced' : 'offline');
-      } catch {
-        setSyncStatus('error');
-      }
-    }, 450);
-    return () => window.clearTimeout(t);
-  }, [user, primaryIncome, focusGoal, notificationSettings, isDark]);
-
-  const handleSignInGoogle = async () => {
-    try {
-      await signInWithGoogle();
-      showToast('Մուտքը Google-ով հաջողվեց · ամպային սինքը միացված է');
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code ?? '';
-      if (
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request'
-      ) {
-        showToast('Google մուտքը չեղարկվեց');
-      } else {
-        showToast('Հնարավոր չեղավ մուտք գործել Google-ով');
-      }
-    }
-  };
-
-  const handleSignOutGoogle = async () => {
-    try {
-      await signOutFirebase();
-      showToast('Դուրս եկաք Google հաշվից');
-    } catch {
-      showToast('Ելքի ժամանակ սխալ առաջացավ');
-    }
-  };
+  const cardsInitialBalance = useMemo(
+    () => getTotalCardsInitialBalanceAMD(cards, liveFxRates),
+    [cards, liveFxRates]
+  );
+  const defaultCardId = useMemo(
+    () => cards.find((c) => c.isDefault)?.id ?? cards[0]?.id,
+    [cards]
+  );
 
   // Automatic payday salary crediting & new cycle rollover when payday arrives
   useEffect(() => {
@@ -1011,6 +594,7 @@ export default function App() {
           date: bounds.startDate,
           createdAt: new Date().toISOString(),
           primaryCycleKey: activeCycleKey,
+          ...(defaultCardId ? { cardId: defaultCardId } : {}),
         };
         setTransactions((prev) => [newTx, ...prev]);
         showToast(
@@ -1028,7 +612,7 @@ export default function App() {
       );
       setSelectedMonth(activeCycleKey);
     }
-  }, [primaryIncome, todayKey, transactions, setTransactions, setPrimaryIncome]);
+  }, [primaryIncome, todayKey, transactions, setTransactions, setPrimaryIncome, defaultCardId]);
 
   const handleSavePrimaryIncome = (
     config: Omit<PrimaryIncomeConfig, 'creditedCycles'>
@@ -1083,6 +667,7 @@ export default function App() {
             date: bounds.startDate,
             createdAt: new Date().toISOString(),
             primaryCycleKey: activeCycleKey,
+            ...(defaultCardId ? { cardId: defaultCardId } : {}),
           };
           setTransactions((prev) => [newTx, ...prev]);
         }
@@ -1125,6 +710,7 @@ export default function App() {
       date: bounds.startDate,
       createdAt: new Date().toISOString(),
       primaryCycleKey: selectedMonth,
+      ...(defaultCardId ? { cardId: defaultCardId } : {}),
     };
     setTransactions((prev) => [newTx, ...prev]);
     setPrimaryIncome((prev) => ({
@@ -1149,6 +735,53 @@ export default function App() {
     setTransactions((prev) => [newTx, ...prev]);
     setSelectedMonth(getCycleKeyForDate(tx.date, effectivePayday));
     showToast('Գործարքը գրանցվեց');
+  };
+
+  const handleBulkAddTransactions = (
+    items: Array<Omit<Transaction, 'id' | 'createdAt'>>
+  ) => {
+    if (items.length === 0) return;
+    const nowIso = new Date().toISOString();
+    const created: Transaction[] = items.map((tx, idx) => ({
+      ...tx,
+      id: `${createId('tx')}-${idx}`,
+      createdAt: nowIso,
+    }));
+    const prevSnapshot = transactions;
+    setTransactions((prev) => [...created, ...prev]);
+    showToast(`${created.length} գործարք ներմուծվեց`, () => {
+      setTransactions(prevSnapshot);
+    });
+  };
+
+  const handleAddCustomCategory = (cat: Omit<CustomCategory, 'id'>) => {
+    const trimmed = cat.name.trim();
+    if (!trimmed) return;
+    const exists = customCategories.some(
+      (c) =>
+        c.type === cat.type &&
+        c.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exists) {
+      showToast('Այդ անունով կատեգորիա արդեն գոյություն ունի');
+      return;
+    }
+    const created: CustomCategory = {
+      ...cat,
+      name: trimmed,
+      id: createId('cat'),
+    };
+    setCustomCategories((prev) => [...prev, created]);
+    showToast(`«${trimmed}» կատեգորիան ավելացվեց`);
+  };
+
+  const handleDeleteCustomCategory = (id: string) => {
+    const removed = customCategories.find((c) => c.id === id);
+    if (!removed) return;
+    setCustomCategories((prev) => prev.filter((c) => c.id !== id));
+    showToast(`«${removed.name}» կատեգորիան հեռացվեց`, () => {
+      setCustomCategories((prev) => [...prev, removed]);
+    });
   };
 
   const handleUpdateTransaction = (
@@ -1250,6 +883,9 @@ export default function App() {
         category: src.category,
         date: getDateInCycleForDay(monthKey, effectivePayday, origDay),
         createdAt: nowIso,
+        ...((src.cardId ?? defaultCardId)
+          ? { cardId: src.cardId ?? defaultCardId }
+          : {}),
       };
     });
     setTransactions((prev) => [...newTxs, ...prev]);
@@ -1340,18 +976,37 @@ export default function App() {
     fromCardId,
     toCardId,
     amount,
+    toAmount,
+    amountAMD,
     date,
     note,
   }: {
     fromCardId: string;
     toCardId: string;
     amount: number;
+    toAmount?: number;
+    amountAMD?: number;
     date: string;
     note?: string;
   }) => {
     const fromCard = cards.find((c) => c.id === fromCardId);
     const toCard = cards.find((c) => c.id === toCardId);
     if (!fromCard || !toCard || fromCardId === toCardId || amount <= 0) return;
+
+    const fromCurrency = normalizeCardCurrency(fromCard.currency);
+    const toCurrency = normalizeCardCurrency(toCard.currency);
+    const debitAMD = Math.max(
+      1,
+      Math.round(amountAMD ?? convertToAMD(amount, fromCurrency, liveFxRates))
+    );
+    const resolvedToAmount =
+      toAmount && toAmount > 0
+        ? toAmount
+        : fromCurrency === toCurrency
+          ? amount
+          : toCurrency === 'AMD'
+            ? debitAMD
+            : Math.round((debitAMD / convertToAMD(1, toCurrency, liveFxRates)) * 100) / 100;
 
     const prevTransactions = transactions;
     const nowIso = new Date().toISOString();
@@ -1361,7 +1016,13 @@ export default function App() {
     const outTx: Transaction = {
       id: createId('tx'),
       type: 'expense',
-      amount: Math.round(amount),
+      amount: debitAMD,
+      ...(fromCurrency !== 'AMD'
+        ? {
+            cardAmount: Math.round(amount * 100) / 100,
+            cardCurrency: fromCurrency,
+          }
+        : {}),
       title: fullTitle,
       category: INTERNAL_TRANSFER_CATEGORY,
       date,
@@ -1372,7 +1033,13 @@ export default function App() {
       id: createId('tx'),
       type: 'income',
       incomeKind: 'one_time',
-      amount: Math.round(amount),
+      amount: debitAMD,
+      ...(toCurrency !== 'AMD'
+        ? {
+            cardAmount: Math.round(resolvedToAmount * 100) / 100,
+            cardCurrency: toCurrency,
+          }
+        : {}),
       title: fullTitle,
       category: INTERNAL_TRANSFER_CATEGORY,
       date,
@@ -1382,9 +1049,12 @@ export default function App() {
 
     setTransactions((prev) => [inTx, outTx, ...prev]);
     setSelectedMonth(getCycleKeyForDate(date, effectivePayday));
-    showToast(`Փոխանցումը կատարվեց (${formatMoney(amount)})`, () => {
-      setTransactions(prevTransactions);
-    });
+    showToast(
+      `Փոխանցումը կատարվեց (${formatCardMoney(amount, fromCurrency)})`,
+      () => {
+        setTransactions(prevTransactions);
+      }
+    );
   };
 
   const handleSaveBudget = (category: string, limit: number) => {
@@ -1466,6 +1136,7 @@ export default function App() {
       category: bill.category,
       date: getDateInCycleForDay(monthKey, effectivePayday, bill.dayOfMonth),
       createdAt: nowIso,
+      ...(defaultCardId ? { cardId: defaultCardId } : {}),
     }));
     setTransactions((prev) => [...newTxs, ...prev]);
     showToast(`${newTxs.length} վճարում գրանցվեց`);
@@ -1496,6 +1167,7 @@ export default function App() {
       category: bill.category,
       date: dateISO || todayKey,
       createdAt: new Date().toISOString(),
+      ...(defaultCardId ? { cardId: defaultCardId } : {}),
     };
     setTransactions((prev) => [newTx, ...prev]);
     setRecurringBills((prev) =>
@@ -1535,9 +1207,7 @@ export default function App() {
 
   const handleConfirmPreExpense = useCallback(
     (txId: string) => {
-      const target = latestWorkspaceRef.current?.transactions.find(
-        (t) => t.id === txId
-      );
+      const target = transactions.find((t) => t.id === txId);
       if (!target) return;
       setTransactions((prev) =>
         prev.map((t) => (t.id === txId ? { ...t, isPending: false } : t))
@@ -1546,7 +1216,7 @@ export default function App() {
         `Հաստատվեց «${target.title}» ծախսը (-${formatMoney(target.amount)})`
       );
     },
-    [setTransactions, showToast]
+    [setTransactions, showToast, transactions]
   );
 
   const handleConfirmExpenseNotification = (
@@ -1590,6 +1260,7 @@ export default function App() {
         category: bill.category,
         date: getDateInCycleForDay(cycleKey, effectivePayday, bill.dayOfMonth),
         createdAt: new Date().toISOString(),
+        ...(defaultCardId ? { cardId: defaultCardId } : {}),
       };
       setTransactions((prev) => [newTx, ...prev]);
       showToast(
@@ -1713,18 +1384,47 @@ export default function App() {
   };
 
   const handleAddTask = (task: Omit<Task, 'id' | 'completed' | 'createdAt'>) => {
+    const nowIso = new Date().toISOString();
+    let linkedTxId = task.linkedTxId;
+
+    if (task.expectedAmount && task.expectedAmount > 0 && !linkedTxId) {
+      const pendingTx: Transaction = {
+        id: createId('tx'),
+        type: 'expense',
+        amount: Math.round(task.expectedAmount),
+        title: task.title,
+        category: task.expectedCategory || 'Այլ',
+        date: task.date,
+        isPending: true,
+        createdAt: nowIso,
+        ...(defaultCardId ? { cardId: defaultCardId } : {}),
+      };
+      linkedTxId = pendingTx.id;
+      setTransactions((prev) => [pendingTx, ...prev]);
+    }
+
     const newTask: Task = {
       ...task,
+      ...(linkedTxId ? { linkedTxId } : {}),
       id: createId('task'),
       completed: false,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
     };
     setTasks((prev) => [newTask, ...prev]);
-    showToast('Անելիքը ավելացվեց');
+    showToast(
+      linkedTxId
+        ? 'Անելիքը և սպասվող նախածախսը ավելացվեցին'
+        : 'Անելիքը ավելացվեց'
+    );
   };
 
   const handleToggleTask = useCallback(
     (id: string) => {
+      const target = tasks.find((t) => t.id === id);
+      const becomingCompleted = target
+        ? !isTaskCompletedOnDate(target, todayKey)
+        : false;
+
       setTasks((prev) =>
         prev.map((t) => {
           if (t.id !== id) return t;
@@ -1741,16 +1441,82 @@ export default function App() {
           return { ...t, completed: !t.completed };
         })
       );
+
+      if (becomingCompleted && target?.linkedTxId) {
+        const linkedTx = transactions.find(
+          (tx) => tx.id === target.linkedTxId && tx.isPending
+        );
+        if (linkedTx) {
+          showToast(
+            `«${target.title}» կատարվեց․ հաստատե՞լ ${formatMoney(linkedTx.amount)} նախածախսը`,
+            () => handleConfirmPreExpense(linkedTx.id),
+            'Հաստատել ծախսը'
+          );
+        }
+      }
     },
-    [setTasks, todayKey]
+    [handleConfirmPreExpense, setTasks, showToast, tasks, todayKey, transactions]
   );
 
   const handleUpdateTask = (
     id: string,
     updates: Omit<Task, 'id' | 'completed' | 'createdAt'>
   ) => {
+    const existing = tasks.find((t) => t.id === id);
+    let nextLinkedTxId = existing?.linkedTxId;
+
+    if (existing?.linkedTxId) {
+      const existingPendingTx = transactions.find(
+        (tx) => tx.id === existing.linkedTxId && tx.isPending
+      );
+      if (existingPendingTx) {
+        if (updates.expectedAmount && updates.expectedAmount > 0) {
+          setTransactions((prev) =>
+            prev.map((tx) =>
+              tx.id === existingPendingTx.id
+                ? {
+                    ...tx,
+                    amount: Math.round(updates.expectedAmount!),
+                    title: updates.title,
+                    category: updates.expectedCategory || 'Այլ',
+                    date: updates.date,
+                  }
+                : tx
+            )
+          );
+        } else {
+          setTransactions((prev) =>
+            prev.filter((tx) => tx.id !== existingPendingTx.id)
+          );
+          nextLinkedTxId = undefined;
+        }
+      }
+    } else if (updates.expectedAmount && updates.expectedAmount > 0) {
+      const pendingTx: Transaction = {
+        id: createId('tx'),
+        type: 'expense',
+        amount: Math.round(updates.expectedAmount),
+        title: updates.title,
+        category: updates.expectedCategory || 'Այլ',
+        date: updates.date,
+        isPending: true,
+        createdAt: new Date().toISOString(),
+        ...(defaultCardId ? { cardId: defaultCardId } : {}),
+      };
+      nextLinkedTxId = pendingTx.id;
+      setTransactions((prev) => [pendingTx, ...prev]);
+    }
+
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
+      prev.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              ...updates,
+              linkedTxId: nextLinkedTxId,
+            }
+          : t
+      )
     );
     showToast('Անելիքը թարմացվեց');
   };
@@ -1761,12 +1527,48 @@ export default function App() {
     );
   };
 
+  const handleBatchUpdateTasks = useCallback(
+    (updates: Array<{ id: string; dueTime?: string; priority?: TaskPriority }>) => {
+      if (updates.length === 0) return;
+      const prevTasks = tasks;
+      const updateMap = new Map(updates.map((u) => [u.id, u]));
+      setTasks((prev) =>
+        prev.map((t) => {
+          const patch = updateMap.get(t.id);
+          if (!patch) return t;
+          return {
+            ...t,
+            ...(patch.dueTime !== undefined ? { dueTime: patch.dueTime } : {}),
+            ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+          };
+        })
+      );
+      showToast(`Օրվա ժամանակացույցը թարմացվեց (${updates.length} անելիք)`, () => {
+        setTasks(prevTasks);
+      });
+    },
+    [setTasks, showToast, tasks]
+  );
+
   const handleDeleteTask = (id: string) => {
     const removed = tasks.find((t) => t.id === id);
+    const removedLinkedPendingTx = removed?.linkedTxId
+      ? transactions.find((tx) => tx.id === removed.linkedTxId && tx.isPending)
+      : undefined;
+
     setTasks((prev) => prev.filter((t) => t.id !== id));
+    if (removedLinkedPendingTx) {
+      setTransactions((prev) =>
+        prev.filter((tx) => tx.id !== removedLinkedPendingTx.id)
+      );
+    }
+
     if (removed) {
       showToast('Անելիքը ջնջվեց', () => {
         setTasks((prev) => [removed, ...prev]);
+        if (removedLinkedPendingTx) {
+          setTransactions((prev) => [removedLinkedPendingTx, ...prev]);
+        }
       });
     }
   };
@@ -2006,6 +1808,7 @@ export default function App() {
         category: appliedDelta > 0 ? 'Խնայողություն' : 'Այլ',
         date: getTodayISO(),
         createdAt: new Date().toISOString(),
+        ...(defaultCardId ? { cardId: defaultCardId } : {}),
       };
       setTransactions((prev) => [tx, ...prev]);
     }
@@ -2036,6 +1839,18 @@ export default function App() {
     };
     setDebts((prev) => [next, ...prev]);
     showToast('Պարտքի գրառումը ավելացվեց');
+  };
+
+  const handleAddSplitDebts = (items: Array<Omit<DebtItem, 'id' | 'createdAt'>>) => {
+    if (items.length === 0) return;
+    const nowIso = new Date().toISOString();
+    const created: DebtItem[] = items.map((debt, idx) => ({
+      ...debt,
+      id: `${createId('debt')}-${idx}`,
+      createdAt: nowIso,
+    }));
+    setDebts((prev) => [...created, ...prev]);
+    showToast(`Գրանցվեց ${created.length} կիսված պարտք`);
   };
 
   const handleUpdateDebt = (
@@ -2088,6 +1903,7 @@ export default function App() {
         category: 'Այլ',
         date: getTodayISO(),
         createdAt: new Date().toISOString(),
+        ...(defaultCardId ? { cardId: defaultCardId } : {}),
       };
       setTransactions((prev) => [tx, ...prev]);
     }
@@ -2147,20 +1963,21 @@ export default function App() {
   }, [setFocusGoal]);
 
   const handleClearFocusGoal = useCallback(() => {
-    const previous = latestWorkspaceRef.current?.settings?.focusGoal ?? null;
+    const previous = focusGoal ?? null;
     setFocusGoal(null);
     if (previous) {
       showToast('Օրվա ֆոկուս նպատակը հեռացվեց', () => {
         setFocusGoal(previous);
       });
     }
-  }, [setFocusGoal, showToast]);
+  }, [focusGoal, setFocusGoal, showToast]);
 
   const handleExportJSON = () => {
     const payload = {
       exportedAt: new Date().toISOString(),
       currency: 'AMD',
       primaryIncome,
+      customCategories,
       cards,
       transactions,
       tasks,
@@ -2208,6 +2025,7 @@ export default function App() {
         if (parsed.focusSessions) setFocusSessions(parsed.focusSessions);
         if (parsed.primaryIncome) setPrimaryIncome(parsed.primaryIncome);
         if (parsed.focusGoal !== undefined) setFocusGoal(parsed.focusGoal);
+        if (parsed.customCategories) setCustomCategories(parsed.customCategories);
         if (parsed.notificationSettings) {
           setNotificationSettings(parsed.notificationSettings);
         }
@@ -2274,7 +2092,8 @@ export default function App() {
       transactions,
       selectedMonth,
       effectivePayday,
-      todayISO
+      todayISO,
+      cardsInitialBalance
     );
     const unpaidBillsTotal = recurringBills
       .filter(
@@ -2299,7 +2118,7 @@ export default function App() {
       transactions,
       todayISO,
     });
-  }, [transactions, recurringBills, selectedMonth, effectivePayday, todayISO]);
+  }, [transactions, recurringBills, selectedMonth, effectivePayday, todayISO, cardsInitialBalance]);
 
   const allNotifications = useMemo(
     () =>
@@ -2401,22 +2220,37 @@ export default function App() {
         transactions,
         selectedMonth,
         effectivePayday,
-        getTodayISO()
+        getTodayISO(),
+        cardsInitialBalance
       ),
-    [transactions, selectedMonth, effectivePayday]
-  );
-  const totalCardsBalance = useMemo(
-    () =>
-      cards.reduce(
-        (sum, card) => sum + computeCardStats(card, transactions).currentBalance,
-        0
-      ),
-    [cards, transactions]
+    [transactions, selectedMonth, effectivePayday, cardsInitialBalance]
   );
   const totalBalance = cycleFin.cycleEndBalance;
-  const defaultCardId = useMemo(
-    () => cards.find((c) => c.isDefault)?.id ?? cards[0]?.id,
-    [cards]
+
+  const netWorthSummary = useMemo(
+    () =>
+      computeNetWorthAndRunway({
+        cards,
+        transactions,
+        savingsGoals,
+        debts,
+        recurringBills,
+        fxRates: liveFxRates,
+        selectedMonth,
+        effectivePayday,
+        todayISO,
+      }),
+    [
+      cards,
+      transactions,
+      savingsGoals,
+      debts,
+      recurringBills,
+      liveFxRates,
+      selectedMonth,
+      effectivePayday,
+      todayISO,
+    ]
   );
 
   const smartWorkspaceContext = useMemo(
@@ -2439,6 +2273,10 @@ export default function App() {
         tasks,
         habits,
         recurringBills,
+        notes,
+        focusGoal: activeFocusGoal,
+        customCategories,
+        fxRates: liveFxRates,
       }),
     [
       todayISO,
@@ -2457,6 +2295,10 @@ export default function App() {
       tasks,
       habits,
       recurringBills,
+      notes,
+      activeFocusGoal,
+      customCategories,
+      liveFxRates,
     ]
   );
 
@@ -2508,6 +2350,9 @@ export default function App() {
         isOnline={isOnline}
         onSignInGoogle={handleSignInGoogle}
         onSignOutGoogle={handleSignOutGoogle}
+        isAppLockEnabled={appLock.isEnabled}
+        onOpenAppLockSettings={() => setAppLockSettingsOpen(true)}
+        onLockNow={appLock.lockNow}
         canInstallPWA={canInstallPWA}
         onInstallPWA={promptInstall}
         totalBalance={totalBalance}
@@ -2554,6 +2399,8 @@ export default function App() {
                     primaryIncome={primaryIncome}
                     transactions={transactions}
                     cards={cards}
+                    fxRates={liveFxRates}
+                    netWorthSummary={netWorthSummary}
                     tasks={tasks}
                     notes={notes}
                     budgets={budgets}
@@ -2593,6 +2440,7 @@ export default function App() {
                     onManualCreditPrimaryIncome={handleManualCreditPrimaryIncome}
                     transactions={transactions}
                     onAddTransaction={handleAddTransaction}
+                    onBulkAddTransactions={handleBulkAddTransactions}
                     onOpenNewTransactionModal={() =>
                       setModalState({ mode: 'transaction' })
                     }
@@ -2606,6 +2454,11 @@ export default function App() {
                     onBulkAssignCard={handleBulkAssignCard}
                     onRepeatMonthlyIncomes={handleRepeatMonthlyIncomes}
                     onNotify={showToast}
+                    customCategories={customCategories}
+                    onAddCustomCategory={handleAddCustomCategory}
+                    onDeleteCustomCategory={handleDeleteCustomCategory}
+                    fxRates={liveFxRates}
+                    netWorthSummary={netWorthSummary}
                     budgets={budgets}
                     onSaveBudget={handleSaveBudget}
                     onDeleteBudget={handleDeleteBudget}
@@ -2645,6 +2498,7 @@ export default function App() {
                     onTransferBetweenCards={handleTransferBetweenCards}
                     onExportJSON={handleExportJSON}
                     onImportJSON={handleImportJSON}
+                    onOpenAssistant={handleOpenAssistant}
                   />
                 )}
 
@@ -2653,6 +2507,8 @@ export default function App() {
                     activePage={plannerPage}
                     onSelectPage={handleSelectPlannerPage}
                     tasks={tasks}
+                    transactions={transactions}
+                    onConfirmPreExpense={handleConfirmPreExpense}
                     onOpenNewTaskModal={() => setModalState({ mode: 'task' })}
                     onAddTask={handleAddTask}
                     onEditTask={(task) =>
@@ -2660,6 +2516,7 @@ export default function App() {
                     }
                     onToggleTask={handleToggleTask}
                     onUpdateTaskPriority={handleUpdateTaskPriority}
+                    onBatchUpdateTasks={handleBatchUpdateTasks}
                     onDeleteTask={handleDeleteTask}
                     onClearCompleted={handleClearCompletedTasks}
                     habits={habits}
@@ -2722,10 +2579,10 @@ export default function App() {
                   toast.onUndo?.();
                   setToast(null);
                 }}
-                className="inline-flex items-center gap-1 font-semibold text-[#60A5FA] dark:text-[#2563EB] hover:underline cursor-pointer"
+                className="inline-flex items-center gap-1 font-semibold text-[#60A5FA] dark:text-[#2563EB] hover:underline cursor-pointer shrink-0"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Հետարկել</span>
+                {!toast.actionLabel && <RotateCcw className="w-3.5 h-3.5" />}
+                <span>{toast.actionLabel ?? 'Հետարկել'}</span>
               </button>
             )}
             <button
@@ -2783,6 +2640,8 @@ export default function App() {
             modalState={modalState}
             transactions={transactions}
             cards={cards}
+            customCategories={customCategories}
+            fxRates={liveFxRates}
             onClose={() => setModalState(null)}
             onAddTransaction={handleAddTransaction}
             onUpdateTransaction={handleUpdateTransaction}
@@ -2797,6 +2656,7 @@ export default function App() {
             onAddGoal={handleAddGoal}
             onUpdateGoal={handleUpdateGoal}
             onAddDebt={handleAddDebt}
+            onAddSplitDebts={handleAddSplitDebts}
             onUpdateDebt={handleUpdateDebt}
           />
         )}
@@ -2851,9 +2711,15 @@ export default function App() {
             context={smartWorkspaceContext}
             todayISO={todayISO}
             defaultCardId={defaultCardId}
+            notificationSettings={notificationSettings}
             onAddTransaction={handleAddTransaction}
             onAddTask={handleAddTask}
             onAddNote={handleAddNote}
+            onAddHabit={handleAddHabit}
+            onAddGoal={handleAddGoal}
+            onAddDebt={handleAddDebt}
+            onAddRecurringBill={handleAddRecurringBill}
+            onSaveBudget={handleSaveBudget}
             onNavigateFinance={(page) => {
               handleSelectFinancePage(page);
               setAssistantModalState({ open: false });
@@ -2869,6 +2735,43 @@ export default function App() {
           />
         )}
       </Suspense>
+
+      {cloudConflict && (
+        <CloudMergeModal
+          localSnapshot={cloudConflict.localSnapshot}
+          cloudSnapshot={cloudConflict.cloudSnapshot}
+          busy={resolvingConflict}
+          onMerge={() => void resolveMergeConflict()}
+          onUseCloudOnly={resolveUseCloudOnly}
+          onDownloadLocalBackup={downloadConflictLocalBackup}
+        />
+      )}
+
+      {appLockSettingsOpen && (
+        <AppLockSettingsModal
+          isEnabled={appLock.isEnabled}
+          autoLockOnHide={appLock.autoLockOnHide}
+          isBiometricsSupported={appLock.isBiometricsSupported}
+          hasBiometrics={appLock.hasBiometrics}
+          onEnablePin={appLock.enablePinLock}
+          onChangePin={appLock.changePin}
+          onDisablePin={appLock.disablePinLock}
+          onToggleAutoLock={appLock.toggleAutoLockOnHide}
+          onEnrollBiometrics={appLock.enrollBiometrics}
+          onRemoveBiometrics={appLock.removeBiometrics}
+          onLockNow={appLock.lockNow}
+          onClose={() => setAppLockSettingsOpen(false)}
+        />
+      )}
+
+      {appLock.isLocked && (
+        <AppLockGate
+          hasBiometrics={appLock.hasBiometrics}
+          lockoutUntil={appLock.lockoutUntil}
+          onUnlockWithPin={appLock.unlockWithPin}
+          onUnlockWithBiometrics={appLock.unlockWithBiometrics}
+        />
+      )}
     </div>
   );
 }

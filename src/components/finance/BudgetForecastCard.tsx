@@ -20,6 +20,7 @@ interface BudgetForecastWarningStripProps {
   currency: Currency;
   onOpenBudgetsPage?: () => void;
   showNavigateButton?: boolean;
+  standalone?: boolean;
 }
 
 function formatCategoryRiskPreview(
@@ -42,6 +43,7 @@ export function BudgetForecastWarningStrip({
   currency,
   onOpenBudgetsPage,
   showNavigateButton = true,
+  standalone = false,
 }: BudgetForecastWarningStripProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -91,7 +93,11 @@ export function BudgetForecastWarningStrip({
     <div
       role="status"
       aria-live="polite"
-      className={`border-t border-[#E2E8F0]/80 dark:border-[#1B2538] ${surfaceTone}`}
+      className={`${
+        standalone
+          ? 'surface-card overflow-hidden'
+          : 'border-t border-[#E2E8F0]/80 dark:border-[#1B2538]'
+      } ${surfaceTone}`}
     >
       <div className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
         <div className="flex items-start gap-2.5 min-w-0">

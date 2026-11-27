@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BarChart3,
   Bot,
+  Calculator,
   CalendarClock,
   CalendarDays,
   CheckSquare,
@@ -17,12 +18,14 @@ import {
   HelpCircle,
   LayoutDashboard,
   Loader2,
+  Mic,
   Moon,
   NotebookPen,
   PiggyBank,
   Plus,
   Receipt,
   Search,
+  Square,
   Sun,
   Target,
   Timer,
@@ -46,7 +49,12 @@ import { FinancePageTab } from './finance/financeShared';
 import { formatMoney, formatShortDate, getTodayISO } from '../data/defaults';
 import { computeCardStats } from '../utils/cardBalances';
 import { SmartParsedAction, parseSmartCommand } from '../utils/smartCommandParser';
-import { AISmartParsedItem, parseCommandWithAI } from '../services/smartAi';
+import {
+  AISmartParsedItem,
+  parseCommandWithAI,
+  transcribeAudioWithAI,
+} from '../services/smartAi';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { QuickModalMode } from './QuickAddModal';
 
 interface CommandPaletteModalProps {
@@ -86,6 +94,7 @@ interface ActionResultItem {
   label: string;
   subtitle: string;
   badge?: string;
+  sensitive?: boolean;
   icon: typeof Search;
   iconClass: string;
   onRun: () => void;
@@ -129,8 +138,10 @@ export function CommandPaletteModal({
   const [aiParsedItems, setAiParsedItems] = useState<AISmartParsedItem[]>([]);
   const [aiParsing, setAiParsing] = useState(false);
   const [aiParseError, setAiParseError] = useState('');
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const aiAbortRef = useRef<AbortController | null>(null);
+  const voiceRecorder = useVoiceRecorder();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -144,8 +155,8 @@ export function CommandPaletteModal({
     [query, transactions, cards]
   );
 
-  const handleRunAIParse = async () => {
-    const trimmed = query.trim();
+  const handleRunAIParse = async (overrideText?: string) => {
+    const trimmed = (overrideText ?? query).trim();
     if (trimmed.length < 3 || aiParsing) return;
     aiAbortRef.current?.abort();
     const controller = new AbortController();
@@ -176,6 +187,33 @@ export function CommandPaletteModal({
         setAiParsing(false);
         aiAbortRef.current = null;
       }
+    }
+  };
+
+  const handleVoiceCommandToggle = async () => {
+    setAiParseError('');
+    if (voiceRecorder.isRecording) {
+      const payload = await voiceRecorder.stopRecording();
+      if (!payload) return;
+      setVoiceTranscribing(true);
+      try {
+        const transcribed = await transcribeAudioWithAI({
+          audioBase64: payload.audioBase64,
+          mimeType: payload.mimeType,
+        });
+        setQuery(transcribed);
+        void handleRunAIParse(transcribed);
+      } catch (err) {
+        setAiParseError(
+          err instanceof Error
+            ? err.message
+            : 'Չհաջողվեց վերծանել ձայնային հրամանը։'
+        );
+      } finally {
+        setVoiceTranscribing(false);
+      }
+    } else {
+      await voiceRecorder.startRecording();
     }
   };
 
@@ -226,6 +264,8 @@ export function CommandPaletteModal({
 
   const executeParsed = (action: SmartParsedAction) => {
     if (action.kind === 'transaction') {
+      const fallbackCardId =
+        cards.find((c) => c.isDefault)?.id ?? cards[0]?.id;
       onExecuteSmartTransaction({
         type: action.txType,
         incomeKind: action.txType === 'income' ? 'extra' : undefined,
@@ -233,7 +273,7 @@ export function CommandPaletteModal({
         title: action.title,
         category: action.category,
         date: action.date,
-        cardId: action.cardId,
+        cardId: action.cardId ?? fallbackCardId,
       });
     } else if (action.kind === 'task') {
       onExecuteSmartTask({
@@ -266,6 +306,7 @@ export function CommandPaletteModal({
             parsedCommand.cardLabel ? ` · ${parsedCommand.cardLabel}` : ''
           } · ${formatShortDate(parsedCommand.date)}`,
           badge: 'Enter ↵',
+          sensitive: true,
           icon: parsedCommand.txType === 'income' ? ArrowDownLeft : ArrowUpRight,
           iconClass:
             parsedCommand.txType === 'income'
@@ -308,6 +349,7 @@ export function CommandPaletteModal({
               item.cardHint ? ` · ${item.cardHint}` : ''
             } · ${formatShortDate(item.date || getTodayISO())}`,
             badge: 'AI',
+            sensitive: true,
             icon: item.txType === 'income' ? ArrowDownLeft : ArrowUpRight,
             iconClass:
               item.txType === 'income'
@@ -353,6 +395,18 @@ export function CommandPaletteModal({
         iconClass: 'bg-[#2563EB]/15 text-[#2563EB] dark:text-[#60A5FA]',
         onRun: () => {
           onOpenAssistant(query.trim() || undefined);
+          onClose();
+        },
+      },
+      {
+        id: 'act-affordability-sim',
+        label: 'Կարո՞ղ եմ թույլ տալ գնումը (Սիմուլյատոր)',
+        subtitle: 'Ստուգեք խոշոր գնման կամ ապառիկի ազդեցությունը ազատ միջոցների վրա',
+        badge: 'Բյուջե',
+        icon: Calculator,
+        iconClass: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
+        onRun: () => {
+          onNavigateFinance('budgets');
           onClose();
         },
       },
@@ -600,6 +654,7 @@ export function CommandPaletteModal({
           label: c.name,
           subtitle: `Քարտ / դրամապանակ · Մնացորդ՝ ${formatMoney(bal, currency)}`,
           badge: 'Քարտ',
+          sensitive: true,
           icon: CreditCard,
           iconClass: 'bg-[#2563EB]/12 text-[#2563EB] dark:text-[#60A5FA]',
           onRun: () => {
@@ -626,6 +681,7 @@ export function CommandPaletteModal({
         label: tx.title,
         subtitle: `${tx.type === 'income' ? '+' : '-'}${formatMoney(tx.amount, currency)} · ${tx.category} · ${formatShortDate(tx.date)}`,
         badge: 'Խմբագրել',
+        sensitive: true,
         icon: Receipt,
         iconClass:
           tx.type === 'income'
@@ -691,6 +747,7 @@ export function CommandPaletteModal({
           label: g.title,
           subtitle: `Խնայողության նպատակ · ${formatMoney(g.currentAmount, currency)} / ${formatMoney(g.targetAmount, currency)}`,
           badge: 'Նպատակ',
+          sensitive: true,
           icon: PiggyBank,
           iconClass: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
           onRun: () => {
@@ -714,6 +771,7 @@ export function CommandPaletteModal({
             currency
           )}`,
           badge: 'Պարտք',
+          sensitive: true,
           icon: Wallet,
           iconClass: 'bg-rose-500/12 text-rose-600 dark:text-rose-400',
           onRun: () => {
@@ -806,16 +864,51 @@ export function CommandPaletteModal({
     >
       <div className="w-full max-w-xl bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#1E293B] rounded-2xl shadow-2xl overflow-hidden">
         {/* Search & Smart Command Input */}
-        <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B]">
+        <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B]">
           <Search className="w-4.5 h-4.5 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Գրեք «սուրճ 1500», «+ավանս 80000», «անելիք զանգել 16:00» կամ փնտրեք…"
+            placeholder={
+              voiceRecorder.isRecording
+                ? 'Լսում եմ… թելադրեք գործարք կամ անելիք'
+                : voiceTranscribing
+                  ? 'Ձայնագրությունը վերլուծվում է…'
+                  : 'Գրեք «սուրճ 1500», «+ավանս 80000», «անելիք զանգել 16:00» կամ թելադրեք…'
+            }
             className="flex-1 min-w-0 bg-transparent text-sm text-[#0F172A] dark:text-[#F8FAFC] placeholder:text-[#94A3B8] dark:placeholder:text-[#64748B] focus:outline-none"
           />
+          {voiceRecorder.isSupported && (
+            <button
+              type="button"
+              disabled={voiceTranscribing || aiParsing}
+              onClick={() => void handleVoiceCommandToggle()}
+              aria-label={
+                voiceRecorder.isRecording
+                  ? 'Կանգնեցնել ձայնագրությունը'
+                  : 'Թելադրել հրաման ձայնով'
+              }
+              title="Թելադրել հրաման ձայնով"
+              className={`min-h-[30px] px-2 py-1 rounded-lg border text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors disabled:opacity-50 ${
+                voiceRecorder.isRecording
+                  ? 'bg-rose-600 border-rose-600 text-white'
+                  : 'border-[#E2E8F0] dark:border-[#26334D] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+              }`}
+            >
+              {voiceTranscribing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : voiceRecorder.isRecording ? (
+                <>
+                  <Square className="w-3 h-3 fill-current" />
+                  <span className="font-mono tabular-nums">{voiceRecorder.elapsedSec}վ</span>
+                </>
+              ) : (
+                <Mic className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+              )}
+            </button>
+          )}
           {query ? (
             <button
               type="button"
@@ -877,9 +970,9 @@ export function CommandPaletteModal({
             </button>
           )}
         </div>
-        {aiParseError && (
+        {(aiParseError || voiceRecorder.error) && (
           <div className="px-4 py-2 bg-amber-500/8 border-b border-[#E2E8F0] dark:border-[#1E293B] text-[11px] text-amber-700 dark:text-amber-300">
-            {aiParseError}
+            {aiParseError || voiceRecorder.error}
           </div>
         )}
 
@@ -915,7 +1008,11 @@ export function CommandPaletteModal({
                       <p className="text-xs sm:text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
                         {item.label}
                       </p>
-                      <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+                      <p
+                        className={`text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums ${
+                          item.sensitive ? 'pa-sensitive' : ''
+                        }`}
+                      >
                         {item.subtitle}
                       </p>
                     </div>

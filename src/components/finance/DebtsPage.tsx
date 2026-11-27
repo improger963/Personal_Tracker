@@ -321,7 +321,7 @@ export function DebtsPage({
                                   ? 'bg-emerald-500'
                                   : 'bg-rose-500'
                             }`}
-                            style={{ width: `${Math.max(4, pct)}%` }}
+                            style={{ width: `${pct > 0 ? Math.max(4, pct) : 0}%` }}
                           />
                         </div>
                         <span className="pa-sensitive text-[11px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
@@ -394,35 +394,6 @@ export function DebtsPage({
           title="Պարտքերի մարման հաշվիչ"
           subtitle="Ընտրեք ամսական վճարման չափը՝ տեսնելու մարման ավարտի ամիսը"
           icon={Calculator}
-          headerRight={
-            <div className="flex flex-wrap items-center gap-1.5">
-              {[25000, 50000, 100000, 150000].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  onClick={() => setMonthlyPace(preset)}
-                  className={`min-h-[34px] px-2.5 py-1 rounded-xl border text-xs font-mono tabular-nums transition-colors cursor-pointer ${
-                    monthlyPace === preset
-                      ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                      : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
-                  }`}
-                >
-                  {formatMoney(preset, currency)}
-                </button>
-              ))}
-              <input
-                type="number"
-                min="1000"
-                step="5000"
-                value={monthlyPace}
-                onChange={(e) =>
-                  setMonthlyPace(Math.max(1000, Number(e.target.value) || 0))
-                }
-                aria-label="Ամսական մարում"
-                className="w-28 min-h-[34px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
-              />
-            </div>
-          }
         >
           {(() => {
             const months = Math.max(
@@ -430,17 +401,47 @@ export function DebtsPage({
               Math.ceil(debtTotals.activeBorrowed / Math.max(1, monthlyPace))
             );
             return (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-[#475569] dark:text-[#CBD5E1] tabular-nums">
-                  Վերցված{' '}
-                  <strong className="pa-sensitive font-mono text-[#0F172A] dark:text-[#F8FAFC]">
-                    {formatMoney(debtTotals.activeBorrowed, currency)}
-                  </strong>{' '}
-                  պարտքի լրիվ մարման ժամկետ՝
-                </p>
-                <p className="text-sm sm:text-base font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums">
-                  ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
-                </p>
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {[25000, 50000, 100000, 150000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setMonthlyPace(preset)}
+                      className={`min-h-[36px] px-3 py-1 rounded-xl border text-xs font-mono tabular-nums transition-colors cursor-pointer ${
+                        monthlyPace === preset
+                          ? 'border-[#2563EB] bg-[#EFF6FF] dark:bg-[#172554] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB]'
+                      }`}
+                    >
+                      {formatMoney(preset, currency)}
+                    </button>
+                  ))}
+                  <input
+                    type="number"
+                    min="1000"
+                    step="5000"
+                    value={monthlyPace}
+                    onChange={(e) =>
+                      setMonthlyPace(Math.max(1000, Number(e.target.value) || 0))
+                    }
+                    aria-label="Ամսական մարում"
+                    className="w-32 min-h-[36px] px-3 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#F1F5F9] dark:border-[#1E293B]">
+                  <p className="text-sm text-[#475569] dark:text-[#CBD5E1] tabular-nums">
+                    Վերցված{' '}
+                    <strong className="pa-sensitive font-mono text-[#0F172A] dark:text-[#F8FAFC]">
+                      {formatMoney(debtTotals.activeBorrowed, currency)}
+                    </strong>{' '}
+                    պարտքի լրիվ մարման ժամկետ՝
+                  </p>
+                  <p className="text-sm sm:text-base font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums">
+                    ~{months} ամիս · Ավարտ՝ {formatProjectedMonth(months)}
+                  </p>
+                </div>
               </div>
             );
           })()}
@@ -494,7 +495,7 @@ export function DebtsPage({
                       )
                     )
                   }
-                  className="text-[#2563EB] dark:text-[#60A5FA] font-semibold hover:underline cursor-pointer tabular-nums"
+                  className="pa-sensitive text-[#2563EB] dark:text-[#60A5FA] font-semibold hover:underline cursor-pointer tabular-nums"
                 >
                   Ամբողջ մնացորդը (
                   {formatMoney(

@@ -36,6 +36,7 @@
           "description": "Sound presets, volume, spoken voice narration mode/voice/rate, browser alerts, and quiet hours config"
         },
         "isDark": { "type": "boolean" },
+        "customCategories": { "type": "array" },
         "serverCreatedAt": { "type": "string", "format": "date-time" },
         "serverUpdatedAt": { "type": "string", "format": "date-time" }
       },
@@ -58,8 +59,11 @@
         "type": { "type": "string", "enum": ["income", "expense"] },
         "incomeKind": { "type": "string", "enum": ["monthly", "extra", "one_time"] },
         "amount": { "type": "number" },
+        "cardAmount": { "type": "number" },
+        "cardCurrency": { "type": "string", "enum": ["AMD", "USD", "EUR", "RUB", "GEL"] },
         "title": { "type": "string", "minLength": 1, "maxLength": 200 },
         "category": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "tags": { "type": "array" },
         "date": { "type": "string", "minLength": 10, "maxLength": 20 },
         "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
         "primaryCycleKey": { "type": "string", "maxLength": 20 },
@@ -93,7 +97,7 @@
         "cardType": { "type": "string", "enum": ["arca", "visa", "mastercard", "other", "cash"] },
         "color": { "type": "string", "enum": ["blue", "purple", "emerald", "amber", "rose", "slate"] },
         "initialBalance": { "type": "number" },
-        "currency": { "type": "string", "enum": ["AMD"] },
+        "currency": { "type": "string", "enum": ["AMD", "USD", "EUR", "RUB", "GEL"] },
         "isDefault": { "type": "boolean" },
         "createdAt": { "type": "string", "minLength": 1, "maxLength": 50 },
         "serverCreatedAt": { "type": "string", "format": "date-time" },
@@ -130,6 +134,9 @@
         "repeatEveryDays": { "type": "number" },
         "selectedWeekdays": { "type": "array" },
         "completedDates": { "type": "array" },
+        "expectedAmount": { "type": "number" },
+        "expectedCategory": { "type": "string", "maxLength": 80 },
+        "linkedTxId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "serverCreatedAt": { "type": "string", "format": "date-time" },
         "serverUpdatedAt": { "type": "string", "format": "date-time" }
       },

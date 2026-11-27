@@ -72,9 +72,13 @@ import {
 } from '../utils/taskSchedule';
 import {
   INTERNAL_TRANSFER_CATEGORY,
-  computeCardStats,
+  FxRatesToAmd,
   formatCardLabel,
+  formatCardMoney,
+  getTotalCardsBalanceAMD,
+  getTotalCardsInitialBalanceAMD,
 } from '../utils/cardBalances';
+import { NetWorthAndRunwaySummary } from '../utils/netWorthAndRunway';
 
 interface OverviewViewProps {
   selectedMonth: string;
@@ -82,6 +86,8 @@ interface OverviewViewProps {
   primaryIncome: PrimaryIncomeConfig;
   transactions: Transaction[];
   cards: BankCard[];
+  fxRates?: FxRatesToAmd | null;
+  netWorthSummary?: NetWorthAndRunwaySummary;
   tasks: Task[];
   notes: Note[];
   budgets: BudgetLimit[];
@@ -122,6 +128,8 @@ export const OverviewView = memo(function OverviewView({
   primaryIncome,
   transactions,
   cards,
+  fxRates,
+  netWorthSummary,
   tasks,
   notes,
   budgets,
@@ -158,6 +166,15 @@ export const OverviewView = memo(function OverviewView({
     [selectedMonth, effectivePayday, todayISO]
   );
 
+  const cardsInitialBalance = useMemo(
+    () => getTotalCardsInitialBalanceAMD(cards, fxRates),
+    [cards, fxRates]
+  );
+  const defaultCardId = useMemo(
+    () => cards.find((c) => c.isDefault)?.id ?? cards[0]?.id,
+    [cards]
+  );
+
   const {
     cycleTransactions: monthTransactions,
     openingBalance,
@@ -171,9 +188,10 @@ export const OverviewView = memo(function OverviewView({
         transactions,
         selectedMonth,
         effectivePayday,
-        todayISO
+        todayISO,
+        cardsInitialBalance
       ),
-    [transactions, selectedMonth, effectivePayday, todayISO]
+    [transactions, selectedMonth, effectivePayday, todayISO, cardsInitialBalance]
   );
 
   const cardsById = useMemo(
@@ -181,12 +199,8 @@ export const OverviewView = memo(function OverviewView({
     [cards]
   );
   const totalCardsBalance = useMemo(
-    () =>
-      cards.reduce(
-        (sum, card) => sum + computeCardStats(card, transactions).currentBalance,
-        0
-      ),
-    [cards, transactions]
+    () => getTotalCardsBalanceAMD(cards, transactions, fxRates),
+    [cards, transactions, fxRates]
   );
 
   const savingsRate =
@@ -345,21 +359,27 @@ export const OverviewView = memo(function OverviewView({
   }, [savingsGoals, debts]);
 
   const reservedTotal = safeToSpend.reservedBills + safeToSpend.reservedPending;
-  const liquidCash = cards.length > 0 ? totalCardsBalance : balance;
-  const netWorth =
+  const liquidCash = balance;
+  const fallbackNetWorth =
     liquidCash +
     totalSavedGoals +
     activeLentTotal -
     activeBorrowedTotal -
     reservedTotal;
+  const netWorth = netWorthSummary ? netWorthSummary.netWorth : fallbackNetWorth;
   const avgDailyExpense =
     cycleMetrics.elapsedDays > 0 && totalExpense > 0
       ? totalExpense / cycleMetrics.elapsedDays
       : 0;
-  const runwayDays =
+  const fallbackRunwayDays =
     liquidCash > 0 && avgDailyExpense > 0
       ? Math.round(liquidCash / avgDailyExpense)
       : null;
+  const runwayDays = netWorthSummary
+    ? netWorthSummary.hasBurnData
+      ? netWorthSummary.runwayDays
+      : null
+    : fallbackRunwayDays;
 
   const frequentExpensePresets = useMemo(() => {
     const groups = new Map<
@@ -463,6 +483,7 @@ export const OverviewView = memo(function OverviewView({
               selectedMonth={selectedMonth}
               payday={effectivePayday}
               onShiftMonth={onShiftMonth}
+              className="lg:hidden"
             />
             <button
               type="button"
@@ -542,12 +563,17 @@ export const OverviewView = memo(function OverviewView({
         <SectionCard
           title="Հաշվեկշռի շարժ և արագ ծախսեր"
           subtitle={
-            activeSparkNode
-              ? `${formatShortDate(activeSparkNode.date)} · ${activeSparkNode.label} (${formatMoney(
-                  activeSparkNode.balance,
-                  currency
-                )})`
-              : `${cycleLabel} · ${cycleMetrics.elapsedDays}/${cycleMetrics.totalDays} օր անցել է`
+            activeSparkNode ? (
+              <span>
+                {formatShortDate(activeSparkNode.date)} · {activeSparkNode.label} (
+                <span className="pa-sensitive font-mono tabular-nums">
+                  {formatMoney(activeSparkNode.balance, currency)}
+                </span>
+                )
+              </span>
+            ) : (
+              `${cycleLabel} · ${cycleMetrics.elapsedDays}/${cycleMetrics.totalDays} օր անցել է`
+            )
           }
           headerRight={
             <div className="flex items-center gap-2">
@@ -723,7 +749,7 @@ export const OverviewView = memo(function OverviewView({
                           category: preset.category,
                           amount: preset.amount,
                           date: todayISO,
-                          cardId: preset.cardId,
+                          cardId: preset.cardId ?? defaultCardId,
                         })
                       }
                       title={`Գրանցել ${preset.title} (-${formatMoney(preset.amount, currency)})`}
@@ -746,7 +772,7 @@ export const OverviewView = memo(function OverviewView({
                             category: preset.category,
                             amount: preset.amount,
                             date: todayISO,
-                            cardId: preset.cardId,
+                            cardId: preset.cardId ?? defaultCardId,
                           })
                         }
                         aria-label={`Փոխել գումարը՝ ${preset.title}`}
@@ -1071,6 +1097,12 @@ export const OverviewView = memo(function OverviewView({
                           {tx.type === 'income'
                             ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} · ${tx.category}${cardPart} · ${formatShortDate(tx.date)}`
                             : `${tx.category}${cardPart} · ${formatShortDate(tx.date)}`}
+                          {tx.tags && tx.tags.length > 0 && (
+                            <span className="text-[#2563EB] dark:text-[#60A5FA] font-mono">
+                              {' '}
+                              · {tx.tags.map((tag) => `#${tag}`).join(' ')}
+                            </span>
+                          )}
                           {tx.isPending && (
                             <span className="text-amber-600 dark:text-amber-400 font-medium">
                               {' '}
@@ -1081,18 +1113,28 @@ export const OverviewView = memo(function OverviewView({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`pa-sensitive text-xs sm:text-sm font-semibold font-mono tabular-nums whitespace-nowrap ${
-                          tx.isPending
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : tx.type === 'income'
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-[#0F172A] dark:text-[#F8FAFC]'
-                        }`}
-                      >
-                        {tx.type === 'income' ? '+' : '-'}
-                        {formatMoney(tx.amount, currency)}
-                      </span>
+                      <div className="text-right">
+                        <span
+                          className={`pa-sensitive block text-xs sm:text-sm font-semibold font-mono tabular-nums whitespace-nowrap ${
+                            tx.isPending
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : tx.type === 'income'
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-[#0F172A] dark:text-[#F8FAFC]'
+                          }`}
+                        >
+                          {tx.type === 'income' ? '+' : '-'}
+                          {formatMoney(tx.amount, currency)}
+                        </span>
+                        {tx.cardAmount !== undefined &&
+                          tx.cardCurrency &&
+                          tx.cardCurrency !== 'AMD' && (
+                            <span className="pa-sensitive block text-[10px] font-mono tabular-nums text-[#64748B] dark:text-[#94A3B8]">
+                              {tx.type === 'income' ? '+' : '-'}
+                              {formatCardMoney(tx.cardAmount, tx.cardCurrency)}
+                            </span>
+                          )}
+                      </div>
                       {tx.isPending && onConfirmPreExpense && (
                         <button
                           type="button"
@@ -1141,7 +1183,7 @@ export const OverviewView = memo(function OverviewView({
                   : totalExpense > 0
                     ? Math.round((amount / totalExpense) * 100)
                     : 0;
-                const barWidth = Math.min(100, Math.max(pct, 4));
+                const barWidth = amount > 0 ? Math.min(100, Math.max(pct, 4)) : 0;
                 const barColor = budget
                   ? pct >= 100
                     ? 'bg-rose-500'
@@ -1170,7 +1212,7 @@ export const OverviewView = memo(function OverviewView({
                       />
                     </div>
                     {budget && (
-                      <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
+                      <p className="pa-sensitive text-[11px] text-[#64748B] dark:text-[#94A3B8] tabular-nums">
                         {budget.limit - amount >= 0
                           ? `Մնացել է ${formatMoney(budget.limit - amount, currency)}`
                           : `Գերազանցված է ${formatMoney(amount - budget.limit, currency)}-ով`}

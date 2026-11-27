@@ -221,21 +221,25 @@ export function computeCycleFinancials(
   transactions: Transaction[],
   cycleKey: string,
   payday: number,
-  todayISO: string
+  todayISO: string,
+  initialBalance = 0
 ): CycleFinancials {
+  const safeInitial = Number.isFinite(initialBalance) ? initialBalance : 0;
   const { startDate, endDate } = getCycleBounds(cycleKey, payday);
   const cycleTransactions = transactions.filter(
     (t) => t.date >= startDate && t.date <= endDate
   );
   const priorTransactions = transactions.filter((t) => t.date < startDate);
 
-  const openingBalance = priorTransactions
-    .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
-    .reduce(
-      (sum, t) =>
-        sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
-      0
-    );
+  const openingBalance =
+    safeInitial +
+    priorTransactions
+      .filter((t) => t.category !== INTERNAL_TRANSFER_CATEGORY)
+      .reduce(
+        (sum, t) =>
+          sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
+        0
+      );
   const cycleIncome = cycleTransactions
     .filter((t) => t.type === 'income' && t.category !== INTERNAL_TRANSFER_CATEGORY)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -258,15 +262,17 @@ export function computeCycleFinancials(
   const cycleNet = cycleIncome - cycleExpense;
   const cycleEndBalance = openingBalance + cycleNet;
 
-  const liveRealBalance = transactions
-    .filter(
-      (t) => t.date <= todayISO && t.category !== INTERNAL_TRANSFER_CATEGORY
-    )
-    .reduce(
-      (sum, t) =>
-        sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
-      0
-    );
+  const liveRealBalance =
+    safeInitial +
+    transactions
+      .filter(
+        (t) => t.date <= todayISO && t.category !== INTERNAL_TRANSFER_CATEGORY
+      )
+      .reduce(
+        (sum, t) =>
+          sum + (t.type === 'income' ? t.amount : t.isPending ? 0 : -t.amount),
+        0
+      );
 
   return {
     cycleTransactions,

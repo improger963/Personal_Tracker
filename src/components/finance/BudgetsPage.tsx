@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { CalendarDays, Pencil, Plus, Target, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, Pencil, Plus, Tag, Target, Trash2 } from 'lucide-react';
 import {
   MetricStrip,
   MonthCycleNav,
@@ -8,15 +8,27 @@ import {
   SectionCard,
 } from '../layout/PagePrimitives';
 import { EmptyStatePlaceholder } from '../ui/Skeleton';
-import { BudgetLimit, Currency, PrimaryIncomeConfig } from '../../types';
+import {
+  BudgetLimit,
+  Currency,
+  CustomCategory,
+  PrimaryIncomeConfig,
+  TransactionType,
+} from '../../types';
 import {
   EXPENSE_CATEGORIES,
+  INCOME_CATEGORIES,
   formatMoney,
   formatShortDate,
 } from '../../data/defaults';
+import {
+  CUSTOM_CATEGORY_COLORS,
+  mergeExpenseCategories,
+} from '../../utils/customCategories';
 import { SafeToSpendMetrics, clampPayday } from '../../utils/financialCycle';
 import { BudgetForecastSummary } from '../../utils/budgetForecast';
 import { BudgetForecastSection } from './BudgetForecastCard';
+import { PurchaseAffordabilityCard } from './PurchaseAffordabilityCard';
 
 interface CycleDayMetrics {
   totalDays: number;
@@ -52,6 +64,18 @@ interface BudgetsPageProps {
   budgetForecast?: BudgetForecastSummary;
   onSaveBudget: (category: string, limit: number) => void;
   onDeleteBudget: (category: string) => void;
+  customCategories?: CustomCategory[];
+  onAddCustomCategory?: (cat: Omit<CustomCategory, 'id'>) => void;
+  onDeleteCustomCategory?: (id: string) => void;
+  onAddPendingTransaction?: (tx: {
+    type: 'expense';
+    amount: number;
+    title: string;
+    category: string;
+    date: string;
+    isPending: boolean;
+  }) => void;
+  onAskAssistant?: (prompt: string) => void;
 }
 
 export function BudgetsPage({
@@ -72,6 +96,11 @@ export function BudgetsPage({
   budgetForecast,
   onSaveBudget,
   onDeleteBudget,
+  customCategories = [],
+  onAddCustomCategory,
+  onDeleteCustomCategory,
+  onAddPendingTransaction,
+  onAskAssistant,
 }: BudgetsPageProps) {
   const [isEditingPrimary, setIsEditingPrimary] = useState(false);
   const [primaryTitleInput, setPrimaryTitleInput] = useState(
@@ -88,11 +117,34 @@ export function BudgetsPage({
   );
   const [primaryFormError, setPrimaryFormError] = useState('');
 
+  const expenseCategoryOptions = useMemo(
+    () => mergeExpenseCategories(customCategories),
+    [customCategories]
+  );
+
   const [budgetCategory, setBudgetCategory] = useState<string>(
     EXPENSE_CATEGORIES[0]
   );
   const [budgetAmount, setBudgetAmount] = useState('');
   const [budgetError, setBudgetError] = useState('');
+  const budgetLimitInputRef = useRef<HTMLInputElement>(null);
+
+  const [newCatType, setNewCatType] = useState<TransactionType>('expense');
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatColor, setNewCatColor] = useState<string>(CUSTOM_CATEGORY_COLORS[0]);
+  const [catError, setCatError] = useState('');
+
+  useEffect(() => {
+    if (isEditingPrimary) return;
+    setPrimaryTitleInput(primaryIncome.title || 'Հիմնական աշխատավարձ');
+    setPrimaryAmountInput(
+      primaryIncome.amount > 0 ? String(primaryIncome.amount) : ''
+    );
+    setPrimaryPaydayInput(
+      String(primaryIncome.enabled ? primaryIncome.payday : 10)
+    );
+    setPrimaryAutoCreditInput(primaryIncome.autoCredit);
+  }, [primaryIncome, isEditingPrimary]);
 
   const handleOpenPrimaryEditor = () => {
     setPrimaryTitleInput(primaryIncome.title || 'Հիմնական աշխատավարձ');
@@ -147,6 +199,39 @@ export function BudgetsPage({
     setBudgetAmount('');
   };
 
+  const handleAddCustomCategorySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onAddCustomCategory) return;
+    const trimmed = newCatName.trim();
+    if (!trimmed) {
+      setCatError('Մուտքագրեք կատեգորիայի անվանումը։');
+      return;
+    }
+    const baseList =
+      newCatType === 'income'
+        ? (INCOME_CATEGORIES as readonly string[])
+        : (EXPENSE_CATEGORIES as readonly string[]);
+    const duplicateDefault = baseList.some(
+      (c) => c.toLowerCase() === trimmed.toLowerCase()
+    );
+    const duplicateCustom = customCategories.some(
+      (c) =>
+        c.type === newCatType &&
+        c.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicateDefault || duplicateCustom) {
+      setCatError('Այդ անունով կատեգորիա արդեն գոյություն ունի։');
+      return;
+    }
+    setCatError('');
+    onAddCustomCategory({
+      name: trimmed,
+      type: newCatType,
+      color: newCatColor,
+    });
+    setNewCatName('');
+  };
+
   const reservedTotal = safeToSpend.reservedBills + safeToSpend.reservedPending;
   const totalBudgetLimit = useMemo(
     () => budgets.reduce((sum, b) => sum + b.limit, 0),
@@ -163,6 +248,7 @@ export function BudgetsPage({
             selectedMonth={selectedMonth}
             payday={effectivePayday}
             onShiftMonth={onShiftMonth}
+            className="lg:hidden"
           />
         }
       />
@@ -217,6 +303,14 @@ export function BudgetsPage({
           cycleLabel={cycleLabel}
         />
       )}
+
+      <PurchaseAffordabilityCard
+        currency={currency}
+        safeToSpend={safeToSpend}
+        cycleLabel={cycleLabel}
+        onAddPendingTransaction={onAddPendingTransaction}
+        onAskAssistant={onAskAssistant}
+      />
 
       {/* Primary Income & Payday Billing Cycle Configuration */}
       <SectionCard
@@ -412,13 +506,14 @@ export function BudgetsPage({
             aria-label="Ընտրել կատեգորիա"
             className="sm:col-span-5 min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
           >
-            {EXPENSE_CATEGORIES.map((c) => (
+            {expenseCategoryOptions.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
             ))}
           </select>
           <input
+            ref={budgetLimitInputRef}
             type="number"
             min="1"
             step="any"
@@ -431,7 +526,9 @@ export function BudgetsPage({
             type="submit"
             className="sm:col-span-3 min-h-[42px] px-3 py-2 rounded-xl btn-primary text-xs sm:text-sm whitespace-nowrap"
           >
-            Սահմանել
+            {budgets.some((b) => b.category === budgetCategory)
+              ? 'Թարմացնել'
+              : 'Սահմանել'}
           </button>
         </form>
 
@@ -453,8 +550,8 @@ export function BudgetsPage({
             {budgets.map((b) => {
               const spent = expenseByCategory[b.category] ?? 0;
               const remaining = b.limit - spent;
-              const pct = Math.round((spent / b.limit) * 100);
-              const barWidth = Math.min(100, Math.max(pct, spent > 0 ? 4 : 0));
+              const pct = Math.round((spent / Math.max(1, b.limit)) * 100);
+              const barWidth = spent > 0 ? Math.min(100, Math.max(pct, 4)) : 0;
               const statusText =
                 pct >= 100
                   ? `Գերազանցված է ${formatMoney(Math.abs(remaining), currency)}-ով`
@@ -485,16 +582,33 @@ export function BudgetsPage({
                         {b.category}
                       </p>
                       <p className="text-xs text-[#64748B] dark:text-[#94A3B8] flex flex-wrap items-center gap-1.5 tabular-nums">
-                        <span className={statusClass}>{statusText}</span>
+                        <span className={`${statusClass} pa-sensitive`}>{statusText}</span>
                         <span aria-hidden="true">·</span>
                         <span>{pct}%</span>
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="pa-sensitive text-xs sm:text-sm font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1]">
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="pa-sensitive text-xs sm:text-sm font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] mr-1">
                         {formatMoney(spent, currency)} /{' '}
                         {formatMoney(b.limit, currency)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBudgetCategory(b.category);
+                          setBudgetAmount(String(b.limit));
+                          setBudgetError('');
+                          budgetLimitInputRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'center',
+                          });
+                          budgetLimitInputRef.current?.focus();
+                        }}
+                        aria-label={`Փոփոխել ${b.category} բյուջեն`}
+                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => onDeleteBudget(b.category)}
@@ -517,6 +631,129 @@ export function BudgetsPage({
           </div>
         )}
       </SectionCard>
+
+      {onAddCustomCategory && (
+        <SectionCard
+          title="Սեփական կատեգորիաներ"
+          subtitle="Ավելացրեք ձեր անհատական կատեգորիաները եկամուտների և ծախսերի համար"
+          icon={Tag}
+        >
+          <form onSubmit={handleAddCustomCategorySubmit} className="space-y-3 mb-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center p-0.5 rounded-xl surface-subtle text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCatType('expense');
+                    setCatError('');
+                  }}
+                  className={`min-h-[32px] px-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                    newCatType === 'expense'
+                      ? 'bg-white dark:bg-[#0F172A] text-rose-600 dark:text-rose-400 font-semibold shadow-xs'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  Ծախս
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCatType('income');
+                    setCatError('');
+                  }}
+                  className={`min-h-[32px] px-3 rounded-lg font-medium transition-colors cursor-pointer ${
+                    newCatType === 'income'
+                      ? 'bg-white dark:bg-[#0F172A] text-emerald-600 dark:text-emerald-400 font-semibold shadow-xs'
+                      : 'text-[#64748B] dark:text-[#94A3B8]'
+                  }`}
+                >
+                  Եկամուտ
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 ml-auto">
+                {CUSTOM_CATEGORY_COLORS.map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    onClick={() => setNewCatColor(hex)}
+                    aria-label={`Ընտրել գույն ${hex}`}
+                    aria-pressed={newCatColor === hex}
+                    className={`w-6 h-6 rounded-full transition-transform cursor-pointer ${
+                      newCatColor === hex
+                        ? 'ring-2 ring-offset-2 ring-[#2563EB] dark:ring-offset-[#0F172A] scale-110'
+                        : 'opacity-80 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: hex }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <input
+                type="text"
+                maxLength={32}
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                placeholder="Օրինակ՝ Սուրճ, Կրթություն, Սպորտ..."
+                className="flex-1 min-h-[42px] px-3.5 py-2 text-sm rounded-xl input-field"
+              />
+              <button
+                type="submit"
+                className="min-h-[42px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm whitespace-nowrap inline-flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Ավելացնել</span>
+              </button>
+            </div>
+
+            {catError && (
+              <p className="text-xs text-rose-600 dark:text-rose-400" role="alert">
+                {catError}
+              </p>
+            )}
+          </form>
+
+          {customCategories.length === 0 ? (
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+              Դեռ չունեք սեփական կատեգորիաներ։ Ստեղծած կատեգորիաները կերևան գործարքներում, բյուջեում և գրաֆիկներում։
+            </p>
+          ) : (
+            <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+              {customCategories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="py-2.5 flex items-center justify-between gap-3 text-sm"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                    <span className="font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                      {cat.name}
+                    </span>
+                    <span className="text-xs text-[#64748B] dark:text-[#94A3B8] shrink-0">
+                      · {cat.type === 'income' ? 'Եկամուտ' : 'Ծախս'}
+                    </span>
+                  </div>
+                  {onDeleteCustomCategory && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteCustomCategory(cat.id)}
+                      aria-label={`Հեռացնել ${cat.name} կատեգորիան`}
+                      className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
     </PageShell>
   );
 }

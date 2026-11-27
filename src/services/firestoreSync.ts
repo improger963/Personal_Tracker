@@ -2,7 +2,6 @@ import { User } from 'firebase/auth';
 import {
   Unsubscribe,
   collection,
-  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -17,6 +16,7 @@ import { OperationType, db, handleFirestoreError } from '../firebase';
 import {
   BankCard,
   BudgetLimit,
+  CustomCategory,
   DebtItem,
   FocusGoal,
   FocusSession,
@@ -30,12 +30,15 @@ import {
   Transaction,
 } from '../types';
 import { normalizeNotificationSettings } from '../data/defaults';
+import { normalizeCardCurrency } from '../utils/cardBalances';
+import { normalizeTags } from '../utils/customCategories';
 
 export interface WorkspaceSettingsPayload {
   primaryIncome: PrimaryIncomeConfig;
   focusGoal: FocusGoal | null;
   notificationSettings: NotificationSettings;
   isDark: boolean;
+  customCategories?: CustomCategory[];
 }
 
 export interface FullWorkspaceSnapshot {
@@ -170,6 +173,22 @@ function buildTransactionDoc(
   } else if (!includeCreated) {
     payload.incomeKind = deleteField();
   }
+  if (typeof tx.cardAmount === 'number' && Number.isFinite(tx.cardAmount) && tx.cardAmount > 0) {
+    payload.cardAmount = Math.round(tx.cardAmount * 100) / 100;
+  } else if (!includeCreated) {
+    payload.cardAmount = deleteField();
+  }
+  if (tx.cardCurrency) {
+    payload.cardCurrency = normalizeCardCurrency(tx.cardCurrency);
+  } else if (!includeCreated) {
+    payload.cardCurrency = deleteField();
+  }
+  const cleanTags = normalizeTags(tx.tags);
+  if (cleanTags.length > 0) {
+    payload.tags = cleanTags.map((t) => sanitizeString(t, 40));
+  } else if (!includeCreated) {
+    payload.tags = deleteField();
+  }
   if (tx.primaryCycleKey) {
     payload.primaryCycleKey = sanitizeString(tx.primaryCycleKey, 20);
   } else if (!includeCreated) {
@@ -201,9 +220,14 @@ function buildBankCardDoc(
   includeCreated: boolean
 ): Record<string, unknown> {
   const id = sanitizeSafeId(card.id, 'card');
+  const currency = normalizeCardCurrency(card.currency);
   const rawBalance = Number(card.initialBalance);
+  const rounded =
+    currency === 'AMD'
+      ? Math.round(rawBalance)
+      : Math.round(rawBalance * 100) / 100;
   const safeBalance = Number.isFinite(rawBalance)
-    ? Math.min(1_000_000_000, Math.max(-100_000_000, Math.round(rawBalance)))
+    ? Math.min(1_000_000_000, Math.max(-100_000_000, rounded))
     : 0;
   const payload: Record<string, unknown> = {
     userId,
@@ -213,7 +237,7 @@ function buildBankCardDoc(
     cardType: card.cardType,
     color: card.color,
     initialBalance: safeBalance,
-    currency: 'AMD',
+    currency,
     isDefault: Boolean(card.isDefault),
     serverUpdatedAt: serverTimestamp(),
   };
@@ -281,6 +305,25 @@ function buildTaskDoc(
       .slice(-366);
   } else if (!includeCreated) {
     payload.completedDates = deleteField();
+  }
+  if (
+    typeof task.expectedAmount === 'number' &&
+    Number.isFinite(task.expectedAmount) &&
+    task.expectedAmount > 0
+  ) {
+    payload.expectedAmount = Math.round(task.expectedAmount);
+  } else if (!includeCreated) {
+    payload.expectedAmount = deleteField();
+  }
+  if (task.expectedCategory && task.expectedCategory.trim()) {
+    payload.expectedCategory = sanitizeString(task.expectedCategory.trim(), 80);
+  } else if (!includeCreated) {
+    payload.expectedCategory = deleteField();
+  }
+  if (task.linkedTxId && task.linkedTxId.trim()) {
+    payload.linkedTxId = sanitizeSafeId(task.linkedTxId.trim(), 'tx');
+  } else if (!includeCreated) {
+    payload.linkedTxId = deleteField();
   }
   if (includeCreated) {
     payload.createdAt = sanitizeString(
@@ -536,11 +579,35 @@ function buildFocusSessionDoc(
   return payload;
 }
 
+function sanitizeCustomCategories(raw?: CustomCategory[]): CustomCategory[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: CustomCategory[] = [];
+  for (const cat of raw) {
+    if (!cat || typeof cat !== 'object') continue;
+    const name = sanitizeString(cat.name?.trim() || '', 80);
+    if (!name) continue;
+    const type = cat.type === 'income' ? 'income' : 'expense';
+    const key = `${type}:${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      id: sanitizeSafeId(cat.id || `cat-${out.length + 1}`, 'cat'),
+      name,
+      type,
+      color: sanitizeString(cat.color || '#2563EB', 24) || '#2563EB',
+    });
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
 function buildSettingsDoc(
   settings: WorkspaceSettingsPayload,
   userId: string,
   includeCreated: boolean
 ): Record<string, unknown> {
+  const customCategories = sanitizeCustomCategories(settings.customCategories);
   const payload: Record<string, unknown> = {
     userId,
     primaryIncome: {
@@ -586,6 +653,11 @@ function buildSettingsDoc(
     isDark: Boolean(settings.isDark),
     serverUpdatedAt: serverTimestamp(),
   };
+  if (customCategories.length > 0) {
+    payload.customCategories = customCategories;
+  } else if (!includeCreated) {
+    payload.customCategories = deleteField();
+  }
   if (includeCreated) {
     payload.serverCreatedAt = serverTimestamp();
   }
@@ -601,6 +673,93 @@ export async function checkCloudWorkspaceExists(userId: string): Promise<boolean
     return !txSnap.empty;
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, settingsPath);
+  }
+}
+
+function stripServerMeta<T extends Record<string, unknown>>(raw: T): T {
+  const clone = { ...raw };
+  delete clone.userId;
+  delete clone.serverCreatedAt;
+  delete clone.serverUpdatedAt;
+  return clone;
+}
+
+export async function fetchCloudWorkspaceSnapshot(
+  userId: string
+): Promise<FullWorkspaceSnapshot | null> {
+  try {
+    const [
+      settingsSnap,
+      txSnap,
+      cardsSnap,
+      tasksSnap,
+      notesSnap,
+      budgetsSnap,
+      billsSnap,
+      habitsSnap,
+      goalsSnap,
+      debtsSnap,
+      focusSnap,
+    ] = await Promise.all([
+      getDoc(doc(db, 'users', userId, 'settings', 'workspace')),
+      getDocs(collection(db, 'users', userId, 'transactions')),
+      getDocs(collection(db, 'users', userId, 'cards')),
+      getDocs(collection(db, 'users', userId, 'tasks')),
+      getDocs(collection(db, 'users', userId, 'notes')),
+      getDocs(collection(db, 'users', userId, 'budgets')),
+      getDocs(collection(db, 'users', userId, 'recurringBills')),
+      getDocs(collection(db, 'users', userId, 'habits')),
+      getDocs(collection(db, 'users', userId, 'savingsGoals')),
+      getDocs(collection(db, 'users', userId, 'debts')),
+      getDocs(collection(db, 'users', userId, 'focusSessions')),
+    ]);
+
+    const readCollection = <T extends Record<string, unknown>>(
+      snap: Awaited<ReturnType<typeof getDocs>>
+    ): T[] => {
+      const list: T[] = [];
+      snap.forEach((d) => {
+        list.push(stripServerMeta(d.data() as T));
+      });
+      return list;
+    };
+
+    let settings: WorkspaceSettingsPayload | undefined;
+    if (settingsSnap.exists()) {
+      const data = settingsSnap.data();
+      settings = {
+        primaryIncome: data.primaryIncome as PrimaryIncomeConfig,
+        focusGoal: (data.focusGoal as FocusGoal | null) ?? null,
+        notificationSettings: normalizeNotificationSettings(
+          data.notificationSettings as Partial<NotificationSettings>
+        ),
+        isDark: Boolean(data.isDark),
+        customCategories: Array.isArray(data.customCategories)
+          ? (data.customCategories as CustomCategory[])
+          : [],
+      };
+    }
+
+    const budgetsRaw = readCollection<BudgetLimit & Record<string, unknown>>(budgetsSnap);
+
+    return {
+      transactions: readCollection<Transaction & Record<string, unknown>>(txSnap).sort(
+        (a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')
+      ),
+      cards: readCollection<BankCard & Record<string, unknown>>(cardsSnap),
+      tasks: readCollection<Task & Record<string, unknown>>(tasksSnap),
+      notes: readCollection<Note & Record<string, unknown>>(notesSnap),
+      budgets: budgetsRaw.map(({ category, limit }) => ({ category, limit })),
+      recurringBills: readCollection<RecurringBill & Record<string, unknown>>(billsSnap),
+      habits: readCollection<Habit & Record<string, unknown>>(habitsSnap),
+      savingsGoals: readCollection<SavingsGoal & Record<string, unknown>>(goalsSnap),
+      debts: readCollection<DebtItem & Record<string, unknown>>(debtsSnap),
+      focusSessions: readCollection<FocusSession & Record<string, unknown>>(focusSnap),
+      settings,
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `users/${userId}`);
+    return null;
   }
 }
 
@@ -688,7 +847,6 @@ export async function uploadFullWorkspaceToCloud(
     });
   }
 
-  // Commit in chunks of 400 (Firestore batch limit is 500)
   for (let i = 0; i < ops.length; i += 400) {
     const chunk = ops.slice(i, i + 400);
     const batch = writeBatch(db);
@@ -755,7 +913,11 @@ export async function syncCollectionItems<T>(params: {
   } = params;
 
   const currentIds = new Set<string>();
-  const writes: Array<{ id: string; isNew: boolean; data: Record<string, unknown>; serialized: string }> = [];
+  const batchOps: Array<
+    | { kind: 'set'; id: string; data: Record<string, unknown>; serialized: string }
+    | { kind: 'update'; id: string; data: Record<string, unknown>; serialized: string }
+    | { kind: 'delete'; id: string }
+  > = [];
 
   for (const item of items) {
     const id = getId(item);
@@ -763,55 +925,58 @@ export async function syncCollectionItems<T>(params: {
     const serialized = serializeForDiff(item);
     const prevSerialized = knownSerializedMap.get(id);
     if (prevSerialized === undefined) {
-      writes.push({
+      batchOps.push({
+        kind: 'set',
         id,
-        isNew: true,
         data: buildDoc(item, userId, true),
         serialized,
       });
     } else if (prevSerialized !== serialized) {
-      writes.push({
+      batchOps.push({
+        kind: 'update',
         id,
-        isNew: false,
         data: buildDoc(item, userId, false),
         serialized,
       });
     }
   }
 
-  const deletions: string[] = [];
   for (const existingId of knownSerializedMap.keys()) {
     if (!currentIds.has(existingId)) {
-      deletions.push(existingId);
+      batchOps.push({ kind: 'delete', id: existingId });
     }
   }
 
-  for (const w of writes) {
-    const path = `users/${userId}/${collectionName}/${w.id}`;
-    const ref = doc(db, 'users', userId, collectionName, w.id);
-    knownSerializedMap.set(w.id, w.serialized);
-    try {
-      if (w.isNew) {
-        await setDoc(ref, w.data);
+  if (batchOps.length === 0) return;
+
+  for (let i = 0; i < batchOps.length; i += 400) {
+    const chunk = batchOps.slice(i, i + 400);
+    const batch = writeBatch(db);
+    for (const op of chunk) {
+      const ref = doc(db, 'users', userId, collectionName, op.id);
+      if (op.kind === 'set') {
+        batch.set(ref, op.data);
+      } else if (op.kind === 'update') {
+        batch.update(ref, op.data);
       } else {
-        await updateDoc(ref, w.data);
+        batch.delete(ref);
+      }
+    }
+    try {
+      await batch.commit();
+      for (const op of chunk) {
+        if (op.kind === 'delete') {
+          knownSerializedMap.delete(op.id);
+        } else {
+          knownSerializedMap.set(op.id, op.serialized);
+        }
       }
     } catch (error) {
       handleFirestoreError(
         error,
-        w.isNew ? OperationType.CREATE : OperationType.UPDATE,
-        path
+        OperationType.WRITE,
+        `users/${userId}/${collectionName}`
       );
-    }
-  }
-
-  for (const delId of deletions) {
-    const path = `users/${userId}/${collectionName}/${delId}`;
-    knownSerializedMap.delete(delId);
-    try {
-      await deleteDoc(doc(db, 'users', userId, collectionName, delId));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
     }
   }
 }
@@ -828,14 +993,6 @@ export const collectionBuilders = {
   debts: buildDebtDoc,
   focusSessions: buildFocusSessionDoc,
 };
-
-function stripServerMeta<T extends Record<string, unknown>>(raw: T): T {
-  const clone = { ...raw };
-  delete clone.userId;
-  delete clone.serverCreatedAt;
-  delete clone.serverUpdatedAt;
-  return clone;
-}
 
 export function subscribeUserWorkspace(params: {
   userId: string;
@@ -977,6 +1134,9 @@ export function subscribeUserWorkspace(params: {
             data.notificationSettings as Partial<NotificationSettings>
           ),
           isDark: Boolean(data.isDark),
+          customCategories: Array.isArray(data.customCategories)
+            ? (data.customCategories as CustomCategory[])
+            : [],
         },
         true
       );

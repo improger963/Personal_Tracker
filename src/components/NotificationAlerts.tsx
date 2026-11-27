@@ -108,7 +108,11 @@ export function NotificationAlerts({
                     <p className="text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate mt-1">
                       {item.title}
                     </p>
-                    <p className="text-xs text-[#64748B] dark:text-[#94A3B8] truncate">
+                    <p
+                      className={`text-xs text-[#64748B] dark:text-[#94A3B8] truncate ${
+                        isBudget || item.amount !== undefined ? 'pa-sensitive' : ''
+                      }`}
+                    >
                       {item.subtitle}
                     </p>
                   </div>
@@ -140,7 +144,7 @@ export function NotificationAlerts({
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#F1F5F9] dark:border-[#1E293B]">
                 <div className="min-w-0">
                   {item.amount !== undefined && (
-                    <span className="text-sm font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                    <span className="pa-sensitive text-sm font-mono font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
                       {formatMoney(item.amount)}
                     </span>
                   )}

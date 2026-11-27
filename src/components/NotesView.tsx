@@ -362,7 +362,11 @@ export const NotesView = memo(function NotesView({
                               ? 'bg-emerald-500'
                               : 'bg-[#2563EB] dark:bg-[#3B82F6]'
                           }`}
-                          style={{ width: `${Math.max(4, checklistPct)}%` }}
+                          style={{
+                            width: `${
+                              checklistPct > 0 ? Math.max(4, checklistPct) : 0
+                            }%`,
+                          }}
                         />
                       </div>
 
@@ -447,9 +451,17 @@ export const NotesView = memo(function NotesView({
                       >
                         <ShoppingBag className="w-3 h-3" />
                         <span>
-                          {expensePrefillAmount
-                            ? `Գրանցել (${formatMoney(expensePrefillAmount)})`
-                            : 'Գրանցել որպես ծախս'}
+                          {expensePrefillAmount ? (
+                            <>
+                              Գրանցել (
+                              <span className="pa-sensitive font-mono tabular-nums">
+                                {formatMoney(expensePrefillAmount)}
+                              </span>
+                              )
+                            </>
+                          ) : (
+                            'Գրանցել որպես ծախս'
+                          )}
                         </span>
                       </button>
                     )}

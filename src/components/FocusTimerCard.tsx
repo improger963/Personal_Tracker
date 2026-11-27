@@ -612,7 +612,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
         {/* Left: Ring + Time + Controls */}
         <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-4 min-w-0">
             <div className="relative flex items-center justify-center shrink-0">
               <svg
                 width={compact ? 92 : 112}
@@ -658,8 +658,8 @@ export const FocusTimerCard = memo(function FocusTimerCard({
               </span>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleToggleRun}

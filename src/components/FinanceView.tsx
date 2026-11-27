@@ -13,6 +13,7 @@ import {
   BankCard,
   BudgetLimit,
   Currency,
+  CustomCategory,
   DebtItem,
   IncomeKind,
   PrimaryIncomeConfig,
@@ -28,10 +29,16 @@ import {
   calcDeltaPct,
 } from './finance/financeShared';
 import { CardTransferModal } from './finance/CardTransferModal';
-import { MonthCycleNav, SubPageTabs } from './layout/PagePrimitives';
+import { SubPageTabs } from './layout/PagePrimitives';
 import { PageSkeleton } from './ui/Skeleton';
 import { scrollToTopInstant } from '../utils/scroll';
-import { INTERNAL_TRANSFER_CATEGORY } from '../utils/cardBalances';
+import {
+  FxRatesToAmd,
+  INTERNAL_TRANSFER_CATEGORY,
+  getTotalCardsInitialBalanceAMD,
+} from '../utils/cardBalances';
+import { buildCategoryColorMap } from '../utils/customCategories';
+import { NetWorthAndRunwaySummary } from '../utils/netWorthAndRunway';
 import {
   formatMoney,
   getLastNMonthsKeys,
@@ -92,6 +99,10 @@ const loadSpendingTrendLineCard = () =>
   import('./finance/SpendingTrendLineCard').then((m) => ({
     default: m.SpendingTrendLineCard,
   }));
+const loadSpendingByCategoryPieCard = () =>
+  import('./finance/SpendingByCategoryPieCard').then((m) => ({
+    default: m.SpendingByCategoryPieCard,
+  }));
 
 const TransactionsLedgerPage = lazy(loadLedgerPage);
 const CardsSection = lazy(loadCardsPage);
@@ -101,6 +112,7 @@ const SavingsGoalsPage = lazy(loadGoalsPage);
 const DebtsPage = lazy(loadDebtsPage);
 const AnalyticsAndReportsPage = lazy(loadAnalyticsPage);
 const SpendingTrendLineCard = lazy(loadSpendingTrendLineCard);
+const SpendingByCategoryPieCard = lazy(loadSpendingByCategoryPieCard);
 
 interface FinanceViewProps {
   activePage: FinancePageTab;
@@ -167,11 +179,22 @@ interface FinanceViewProps {
     fromCardId: string;
     toCardId: string;
     amount: number;
+    toAmount?: number;
+    amountAMD?: number;
     date: string;
     note?: string;
   }) => void;
+  customCategories?: CustomCategory[];
+  onAddCustomCategory?: (cat: Omit<CustomCategory, 'id'>) => void;
+  onDeleteCustomCategory?: (id: string) => void;
+  fxRates?: FxRatesToAmd | null;
+  netWorthSummary?: NetWorthAndRunwaySummary;
+  onBulkAddTransactions?: (
+    items: Array<Omit<Transaction, 'id' | 'createdAt'>>
+  ) => void;
   onExportJSON: () => void;
   onImportJSON: (file: File) => void;
+  onOpenAssistant?: (initialPrompt?: string) => void;
 }
 
 export const FinanceView = memo(function FinanceView({
@@ -225,14 +248,23 @@ export const FinanceView = memo(function FinanceView({
   onSetDefaultCard,
   onQuickCardTransaction,
   onTransferBetweenCards,
+  customCategories = [],
+  onAddCustomCategory,
+  onDeleteCustomCategory,
+  fxRates,
+  netWorthSummary,
+  onBulkAddTransactions,
   onExportJSON,
   onImportJSON,
+  onOpenAssistant,
 }: FinanceViewProps) {
   const currency: Currency = 'AMD';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const prefersReducedMotion = useReducedMotion();
 
   const [selectedCardFilter, setSelectedCardFilter] = useState<string>('all');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string>('all');
   const [transferModalState, setTransferModalState] = useState<{
     fromCardId?: string;
   } | null>(null);
@@ -305,6 +337,7 @@ export const FinanceView = memo(function FinanceView({
       void loadDebtsPage();
       void loadAnalyticsPage();
       void loadSpendingTrendLineCard();
+      void loadSpendingByCategoryPieCard();
     };
     const win = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
@@ -335,6 +368,15 @@ export const FinanceView = memo(function FinanceView({
     [selectedMonth, effectivePayday, todayISO]
   );
 
+  const cardsInitialBalance = useMemo(
+    () => getTotalCardsInitialBalanceAMD(cards, fxRates),
+    [cards, fxRates]
+  );
+  const defaultCardId = useMemo(
+    () => cards.find((c) => c.isDefault)?.id ?? cards[0]?.id,
+    [cards]
+  );
+
   const {
     cycleTransactions: monthTransactions,
     openingBalance,
@@ -349,9 +391,10 @@ export const FinanceView = memo(function FinanceView({
         transactions,
         selectedMonth,
         effectivePayday,
-        todayISO
+        todayISO,
+        cardsInitialBalance
       ),
-    [transactions, selectedMonth, effectivePayday, todayISO]
+    [transactions, selectedMonth, effectivePayday, todayISO, cardsInitialBalance]
   );
 
   const currentCycleForecast = useMemo(
@@ -725,6 +768,11 @@ export const FinanceView = memo(function FinanceView({
     [budgets, expenseByCategory, sortedCategories]
   );
 
+  const customColorMap = useMemo(
+    () => buildCategoryColorMap(customCategories),
+    [customCategories]
+  );
+
   const donutSegments = useMemo(
     () =>
       sortedCategories.map(([cat, val], idx) => {
@@ -734,11 +782,11 @@ export const FinanceView = memo(function FinanceView({
           category: cat,
           amount: val,
           pct: Math.round(share * 100),
-          color: DONUT_COLORS[idx % DONUT_COLORS.length],
+          color: customColorMap[cat] ?? DONUT_COLORS[idx % DONUT_COLORS.length],
           budgetLimit: budget?.limit,
         };
       }),
-    [sortedCategories, totalExpense, budgets]
+    [sortedCategories, totalExpense, budgets, customColorMap]
   );
 
   const pieExpenseSegments: CategoryDonutPoint[] = useMemo(() => {
@@ -761,11 +809,11 @@ export const FinanceView = memo(function FinanceView({
         category: cat,
         amount: val,
         pct: confirmedSum > 0 ? Math.round((val / confirmedSum) * 100) : 0,
-        color: DONUT_COLORS[idx % DONUT_COLORS.length],
+        color: customColorMap[cat] ?? DONUT_COLORS[idx % DONUT_COLORS.length],
         budgetLimit: budget?.limit,
       };
     });
-  }, [monthTransactions, budgets]);
+  }, [monthTransactions, budgets, customColorMap]);
 
   const topExpensesForAdvice = useMemo(
     () =>
@@ -828,105 +876,16 @@ export const FinanceView = memo(function FinanceView({
         ariaLabel="Ֆինանսների ենթաբաժիններ"
       />
 
-      {/* Cycle Summary Card */}
-      <section
-        aria-label="Ընտրված ցիկլի ֆինանսական ամփոփում"
-        className="surface-card overflow-hidden"
-      >
-        <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0]/80 dark:border-[#1B2538] flex flex-wrap items-center justify-between gap-2.5">
-          <div className="min-w-0">
-            <h2 className="font-display text-sm sm:text-[15px] font-semibold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
-              Ցիկլի ֆինանսական ամփոփում
-            </h2>
-            <p className="text-[11px] sm:text-xs text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
-              {cycleLabel} · {monthTransactions.length} գործարք
-            </p>
-          </div>
-          <MonthCycleNav
-            selectedMonth={selectedMonth}
-            payday={effectivePayday}
-            onShiftMonth={handleShiftMonth}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0]/80 dark:divide-[#1B2538]">
-          <div className="px-4 sm:px-6 py-4 min-w-0">
-            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
-              Ընդհանուր եկամուտ
-            </p>
-            <p className="mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive text-emerald-600 dark:text-emerald-400 truncate">
-              +{formatMoney(totalIncome, currency)}
-            </p>
-            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
-              {incomeDeltaPct !== null
-                ? `${incomeDeltaPct >= 0 ? '+' : ''}${incomeDeltaPct}% նախորդ ցիկլից`
-                : 'Հաստատված մուտքեր'}
-            </p>
-          </div>
-
-          <div className="px-4 sm:px-6 py-4 min-w-0">
-            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
-              Ընդհանուր ծախսեր
-            </p>
-            <p className="mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive text-rose-600 dark:text-rose-400 truncate">
-              -{formatMoney(totalExpense, currency)}
-            </p>
-            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
-              {cyclePendingExpense > 0
-                ? `Նախածախս՝ ${formatMoney(cyclePendingExpense, currency)}`
-                : expenseDeltaPct !== null
-                  ? `${expenseDeltaPct >= 0 ? '+' : ''}${expenseDeltaPct}% նախորդ ցիկլից`
-                  : 'Փաստացի ծախսեր'}
-            </p>
-          </div>
-
-          <div className="px-4 sm:px-6 py-4 min-w-0">
-            <p className="text-xs font-medium text-[#64748B] dark:text-[#94A3B8] truncate">
-              Զուտ խնայողություն
-            </p>
-            <p
-              className={`mt-1.5 font-mono text-xl sm:text-[22px] leading-snug font-semibold tracking-tight tabular-nums pa-sensitive truncate ${
-                netSavings > 0
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : netSavings < 0
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : 'text-[#0F172A] dark:text-[#F8FAFC]'
-              }`}
-            >
-              {netSavings > 0 ? '+' : ''}
-              {formatMoney(netSavings, currency)}
-            </p>
-            <p className="mt-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
-              {savingsPct !== null
-                ? netSavings >= 0
-                  ? `Խնայողության մակարդակ՝ ${savingsPct}%`
-                  : `Եկամտից ${Math.abs(savingsPct)}% գերծախս`
-                : 'Եկամուտների և ծախսերի տարբերություն'}
-            </p>
-          </div>
-        </div>
-
+      {(activePage === 'ledger' ||
+        activePage === 'bills' ||
+        activePage === 'analytics') && (
         <BudgetForecastWarningStrip
           forecast={currentCycleForecast}
           currency={currency}
-          showNavigateButton={activePage !== 'budgets'}
+          showNavigateButton
+          standalone
           onOpenBudgetsPage={() => onSelectPage('budgets')}
         />
-      </section>
-
-      {activePage === 'ledger' && (
-        <Suspense
-          fallback={
-            <div className="surface-card h-[300px] skeleton-shimmer rounded-2xl" />
-          }
-        >
-          <SpendingTrendLineCard
-            selectedMonth={selectedMonth}
-            effectivePayday={effectivePayday}
-            currency={currency}
-            transactions={transactions}
-          />
-        </Suspense>
       )}
 
       <input
@@ -967,12 +926,19 @@ export const FinanceView = memo(function FinanceView({
                 effectivePayday={effectivePayday}
                 currency={currency}
                 cards={cards}
+                customCategories={customCategories}
+                fxRates={fxRates}
                 filterCardId={selectedCardFilter}
                 onFilterCardChange={setSelectedCardFilter}
+                filterCategory={selectedCategoryFilter}
+                onFilterCategoryChange={setSelectedCategoryFilter}
+                filterTag={selectedTagFilter}
+                onFilterTagChange={setSelectedTagFilter}
                 monthTransactions={monthTransactions}
                 allTransactions={transactions}
                 onOpenNewTransactionModal={onOpenNewTransactionModal}
                 onEditTransaction={onEditTransaction}
+                onImportTransactions={onBulkAddTransactions}
                 onAutoCategorizeTransactions={onAutoCategorizeTransactions}
                 onDeleteTransaction={onDeleteTransaction}
                 onDuplicateTransaction={onDuplicateTransaction}
@@ -995,6 +961,45 @@ export const FinanceView = memo(function FinanceView({
                 onConvertSuggestionToBill={handleConvertSuggestionToBill}
                 onOpenSuggestionInBills={handleOpenSuggestionInBills}
                 onDismissBillSuggestion={handleDismissBillSuggestion}
+                trendCard={
+                  <Suspense
+                    fallback={
+                      <div className="surface-card h-[340px] skeleton-shimmer rounded-2xl" />
+                    }
+                  >
+                    <SpendingTrendLineCard
+                      selectedMonth={selectedMonth}
+                      effectivePayday={effectivePayday}
+                      currency={currency}
+                      transactions={transactions}
+                    />
+                  </Suspense>
+                }
+                categoryPieCard={
+                  <Suspense
+                    fallback={
+                      <div className="surface-card h-[340px] skeleton-shimmer rounded-2xl" />
+                    }
+                  >
+                    <SpendingByCategoryPieCard
+                      cycleLabel={cycleLabel}
+                      currency={currency}
+                      monthTransactions={monthTransactions}
+                      budgets={budgets}
+                      cards={cards}
+                      customCategories={customCategories}
+                      selectedCardFilter={selectedCardFilter}
+                      activeCategoryFilter={selectedCategoryFilter}
+                      onSelectCategory={(category) =>
+                        setSelectedCategoryFilter((prev) =>
+                          prev === category ? 'all' : category
+                        )
+                      }
+                      onClearCategoryFilter={() => setSelectedCategoryFilter('all')}
+                      onAddExpense={onOpenNewTransactionModal}
+                    />
+                  </Suspense>
+                }
               />
             )}
 
@@ -1003,6 +1008,7 @@ export const FinanceView = memo(function FinanceView({
                 cards={cards}
                 transactions={transactions}
                 currency={currency}
+                fxRates={fxRates}
                 selectedCardFilter={selectedCardFilter}
                 onSelectCardFilter={(cardId) => {
                   setSelectedCardFilter(cardId);
@@ -1045,6 +1051,16 @@ export const FinanceView = memo(function FinanceView({
                 budgetForecast={selectedCycleForecast}
                 onSaveBudget={onSaveBudget}
                 onDeleteBudget={onDeleteBudget}
+                customCategories={customCategories}
+                onAddCustomCategory={onAddCustomCategory}
+                onDeleteCustomCategory={onDeleteCustomCategory}
+                onAddPendingTransaction={(tx) =>
+                  onAddTransaction({
+                    ...tx,
+                    cardId: defaultCardId,
+                  })
+                }
+                onAskAssistant={onOpenAssistant}
               />
             )}
 
@@ -1066,7 +1082,12 @@ export const FinanceView = memo(function FinanceView({
                 onSkipBillSlot={onSkipBillSlot}
                 currentHHMM={currentHHMM}
                 monthTransactions={monthTransactions}
-                onAddTransaction={onAddTransaction}
+                onAddTransaction={(tx) =>
+                  onAddTransaction({
+                    ...tx,
+                    cardId: tx.cardId ?? defaultCardId,
+                  })
+                }
                 billSuggestions={billSuggestions}
                 prefillSuggestion={prefillBillSuggestion}
                 onConsumePrefillSuggestion={() => setPrefillBillSuggestion(null)}
@@ -1112,6 +1133,7 @@ export const FinanceView = memo(function FinanceView({
                 budgets={budgets}
                 cycleMetrics={cycleMetrics}
                 openingBalance={openingBalance}
+                cardsInitialBalance={cardsInitialBalance}
                 totalIncome={totalIncome}
                 totalExpense={totalExpense}
                 netSavings={netSavings}
@@ -1142,7 +1164,17 @@ export const FinanceView = memo(function FinanceView({
                 incomeKindSummary={incomeKindSummary}
                 expenseByCategory={expenseByCategory}
                 onNotify={onNotify}
-                onSelectCategoryFilter={() => onSelectPage('ledger')}
+                onSelectCategoryFilter={(category) => {
+                  setSelectedCategoryFilter(category);
+                  onSelectPage('ledger');
+                }}
+                onSelectTagFilter={(tag) => {
+                  setSelectedTagFilter(tag);
+                  onSelectPage('ledger');
+                }}
+                customCategories={customCategories}
+                fxRates={fxRates}
+                netWorthSummary={netWorthSummary}
                 onExportJSON={onExportJSON}
                 onRequestImportJSON={() => fileInputRef.current?.click()}
               />
@@ -1156,6 +1188,7 @@ export const FinanceView = memo(function FinanceView({
           cards={cards}
           transactions={transactions}
           currency={currency}
+          fxRates={fxRates}
           initialFromCardId={transferModalState.fromCardId}
           onClose={() => setTransferModalState(null)}
           onTransfer={onTransferBetweenCards}

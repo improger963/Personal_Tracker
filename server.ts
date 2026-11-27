@@ -80,8 +80,25 @@ const VALID_ASSISTANT_ROUTES = new Set([
   'focus',
   'notes',
 ]);
-const VALID_ACTION_KINDS = new Set(['add_transaction', 'add_task', 'add_note', 'navigate']);
+const VALID_ACTION_KINDS = new Set([
+  'add_transaction',
+  'add_task',
+  'add_note',
+  'add_habit',
+  'add_goal',
+  'add_debt',
+  'add_bill',
+  'set_budget',
+  'navigate',
+]);
 const VALID_PARSE_KINDS = new Set(['transaction', 'task', 'note']);
+const VALID_AUDIO_MIMES = new Set([
+  'audio/webm',
+  'audio/mp4',
+  'audio/ogg',
+  'audio/wav',
+  'audio/mpeg',
+]);
 
 interface TTSRequestBody {
   text?: unknown;
@@ -89,8 +106,65 @@ interface TTSRequestBody {
   urgent?: unknown;
 }
 
-const ttsAudioCache = new Map<string, string>();
+interface TTSAudioCacheEntry {
+  audioBase64: string;
+  createdAt: number;
+}
+
+const ttsAudioCache = new Map<string, TTSAudioCacheEntry>();
 const TTS_CACHE_MAX = 40;
+const TTS_CACHE_TTL_MS = 60 * 60 * 1000;
+
+interface RateLimitBucket {
+  timestamps: number[];
+}
+
+function createSlidingWindowLimiter(options: {
+  maxRequests: number;
+  windowMs: number;
+}) {
+  const buckets = new Map<string, RateLimitBucket>();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const cutoff = now - options.windowMs;
+    const rawIp = req.ip || req.socket.remoteAddress || 'unknown';
+    const key = sanitizeText(rawIp, 64) || 'unknown';
+
+    if (buckets.size > 1000) {
+      for (const [k, b] of buckets.entries()) {
+        b.timestamps = b.timestamps.filter((t) => t > cutoff);
+        if (b.timestamps.length === 0) buckets.delete(k);
+      }
+    }
+
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { timestamps: [] };
+      buckets.set(key, bucket);
+    }
+    bucket.timestamps = bucket.timestamps.filter((t) => t > cutoff);
+
+    if (bucket.timestamps.length >= options.maxRequests) {
+      return res.status(429).json({
+        error: 'Շատ հարցումներ կատարվեցին․ խնդրում ենք սպասել մի քանի վայրկյան։',
+      });
+    }
+
+    bucket.timestamps.push(now);
+    return next();
+  };
+}
+
+interface FxRatesPayload {
+  base: 'AMD';
+  rates: Record<'USD' | 'EUR' | 'RUB' | 'GEL', number>;
+  updatedAt: string;
+  cached?: boolean;
+}
+
+let fxRatesCache: { payload: FxRatesPayload; fetchedAt: number } | null = null;
+const FX_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 function sanitizeText(value: unknown, maxLen: number): string {
   if (typeof value !== 'string') return '';
@@ -158,6 +232,156 @@ function createGeminiClient(apiKey: string): GoogleGenAI {
   });
 }
 
+function extractCustomCategoriesFromContext(
+  rawCtx: Record<string, unknown>
+): { expenseCats: string[]; incomeCats: string[] } {
+  const extraExp = Array.isArray(rawCtx.customExpenseCategories)
+    ? rawCtx.customExpenseCategories
+        .map((c) => sanitizeText(c, 40))
+        .filter(Boolean)
+        .slice(0, 30)
+    : [];
+  const extraInc = Array.isArray(rawCtx.customIncomeCategories)
+    ? rawCtx.customIncomeCategories
+        .map((c) => sanitizeText(c, 40))
+        .filter(Boolean)
+        .slice(0, 30)
+    : [];
+
+  return {
+    expenseCats: Array.from(new Set([...EXPENSE_CATEGORY_LIST, ...extraExp])),
+    incomeCats: Array.from(new Set([...INCOME_CATEGORY_LIST, ...extraInc])),
+  };
+}
+
+function sanitizeAssistantActions(
+  rawActions: Array<Record<string, unknown>>,
+  expenseCats: string[],
+  incomeCats: string[]
+) {
+  return rawActions
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const kind =
+        typeof item.kind === 'string' && VALID_ACTION_KINDS.has(item.kind)
+          ? item.kind
+          : null;
+      const label = sanitizeText(item.label, 80);
+      if (!kind || !label) return null;
+
+      if (kind === 'navigate') {
+        const route =
+          typeof item.route === 'string' && VALID_ASSISTANT_ROUTES.has(item.route)
+            ? item.route
+            : null;
+        if (!route) return null;
+        return { kind, label, route };
+      }
+
+      if (kind === 'add_transaction') {
+        const txType = item.txType === 'income' ? 'income' : 'expense';
+        const amount = toSafeNumber(item.amount, 0);
+        if (amount <= 0) return null;
+        const validCats = txType === 'income' ? incomeCats : expenseCats;
+        const rawCat = sanitizeText(item.category, 40);
+        const category = validCats.includes(rawCat) ? rawCat : 'Այլ';
+        return {
+          kind,
+          label,
+          txType,
+          amount,
+          title: sanitizeText(item.title, 120) || label,
+          category,
+        };
+      }
+
+      if (kind === 'add_task') {
+        return {
+          kind,
+          label,
+          title: sanitizeText(item.title, 140) || label,
+          priority:
+            item.priority === 'high' || item.priority === 'low'
+              ? item.priority
+              : 'medium',
+          dueTime: normalizeTimeHHMM(item.dueTime),
+        };
+      }
+
+      if (kind === 'add_habit') {
+        const title = sanitizeText(item.title, 100) || label;
+        return { kind, label, title };
+      }
+
+      if (kind === 'add_goal') {
+        const targetAmount = toSafeNumber(item.targetAmount ?? item.amount, 0);
+        if (targetAmount <= 0) return null;
+        return {
+          kind,
+          label,
+          title: sanitizeText(item.title, 100) || label,
+          targetAmount,
+        };
+      }
+
+      if (kind === 'add_debt') {
+        const amount = toSafeNumber(item.amount, 0);
+        const person = sanitizeText(item.person || item.title, 80);
+        if (amount <= 0 || !person) return null;
+        return {
+          kind,
+          label,
+          person,
+          amount,
+          direction: item.direction === 'owed_to_me' ? 'owed_to_me' : 'i_owe',
+          title: sanitizeText(item.title, 100) || undefined,
+        };
+      }
+
+      if (kind === 'add_bill') {
+        const amount = toSafeNumber(item.amount, 0);
+        if (amount <= 0) return null;
+        const rawCat = sanitizeText(item.category, 40);
+        const category = expenseCats.includes(rawCat) ? rawCat : 'Կոմունալ';
+        const frequency = item.frequency === 'daily' ? 'daily' : 'monthly';
+        const rawDay = toSafeNumber(item.dayOfMonth, 10);
+        const dayOfMonth = Math.min(31, Math.max(1, rawDay || 10));
+        return {
+          kind,
+          label,
+          title: sanitizeText(item.title, 100) || label,
+          amount,
+          category,
+          frequency,
+          dayOfMonth,
+        };
+      }
+
+      if (kind === 'set_budget') {
+        const limit = toSafeNumber(item.limit ?? item.amount, 0);
+        const rawCat = sanitizeText(item.category, 40);
+        if (limit <= 0 || !expenseCats.includes(rawCat)) {
+          return null;
+        }
+        return {
+          kind,
+          label,
+          category: rawCat,
+          limit,
+        };
+      }
+
+      return {
+        kind,
+        label,
+        title: sanitizeText(item.title, 120) || label,
+        content: sanitizeMultilineText(item.content, 1000) || label,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+    .slice(0, 5);
+}
+
 async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
@@ -172,6 +396,21 @@ async function startServer() {
   });
 
   app.use(express.json({ limit: '6mb' }));
+
+  const generalAiLimiter = createSlidingWindowLimiter({
+    maxRequests: 30,
+    windowMs: 60_000,
+  });
+  const heavyAiLimiter = createSlidingWindowLimiter({
+    maxRequests: 15,
+    windowMs: 60_000,
+  });
+
+  app.use('/api/smart/scan-receipt', heavyAiLimiter);
+  app.use('/api/smart/transcribe-audio', heavyAiLimiter);
+  app.use('/api/notifications/tts', heavyAiLimiter);
+  app.use('/api/smart', generalAiLimiter);
+  app.use('/api/finance', generalAiLimiter);
 
   app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
@@ -217,7 +456,8 @@ async function startServer() {
       body.context && typeof body.context === 'object'
         ? (body.context as Record<string, unknown>)
         : {};
-    const contextJson = JSON.stringify(rawCtx).slice(0, 6500);
+    const { expenseCats, incomeCats } = extractCustomCategoriesFromContext(rawCtx);
+    const contextJson = JSON.stringify(rawCtx).slice(0, 12000);
 
     try {
       const ai = createGeminiClient(apiKey);
@@ -242,9 +482,20 @@ async function startServer() {
         config: {
           systemInstruction: `Դու «Անձնական Օգնական» հավելվածի խելացի անձնական ֆինանսական և օրակարգային օգնականն ես։
 - Պատասխանիր այն լեզվով, որով դիմել է օգտատերը (հիմնականում հայերեն, կամ ռուսերեն/անգլերեն, եթե հարցը այդ լեզվով է)։
-- Հիմնվիր բացառապես տրամադրված իրական JSON տվյալների վրա (բալանս, եկամուտ, ծախս, բյուջեի կանխատեսում, անելիքներ, սովորություններ, նպատակներ, պարտքեր)։ Մի հորինիր թվեր։
+- Հիմնվիր բացառապես տրամադրված իրական JSON տվյալների վրա (բալանս, նախորդ ցիկլի համեմատություն, վերջին գործարքներ, առաջիկա պարտադիր վճարներ, բյուջեի կանխատեսում, անելիքներ, օրվա գլխավոր նպատակ, սովորություններ, նշումներ, նպատակներ, պարտքեր)։ Մի հորինիր թվեր։
+- Եթե հարցը վերաբերում է գնում կամ ծախս թույլ տալուն («կարո՞ղ եմ թույլ տալ...»), հաշվի առ ազատ մնացորդը (realBalance), օրական սահմանաչափը (dailyAllowance), մնացած օրերը և առաջիկա վճարները։
 - Պատասխանը պահիր հստակ, գործնական և կարճ (3-6 նախադասություն կամ հստակ կետեր)։
-- Եթե օգտատիրոջ հարցից բխում է կոնկրետ գործողություն (գրանցել գործարք, ավելացնել անելիք, ստեղծել նշում, կամ բացել համապատասխան էջը՝ 'budgets', 'analytics', 'bills', 'goals', 'debts', 'tasks', 'habits', 'focus', 'notes'), վերադարձրու նաև suggestedActions զանգվածը (առավելագույնը 3 գործողություն)։`,
+- Եթե օգտատիրոջ հարցից բխում է կոնկրետ գործողություն, վերադարձրու նաև suggestedActions զանգվածը (առավելագույնը 5 գործողություն) հետևյալ տեսակներից՝
+  * add_transaction (գործարք՝ txType, amount, title, category)
+  * add_task (անելիք՝ title, priority, dueTime)
+  * add_note (նշում՝ title, content)
+  * add_habit (նոր սովորություն՝ title)
+  * add_goal (խնայողական նպատակ՝ title, targetAmount)
+  * add_debt (պարտք՝ person, amount, direction='owed_to_me'|'i_owe', title)
+  * add_bill (կրկնվող վճար՝ title, amount, category, frequency='monthly'|'daily', dayOfMonth)
+  * set_budget (ամսական բյուջե՝ category, limit)
+  * navigate (բացել էջ՝ route: 'budgets'|'analytics'|'bills'|'goals'|'debts'|'ledger'|'cards'|'tasks'|'habits'|'focus'|'notes')
+- Թույլատրելի ծախսի կատեգորիաներ՝ ${expenseCats.join(', ')}։ Թույլատրելի եկամտի կատեգորիաներ՝ ${incomeCats.join(', ')}։`,
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -262,7 +513,7 @@ async function startServer() {
                     kind: {
                       type: Type.STRING,
                       description:
-                        'One of: add_transaction, add_task, add_note, navigate',
+                        'One of: add_transaction, add_task, add_note, add_habit, add_goal, add_debt, add_bill, set_budget, navigate',
                     },
                     label: {
                       type: Type.STRING,
@@ -270,11 +521,17 @@ async function startServer() {
                     },
                     txType: { type: Type.STRING },
                     amount: { type: Type.NUMBER },
+                    targetAmount: { type: Type.NUMBER },
+                    limit: { type: Type.NUMBER },
                     title: { type: Type.STRING },
                     category: { type: Type.STRING },
                     priority: { type: Type.STRING },
                     dueTime: { type: Type.STRING },
                     content: { type: Type.STRING },
+                    person: { type: Type.STRING },
+                    direction: { type: Type.STRING },
+                    frequency: { type: Type.STRING },
+                    dayOfMonth: { type: Type.NUMBER },
                     route: {
                       type: Type.STRING,
                       description:
@@ -305,65 +562,7 @@ async function startServer() {
       const rawActions = Array.isArray(parsed.suggestedActions)
         ? parsed.suggestedActions
         : [];
-      const actions = rawActions
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null;
-          const kind = typeof item.kind === 'string' && VALID_ACTION_KINDS.has(item.kind)
-            ? item.kind
-            : null;
-          const label = sanitizeText(item.label, 80);
-          if (!kind || !label) return null;
-
-          if (kind === 'navigate') {
-            const route = typeof item.route === 'string' && VALID_ASSISTANT_ROUTES.has(item.route)
-              ? item.route
-              : null;
-            if (!route) return null;
-            return { kind, label, route };
-          }
-
-          if (kind === 'add_transaction') {
-            const txType = item.txType === 'income' ? 'income' : 'expense';
-            const amount = toSafeNumber(item.amount, 0);
-            if (amount <= 0) return null;
-            const validCats =
-              txType === 'income'
-                ? (INCOME_CATEGORY_LIST as readonly string[])
-                : (EXPENSE_CATEGORY_LIST as readonly string[]);
-            const rawCat = sanitizeText(item.category, 40);
-            const category = validCats.includes(rawCat) ? rawCat : 'Այլ';
-            return {
-              kind,
-              label,
-              txType,
-              amount,
-              title: sanitizeText(item.title, 120) || label,
-              category,
-            };
-          }
-
-          if (kind === 'add_task') {
-            return {
-              kind,
-              label,
-              title: sanitizeText(item.title, 140) || label,
-              priority:
-                item.priority === 'high' || item.priority === 'low'
-                  ? item.priority
-                  : 'medium',
-              dueTime: normalizeTimeHHMM(item.dueTime),
-            };
-          }
-
-          return {
-            kind,
-            label,
-            title: sanitizeText(item.title, 120) || label,
-            content: sanitizeMultilineText(item.content, 1000) || label,
-          };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null)
-        .slice(0, 3);
+      const actions = sanitizeAssistantActions(rawActions, expenseCats, incomeCats);
 
       return res.json({
         reply: safeReply,
@@ -374,6 +573,181 @@ async function startServer() {
       return res.status(502).json({
         error: 'Խելացի օգնականը ժամանակավորապես անհասանելի է։ Փորձեք կրկին։',
       });
+    }
+  });
+
+  app.post('/api/smart/assistant-stream', async (req: Request, res: Response) => {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error:
+          'GEMINI_API_KEY-ն կարգավորված չէ սերվերում։ Ավելացրեք այն Settings > Secrets բաժնում՝ խելացի օգնականից օգտվելու համար։',
+      });
+    }
+
+    const body = (req.body ?? {}) as {
+      message?: unknown;
+      history?: unknown;
+      context?: unknown;
+    };
+    const userMessage = sanitizeMultilineText(body.message, 1500);
+    if (!userMessage) {
+      return res.status(400).json({ error: 'Հարցման տեքստը դատարկ է։' });
+    }
+
+    const rawHistory = Array.isArray(body.history) ? body.history.slice(-8) : [];
+    const historyTurns = rawHistory
+      .map((turn): { role: 'user' | 'model'; text: string } | null => {
+        if (!turn || typeof turn !== 'object') return null;
+        const obj = turn as Record<string, unknown>;
+        const role = obj.role === 'model' ? 'model' : obj.role === 'user' ? 'user' : null;
+        const text = sanitizeMultilineText(obj.text, 1200);
+        if (!role || !text) return null;
+        return { role, text };
+      })
+      .filter((x): x is { role: 'user' | 'model'; text: string } => x !== null);
+
+    const rawCtx =
+      body.context && typeof body.context === 'object'
+        ? (body.context as Record<string, unknown>)
+        : {};
+    const { expenseCats, incomeCats } = extractCustomCategoriesFromContext(rawCtx);
+    const contextJson = JSON.stringify(rawCtx).slice(0, 12000);
+
+    let aborted = false;
+    req.on('close', () => {
+      aborted = true;
+    });
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: unknown) => {
+      if (aborted || res.writableEnded) return;
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      const ai = createGeminiClient(apiKey);
+      const contents = [
+        ...historyTurns.map((t) => ({
+          role: t.role,
+          parts: [{ text: t.text }],
+        })),
+        {
+          role: 'user' as const,
+          parts: [
+            {
+              text: `Օգտատիրոջ ընթացիկ տվյալների ամփոփում (JSON):\n${contextJson}\n\nՕգտատիրոջ հարցը՝\n${userMessage}`,
+            },
+          ],
+        },
+      ];
+
+      const stream = await ai.models.generateContentStream({
+        model: 'gemini-4-hydrogen',
+        contents,
+        config: {
+          systemInstruction: `Դու «Անձնական Օգնական» հավելվածի խելացի անձնական ֆինանսական և օրակարգային օգնականն ես։
+- Պատասխանիր այն լեզվով, որով դիմել է օգտատերը (հիմնականում հայերեն, կամ ռուսերեն/անգլերեն, եթե հարցը այդ լեզվով է)։
+- Հիմնվիր բացառապես տրամադրված իրական JSON տվյալների վրա (բալանս, նախորդ ցիկլի համեմատություն, վերջին գործարքներ, առաջիկա պարտադիր վճարներ, բյուջեի կանխատեսում, անելիքներ, օրվա գլխավոր նպատակ, սովորություններ, նշումներ, նպատակներ, պարտքեր)։ Մի հորինիր թվեր։
+- Եթե հարցը վերաբերում է գնում կամ ծախս թույլ տալուն («կարո՞ղ եմ թույլ տալ...»), հաշվի առ ազատ մնացորդը (realBalance), օրական սահմանաչափը (dailyAllowance), մնացած օրերը և առաջիկա վճարները։
+- Պատասխանը պահիր հստակ, գործնական և կարճ (3-6 նախադասություն կամ հստակ կետեր)։ Վերադարձրու միայն մաքուր ընթերցելի տեքստ՝ առանց JSON կոդի։`,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      });
+
+      let fullReply = '';
+      for await (const chunk of stream) {
+        if (aborted) break;
+        const deltaText = chunk.text ?? '';
+        if (deltaText) {
+          fullReply += deltaText;
+          writeEvent('delta', { text: deltaText });
+        }
+      }
+
+      if (!aborted && fullReply.trim()) {
+        try {
+          const actionsRes = await ai.models.generateContent({
+            model: 'gemini-4-hydrogen',
+            contents: `Օգտատիրոջ հարցը՝ "${userMessage}"
+Օգնականի պատասխանը՝ "${fullReply.slice(0, 2000)}"
+Եթե պատասխանից կամ հարցից բխում են կոնկրետ 1-5 գործողություններ, արդյունահանիր suggestedActions ցանկը (այլապես՝ դատարկ զանգված)։
+Թույլատրելի ծախսի կատեգորիաներ՝ ${expenseCats.join(', ')}։ Թույլատրելի եկամտի կատեգորիաներ՝ ${incomeCats.join(', ')}։`,
+            config: {
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  suggestedActions: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        kind: {
+                          type: Type.STRING,
+                          description:
+                            'One of: add_transaction, add_task, add_note, add_habit, add_goal, add_debt, add_bill, set_budget, navigate',
+                        },
+                        label: { type: Type.STRING },
+                        txType: { type: Type.STRING },
+                        amount: { type: Type.NUMBER },
+                        targetAmount: { type: Type.NUMBER },
+                        limit: { type: Type.NUMBER },
+                        title: { type: Type.STRING },
+                        category: { type: Type.STRING },
+                        priority: { type: Type.STRING },
+                        dueTime: { type: Type.STRING },
+                        content: { type: Type.STRING },
+                        person: { type: Type.STRING },
+                        direction: { type: Type.STRING },
+                        frequency: { type: Type.STRING },
+                        dayOfMonth: { type: Type.NUMBER },
+                        route: { type: Type.STRING },
+                      },
+                      required: ['kind', 'label'],
+                    },
+                  },
+                },
+                required: ['suggestedActions'],
+              },
+            },
+          });
+
+          const parsedActions = safeParseModelJson<{
+            suggestedActions?: Array<Record<string, unknown>>;
+          }>(actionsRes.text);
+          const actions = sanitizeAssistantActions(
+            Array.isArray(parsedActions.suggestedActions)
+              ? parsedActions.suggestedActions
+              : [],
+            expenseCats,
+            incomeCats
+          );
+          if (actions.length > 0) {
+            writeEvent('actions', { suggestedActions: actions });
+          }
+        } catch (actionErr) {
+          console.warn('Stream actions extraction skipped:', actionErr);
+        }
+      }
+
+      if (!aborted) {
+        writeEvent('done', {});
+        res.end();
+      }
+    } catch (error) {
+      console.error('Smart assistant stream error:', error);
+      if (!aborted) {
+        writeEvent('error', {
+          error: 'Խելացի օգնականը ժամանակավորապես անհասանելի է։ Փորձեք կրկին։',
+        });
+        res.end();
+      }
     }
   });
 
@@ -586,7 +960,8 @@ async function startServer() {
 - խանութի կամ ծառայության հակիրճ անվանումը հայերեն կամ բնօրինակ անվամբ
 - ամսաթիվը (YYYY-MM-DD, եթե կտրոնում չի երևում՝ ${todayISO})
 - ամենահամապատասխան կատեգորիան այս ցանկից՝ ${EXPENSE_CATEGORY_LIST.join(', ')}
-- հակիրճ ապրանքների ամփոփում (մինչև 100 նիշ)։`,
+- հակիրճ ապրանքների ամփոփում (մինչև 100 նիշ)
+- առանձին ապրանքների կամ տողերի ցուցակը (items, մինչև 15 տող, օր. «Կաթ 1լ — 650 ֏»)։`,
             },
           ],
         },
@@ -601,6 +976,10 @@ async function startServer() {
               category: { type: Type.STRING },
               date: { type: Type.STRING },
               itemsSummary: { type: Type.STRING },
+              items: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
             },
             required: ['amount', 'title', 'category', 'date'],
           },
@@ -613,6 +992,7 @@ async function startServer() {
         category?: string;
         date?: string;
         itemsSummary?: string;
+        items?: unknown[];
       }>(response.text);
 
       const safeAmount =
@@ -625,6 +1005,12 @@ async function startServer() {
         ? parsed.category!
         : 'Այլ';
       const safeDate = normalizeIsoDate(parsed.date, todayISO);
+      const safeItems = Array.isArray(parsed.items)
+        ? parsed.items
+            .map((line) => sanitizeText(line, 100))
+            .filter(Boolean)
+            .slice(0, 15)
+        : [];
 
       return res.json({
         amount: safeAmount,
@@ -632,6 +1018,7 @@ async function startServer() {
         category: safeCategory,
         date: safeDate,
         itemsSummary: sanitizeText(parsed.itemsSummary, 140),
+        items: safeItems,
       });
     } catch (error) {
       console.error('Receipt scan error:', error);
@@ -714,6 +1101,262 @@ async function startServer() {
       console.error('Task breakdown error:', error);
       return res.status(502).json({
         error: 'Չհաջողվեց ստեղծել քայլերի պլանը։',
+      });
+    }
+  });
+
+  app.post('/api/smart/transcribe-audio', async (req: Request, res: Response) => {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY-ն կարգավորված չէ սերվերում։',
+      });
+    }
+
+    const body = (req.body ?? {}) as {
+      audioBase64?: unknown;
+      mimeType?: unknown;
+    };
+
+    const rawMime =
+      typeof body.mimeType === 'string'
+        ? body.mimeType.split(';')[0].trim().toLowerCase()
+        : '';
+    const mimeType = VALID_AUDIO_MIMES.has(rawMime) ? rawMime : '';
+    const rawBase64 =
+      typeof body.audioBase64 === 'string'
+        ? body.audioBase64
+            .trim()
+            .replace(/^data:audio\/[a-zA-Z0-9+.-]+;base64,/, '')
+            .replace(/\s+/g, '')
+        : '';
+
+    if (
+      !mimeType ||
+      !rawBase64 ||
+      rawBase64.length > 5_500_000 ||
+      !/^[A-Za-z0-9+/=]+$/.test(rawBase64)
+    ) {
+      return res.status(400).json({
+        error: 'Անվավեր կամ չափազանց երկար ձայնագրություն։',
+      });
+    }
+
+    try {
+      const ai = createGeminiClient(apiKey);
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-transcribe',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: 'Ճշգրիտ գրի առ այս ձայնագրության խոսքը (հայերեն, ռուսերեն կամ անգլերեն՝ ինչպես արտաբերված է)։ Գումարներն ու ժամերը գրիր թվերով (օրինակ՝ 4500 դրամ, 18:30)։ Վերադարձրու միայն մաքուր տեքստը՝ առանց ներածության կամ մեկնաբանությունների։',
+              },
+              {
+                inlineData: {
+                  mimeType,
+                  data: rawBase64,
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const transcribed = sanitizeMultilineText(response.text, 1000);
+      if (!transcribed) {
+        return res.status(502).json({
+          error: 'Ձայնագրությունում խոսք չհայտնաբերվեց։ Փորձեք ավելի հստակ խոսել։',
+        });
+      }
+
+      return res.json({ text: transcribed });
+    } catch (error) {
+      console.error('Audio transcription error:', error);
+      return res.status(502).json({
+        error: 'Չհաջողվեց տեքստավորել ձայնագրությունը։',
+      });
+    }
+  });
+
+  app.post('/api/smart/plan-day', async (req: Request, res: Response) => {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) {
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY-ն կարգավորված չէ սերվերում։',
+      });
+    }
+
+    const body = (req.body ?? {}) as {
+      todayISO?: unknown;
+      currentHHMM?: unknown;
+      focusGoal?: unknown;
+      tasks?: unknown;
+    };
+
+    const todayISO = normalizeIsoDate(body.todayISO);
+    const currentHHMM = normalizeTimeHHMM(body.currentHHMM) || '09:00';
+    const focusGoal = sanitizeText(body.focusGoal, 160);
+    const rawTasks = Array.isArray(body.tasks) ? body.tasks.slice(0, 25) : [];
+    const cleanTasks = rawTasks
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const obj = item as Record<string, unknown>;
+        const id = sanitizeText(obj.id, 80);
+        const title = sanitizeText(obj.title, 140);
+        if (!id || !title) return null;
+        return {
+          id,
+          title,
+          priority:
+            obj.priority === 'high' || obj.priority === 'low' ? obj.priority : 'medium',
+          dueTime: normalizeTimeHHMM(obj.dueTime),
+          isOverdue: Boolean(obj.isOverdue),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+
+    if (cleanTasks.length === 0) {
+      return res.status(400).json({ error: 'Պլանավորման համար ակտիվ անելիքներ չկան։' });
+    }
+
+    const validIds = new Set(cleanTasks.map((t) => t.id));
+
+    try {
+      const ai = createGeminiClient(apiKey);
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: `Այսօրվա ամսաթիվն է ${todayISO}, ընթացիկ ժամը՝ ${currentHHMM}։
+Օրվա գլխավոր նպատակը՝ ${focusGoal || 'նշված չէ'}։
+Ակտիվ անելիքները (JSON)՝
+${JSON.stringify(cleanTasks)}
+
+Կազմիր իրատեսական օրվա ժամանակացույց՝
+1. Որոշիր յուրաքանչյուր անելիքի համար օպտիմալ ժամ (dueTime HH:MM ֆորմատով, առանց ժամերի համընկնման, ընթացիկ ժամից՝ ${currentHHMM} հետո կամ հաջորդ աշխատանքային բլոկներում մինչև 22:00) և խորհուրդ տրվող առաջնահերթություն (high/medium/low)։ Առաջնահերթություն տուր ժամկետանց և կարևոր գործերին ու օրվա գլխավոր նպատակին։
+2. Ավելացրու 1-2 նախադասությամբ հակիրճ ռազմավարական խորհուրդ հայերենով (strategyTip)։`,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              strategyTip: { type: Type.STRING },
+              allocations: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    taskId: { type: Type.STRING },
+                    dueTime: { type: Type.STRING },
+                    priority: { type: Type.STRING },
+                  },
+                  required: ['taskId', 'dueTime', 'priority'],
+                },
+              },
+            },
+            required: ['strategyTip', 'allocations'],
+          },
+        },
+      });
+
+      const parsed = safeParseModelJson<{
+        strategyTip?: string;
+        allocations?: Array<{ taskId?: string; dueTime?: string; priority?: string }>;
+      }>(response.text);
+
+      const seenIds = new Set<string>();
+      const allocations = Array.isArray(parsed.allocations)
+        ? parsed.allocations
+            .map((a) => {
+              const taskId = sanitizeText(a.taskId, 80);
+              const dueTime = normalizeTimeHHMM(a.dueTime);
+              if (!taskId || !dueTime || !validIds.has(taskId) || seenIds.has(taskId)) {
+                return null;
+              }
+              seenIds.add(taskId);
+              return {
+                taskId,
+                dueTime,
+                priority:
+                  a.priority === 'high' || a.priority === 'low' ? a.priority : 'medium',
+              };
+            })
+            .filter((x): x is NonNullable<typeof x> => x !== null)
+        : [];
+
+      if (allocations.length === 0) {
+        return res.status(502).json({
+          error: 'Չհաջողվեց կազմել օրվա ժամանակացույցը։',
+        });
+      }
+
+      return res.json({
+        strategyTip:
+          sanitizeText(parsed.strategyTip, 320) ||
+          'Առաջնահերթ դրված են ժամկետանց և բարձր կարևորության անելիքները։',
+        allocations,
+      });
+    } catch (error) {
+      console.error('Plan day error:', error);
+      return res.status(502).json({
+        error: 'Չհաջողվեց կազմել օրվա պլանը AI-ով։',
+      });
+    }
+  });
+
+  app.get('/api/finance/fx-rates', async (_req: Request, res: Response) => {
+    const now = Date.now();
+    if (fxRatesCache && now - fxRatesCache.fetchedAt < FX_CACHE_TTL_MS) {
+      return res.json({ ...fxRatesCache.payload, cached: true });
+    }
+
+    try {
+      const upstream = await fetch('https://open.er-api.com/v6/latest/AMD', {
+        signal: AbortSignal.timeout(7000),
+      });
+      if (!upstream.ok) {
+        throw new Error(`FX upstream HTTP ${upstream.status}`);
+      }
+      const data = (await upstream.json()) as {
+        result?: string;
+        time_last_update_utc?: string;
+        rates?: Record<string, number>;
+      };
+      const rawRates = data.rates ?? {};
+      const invert = (code: string): number => {
+        const perAmd = rawRates[code];
+        if (typeof perAmd !== 'number' || !Number.isFinite(perAmd) || perAmd <= 0) {
+          return 0;
+        }
+        return Math.round((1 / perAmd) * 100) / 100;
+      };
+
+      const rates: Record<'USD' | 'EUR' | 'RUB' | 'GEL', number> = {
+        USD: invert('USD'),
+        EUR: invert('EUR'),
+        RUB: invert('RUB'),
+        GEL: invert('GEL'),
+      };
+
+      if (rates.USD <= 0 && rates.EUR <= 0) {
+        throw new Error('FX rates missing');
+      }
+
+      const payload: FxRatesPayload = {
+        base: 'AMD',
+        rates,
+        updatedAt: data.time_last_update_utc || new Date().toISOString(),
+      };
+      fxRatesCache = { payload, fetchedAt: now };
+      return res.json({ ...payload, cached: false });
+    } catch (error) {
+      console.error('FX rates fetch error:', error);
+      if (fxRatesCache) {
+        return res.json({ ...fxRatesCache.payload, cached: true });
+      }
+      return res.status(502).json({
+        error: 'Արտարժույթի փոխարժեքները ժամանակավորապես անհասանելի են։ Կարող եք մուտքագրել փոխարժեքը ձեռքով։',
       });
     }
   });
@@ -893,7 +1536,7 @@ ${topExpensesSummary}
     }
 
     const body = (req.body ?? {}) as TTSRequestBody;
-    const text = sanitizeText(body.text, 320);
+    const text = sanitizeText(body.text, 600);
     if (!text) {
       return res.status(400).json({ error: 'Ձայնային տեքստը դատարկ է։' });
     }
@@ -908,12 +1551,19 @@ ${topExpensesSummary}
       : 'Warm, clear, calm personal assistant delivering a helpful reminder in Armenian.';
 
     const cacheKey = `${requestedVoice}:${urgent ? '1' : '0'}:${text}`;
+    const now = Date.now();
+    // Evict expired cache entries before lookup
+    for (const [k, entry] of ttsAudioCache.entries()) {
+      if (now - entry.createdAt >= TTS_CACHE_TTL_MS) {
+        ttsAudioCache.delete(k);
+      }
+    }
     const cached = ttsAudioCache.get(cacheKey);
-    if (cached) {
+    if (cached && now - cached.createdAt < TTS_CACHE_TTL_MS) {
       ttsAudioCache.delete(cacheKey);
       ttsAudioCache.set(cacheKey, cached);
       return res.json({
-        audioBase64: cached,
+        audioBase64: cached.audioBase64,
         mimeType: 'audio/wav',
         voiceName: requestedVoice,
         cached: true,
@@ -962,7 +1612,7 @@ ${topExpensesSummary}
         const oldestKey = ttsAudioCache.keys().next().value;
         if (oldestKey) ttsAudioCache.delete(oldestKey);
       }
-      ttsAudioCache.set(cacheKey, base64Audio);
+      ttsAudioCache.set(cacheKey, { audioBase64: base64Audio, createdAt: Date.now() });
 
       return res.json({
         audioBase64: base64Audio,
