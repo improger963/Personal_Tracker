@@ -59,6 +59,8 @@ export interface MonthlySummaryStats {
   savingsPct: number | null;
   incomeCount: number;
   expenseCount: number;
+  pendingExpenseCount: number;
+  pendingExpenseTotal: number;
   incomeByKind: IncomeKindStat[];
   incomeByCategory: CategoryStat[];
   expenseByCategory: CategoryStat[];
@@ -94,9 +96,11 @@ export function buildMonthlySummaryStats(
 
   const incomeTxs = monthTxs.filter((t) => t.type === 'income');
   const expenseTxs = monthTxs.filter((t) => t.type === 'expense' && !t.isPending);
+  const pendingExpenseTxs = monthTxs.filter((t) => t.type === 'expense' && t.isPending);
 
   const totalIncome = incomeTxs.reduce((s, t) => s + t.amount, 0);
   const totalExpense = expenseTxs.reduce((s, t) => s + t.amount, 0);
+  const pendingExpenseTotal = pendingExpenseTxs.reduce((s, t) => s + t.amount, 0);
   const netSavings = totalIncome - totalExpense;
   const realBalance = openingBalance + netSavings;
   const savingsPct =
@@ -198,6 +202,8 @@ export function buildMonthlySummaryStats(
     savingsPct,
     incomeCount: incomeTxs.length,
     expenseCount: expenseTxs.length,
+    pendingExpenseCount: pendingExpenseTxs.length,
+    pendingExpenseTotal,
     incomeByKind,
     incomeByCategory,
     expenseByCategory,
@@ -223,6 +229,11 @@ export function generateMonthlySummaryText(stats: MonthlySummaryStats): string {
     `   • Նախորդ մնացորդ (ցիկլի սկիզբ)՝ ${stats.openingBalance > 0 ? '+' : ''}${formatMoney(stats.openingBalance, currency)}`,
     `   • Ընդհանուր եկամուտ (${stats.incomeCount} մուտք)՝ +${formatMoney(stats.totalIncome, currency)}`,
     `   • Ընդհանուր ծախս (${stats.expenseCount} ելք)՝ -${formatMoney(stats.totalExpense, currency)}`,
+    ...(stats.pendingExpenseCount > 0
+      ? [
+          `   • Սպասվող նախածախս (${stats.pendingExpenseCount} գրառում, չհանված)՝ -${formatMoney(stats.pendingExpenseTotal, currency)}`,
+        ]
+      : []),
     `   • Ամսվա զուտ տարբերություն՝ ${stats.netSavings > 0 ? '+' : ''}${formatMoney(stats.netSavings, currency)}`,
     `   • Իրական բալանս (նախորդ մնացորդ + զուտ)՝ ${stats.realBalance > 0 ? '+' : ''}${formatMoney(stats.realBalance, currency)}`,
     stats.savingsPct !== null
@@ -283,10 +294,17 @@ export function generateMonthlySummaryText(stats: MonthlySummaryStats): string {
       const typeLabel =
         tx.type === 'income'
           ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} եկամուտ`
-          : 'Ծախս';
-      const sign = tx.type === 'income' ? '+' : '-';
+          : tx.isPending
+            ? 'Նախածախս (սպասվող)'
+            : 'Ծախս';
+      const formattedAmount =
+        tx.type === 'income'
+          ? `+${formatMoney(tx.amount, currency)}`
+          : tx.isPending
+            ? `(-${formatMoney(tx.amount, currency)})`
+            : `-${formatMoney(tx.amount, currency)}`;
       lines.push(
-        `   ${tx.date} | ${typeLabel} | ${tx.category} | ${tx.title} | ${sign}${formatMoney(tx.amount, currency)}`
+        `   ${tx.date} | ${typeLabel} | ${tx.category} | ${tx.title} | ${formattedAmount}`
       );
     }
   }
@@ -482,7 +500,10 @@ export async function downloadMonthlySummaryPDF(
     {
       label: 'Ընդհանուր ծախս',
       value: `-${formatMoney(stats.totalExpense, stats.currency)}`,
-      sub: `${stats.expenseCount} ելք`,
+      sub:
+        stats.pendingExpenseCount > 0
+          ? `${stats.expenseCount} ելք · +${formatMoney(stats.pendingExpenseTotal, stats.currency)} սպասվող`
+          : `${stats.expenseCount} ելք`,
       valueColor: '#E11D48',
       bgColor: '#F8FAFC',
     },
@@ -755,16 +776,27 @@ export async function downloadMonthlySummaryPDF(
       const kindText =
         tx.type === 'income'
           ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} · ${tx.category}`
-          : `Ծախս · ${tx.category}`;
-      ctx.fillStyle = '#475569';
+          : tx.isPending
+            ? `Նախածախս (սպասվող) · ${tx.category}`
+            : `Ծախս · ${tx.category}`;
+      ctx.fillStyle = tx.isPending ? '#B45309' : '#475569';
       ctx.font = `500 17px ${FONT_SANS}`;
       ctx.fillText(fitText(ctx, kindText, 300), MARGIN + 560, textY);
 
       ctx.textAlign = 'right';
-      ctx.fillStyle = tx.type === 'income' ? '#059669' : '#0F172A';
+      ctx.fillStyle =
+        tx.type === 'income'
+          ? '#059669'
+          : tx.isPending
+            ? '#B45309'
+            : '#0F172A';
       ctx.font = `700 18px ${FONT_MONO}`;
       ctx.fillText(
-        `${tx.type === 'income' ? '+' : '-'}${formatMoney(tx.amount, stats.currency)}`,
+        tx.type === 'income'
+          ? `+${formatMoney(tx.amount, stats.currency)}`
+          : tx.isPending
+            ? `(-${formatMoney(tx.amount, stats.currency)})`
+            : `-${formatMoney(tx.amount, stats.currency)}`,
         PAGE_W - MARGIN - 12,
         textY
       );

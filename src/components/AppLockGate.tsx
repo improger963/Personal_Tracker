@@ -27,9 +27,32 @@ export function AppLockGate({
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const isLockedOut = Boolean(lockoutUntil && nowMs < lockoutUntil);
+  const remainingLockoutSecs =
+    lockoutUntil && nowMs < lockoutUntil
+      ? Math.max(1, Math.ceil((lockoutUntil - nowMs) / 1000))
+      : 0;
+
+  useEffect(() => {
+    if (!lockoutUntil) return;
+    const current = Date.now();
+    setNowMs(current);
+    if (current >= lockoutUntil) return;
+    const id = window.setInterval(() => {
+      const nextNow = Date.now();
+      setNowMs(nextNow);
+      if (nextNow >= lockoutUntil) {
+        window.clearInterval(id);
+        setError(null);
+      }
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [lockoutUntil]);
 
   const submitPin = async (candidate: string) => {
-    if (candidate.length !== 4 || checking) return;
+    if (candidate.length !== 4 || checking || isLockedOut) return;
     setChecking(true);
     setError(null);
     const res = await onUnlockWithPin(candidate);
@@ -41,7 +64,7 @@ export function AppLockGate({
   };
 
   const handleDigit = (digit: string) => {
-    if (checking) return;
+    if (checking || isLockedOut) return;
     setError(null);
     if (pin.length >= 4) return;
     const next = pin + digit;
@@ -52,13 +75,14 @@ export function AppLockGate({
   };
 
   const handleBackspace = () => {
-    if (checking || pin.length === 0) return;
+    if (checking || isLockedOut || pin.length === 0) return;
     setError(null);
     setPin((prev) => prev.slice(0, -1));
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isLockedOut) return;
       if (/^\d$/.test(e.key)) {
         handleDigit(e.key);
       } else if (e.key === 'Backspace') {
@@ -68,7 +92,7 @@ export function AppLockGate({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin, checking]);
+  }, [pin, checking, isLockedOut]);
 
   const handleBiometricClick = async () => {
     setError(null);
@@ -77,8 +101,6 @@ export function AppLockGate({
       setError(res.error);
     }
   };
-
-  const isLockedOut = Boolean(lockoutUntil && Date.now() < lockoutUntil);
 
   return (
     <div
@@ -119,9 +141,11 @@ export function AppLockGate({
           })}
         </div>
 
-        {error && (
-          <p className="text-xs font-medium text-rose-600 dark:text-rose-400 min-h-[16px]">
-            {error}
+        {(isLockedOut || error) && (
+          <p className="text-xs font-medium text-rose-600 dark:text-rose-400 min-h-[16px] tabular-nums">
+            {isLockedOut
+              ? `Չափազանց շատ սխալ փորձեր․ սպասեք ${remainingLockoutSecs} վայրկյան`
+              : error}
           </p>
         )}
 

@@ -63,6 +63,9 @@ function generateSalt(): string {
 }
 
 async function hashPinWithSalt(pin: string, salt: string): Promise<string> {
+  if (!window.crypto?.subtle) {
+    throw new Error('Այս դիտարկիչում գաղտնագրման համակարգը հասանելի չէ։');
+  }
   const data = new TextEncoder().encode(`${salt}:${pin}`);
   const digest = await window.crypto.subtle.digest('SHA-256', data);
   return bytesToHex(new Uint8Array(digest));
@@ -158,6 +161,7 @@ export function useAppLock() {
         return { ok: true };
       }
       const now = Date.now();
+      const lockoutExpired = Boolean(lockoutUntil && now >= lockoutUntil);
       if (lockoutUntil && now < lockoutUntil) {
         const secs = Math.max(1, Math.ceil((lockoutUntil - now) / 1000));
         return {
@@ -165,16 +169,30 @@ export function useAppLock() {
           error: `Սպասեք ${secs} վայրկյան մինչև կրկին փորձելը։`,
         };
       }
-
-      const ok = await verifyPin(pin);
-      if (ok) {
-        setFailedAttempts(0);
+      if (lockoutExpired) {
         setLockoutUntil(null);
-        setIsLocked(false);
-        return { ok: true };
       }
 
-      const nextFails = failedAttempts + 1;
+      try {
+        const ok = await verifyPin(pin);
+        if (ok) {
+          setFailedAttempts(0);
+          setLockoutUntil(null);
+          setIsLocked(false);
+          return { ok: true };
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Չհաջողվեց ստուգել PIN կոդը։',
+        };
+      }
+
+      const baseFails = lockoutExpired ? 0 : failedAttempts;
+      const nextFails = baseFails + 1;
       setFailedAttempts(nextFails);
       if (nextFails >= 5) {
         setLockoutUntil(Date.now() + 15_000);

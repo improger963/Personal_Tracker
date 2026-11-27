@@ -55,7 +55,8 @@ function mergeByKey<T>(
   cloudItems: T[],
   localItems: T[],
   getKey: (item: T) => string,
-  getTimestamp?: (item: T) => string
+  getTimestamp?: (item: T) => string,
+  resolveOverride?: (cloudItem: T, localItem: T) => T
 ): T[] {
   const map = new Map<string, T>();
   for (const item of cloudItems) {
@@ -72,7 +73,7 @@ function mergeByKey<T>(
       const localTs = getTimestamp(item) || '';
       const cloudTs = getTimestamp(existing) || '';
       if (localTs > cloudTs) {
-        map.set(key, item);
+        map.set(key, resolveOverride ? resolveOverride(existing, item) : item);
       }
     }
   }
@@ -103,19 +104,31 @@ export function mergeWorkspaces(
       cloud.transactions,
       local.transactions,
       (t) => t.id,
-      (t) => `${t.date || ''}|${t.createdAt || ''}`
+      (t) => `${t.date || ''}|${t.createdAt || ''}`,
+      (cloudTx, localTx) => ({
+        ...localTx,
+        createdAt: cloudTx.createdAt || localTx.createdAt,
+      })
     ).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     cards: mergeByKey(
       cloud.cards,
       local.cards,
       (c) => c.id,
-      (c) => c.createdAt || ''
+      (c) => c.createdAt || '',
+      (cloudCard, localCard) => ({
+        ...localCard,
+        createdAt: cloudCard.createdAt || localCard.createdAt,
+      })
     ),
     tasks: mergeByKey(
       cloud.tasks,
       local.tasks,
       (t) => t.id,
-      (t) => t.createdAt || ''
+      (t) => t.createdAt || '',
+      (cloudTask, localTask) => ({
+        ...localTask,
+        createdAt: cloudTask.createdAt || localTask.createdAt,
+      })
     ),
     notes: mergeByKey(
       cloud.notes,
@@ -568,7 +581,11 @@ export function useWorkspaceCloudSync(params: UseWorkspaceCloudSyncParams) {
         cloudConflict.localSnapshot
       );
       applySnapshotToLocal(merged);
-      await uploadFullWorkspaceToCloud(cloudConflict.userId, merged);
+      await uploadFullWorkspaceToCloud(
+        cloudConflict.userId,
+        merged,
+        cloudConflict.cloudSnapshot
+      );
       setCloudConflict(null);
       attachRealtimeSubscription(cloudConflict.userId);
       showToast('Տեղային և ամպային տվյալները հաջողությամբ միավորվեցին');

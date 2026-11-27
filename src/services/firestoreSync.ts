@@ -765,93 +765,136 @@ export async function fetchCloudWorkspaceSnapshot(
 
 export async function uploadFullWorkspaceToCloud(
   userId: string,
-  snapshot: FullWorkspaceSnapshot
+  snapshot: FullWorkspaceSnapshot,
+  existingCloud?: FullWorkspaceSnapshot
 ): Promise<void> {
-  const ops: Array<{ ref: ReturnType<typeof doc>; data: Record<string, unknown> }> = [];
+  const ops: Array<{
+    kind: 'set' | 'update';
+    ref: ReturnType<typeof doc>;
+    data: Record<string, unknown>;
+  }> = [];
 
   if (snapshot.settings) {
+    const settingsAlreadyExists = Boolean(existingCloud?.settings);
     ops.push({
+      kind: settingsAlreadyExists ? 'update' : 'set',
       ref: doc(db, 'users', userId, 'settings', 'workspace'),
-      data: buildSettingsDoc(snapshot.settings, userId, true),
+      data: buildSettingsDoc(snapshot.settings, userId, !settingsAlreadyExists),
     });
   }
 
-  for (const tx of snapshot.transactions) {
-    const id = sanitizeSafeId(tx.id, 'tx');
-    ops.push({
-      ref: doc(db, 'users', userId, 'transactions', id),
-      data: buildTransactionDoc(tx, userId, true),
-    });
-  }
-  for (const card of snapshot.cards ?? []) {
-    const id = sanitizeSafeId(card.id, 'card');
-    ops.push({
-      ref: doc(db, 'users', userId, 'cards', id),
-      data: buildBankCardDoc(card, userId, true),
-    });
-  }
-  for (const task of snapshot.tasks) {
-    const id = sanitizeSafeId(task.id, 'task');
-    ops.push({
-      ref: doc(db, 'users', userId, 'tasks', id),
-      data: buildTaskDoc(task, userId, true),
-    });
-  }
-  for (const note of snapshot.notes) {
-    const id = sanitizeSafeId(note.id, 'note');
-    ops.push({
-      ref: doc(db, 'users', userId, 'notes', id),
-      data: buildNoteDoc(note, userId, true),
-    });
-  }
-  for (const budget of snapshot.budgets) {
-    const id = getBudgetDocId(budget.category);
-    ops.push({
-      ref: doc(db, 'users', userId, 'budgets', id),
-      data: buildBudgetDoc(budget, userId, true),
-    });
-  }
-  for (const bill of snapshot.recurringBills) {
-    const id = sanitizeSafeId(bill.id, 'bill');
-    ops.push({
-      ref: doc(db, 'users', userId, 'recurringBills', id),
-      data: buildBillDoc(bill, userId, true),
-    });
-  }
-  for (const habit of snapshot.habits) {
-    const id = sanitizeSafeId(habit.id, 'habit');
-    ops.push({
-      ref: doc(db, 'users', userId, 'habits', id),
-      data: buildHabitDoc(habit, userId, true),
-    });
-  }
-  for (const goal of snapshot.savingsGoals) {
-    const id = sanitizeSafeId(goal.id, 'goal');
-    ops.push({
-      ref: doc(db, 'users', userId, 'savingsGoals', id),
-      data: buildSavingsGoalDoc(goal, userId, true),
-    });
-  }
-  for (const debt of snapshot.debts) {
-    const id = sanitizeSafeId(debt.id, 'debt');
-    ops.push({
-      ref: doc(db, 'users', userId, 'debts', id),
-      data: buildDebtDoc(debt, userId, true),
-    });
-  }
-  for (const session of snapshot.focusSessions) {
-    const id = sanitizeSafeId(session.id, 'focus');
-    ops.push({
-      ref: doc(db, 'users', userId, 'focusSessions', id),
-      data: buildFocusSessionDoc(session, userId, true),
-    });
-  }
+  const pushCollectionOps = <T>(
+    collectionName: string,
+    items: T[],
+    existingItems: T[] | undefined,
+    getDocId: (item: T) => string,
+    buildDoc: (item: T, uid: string, includeCreated: boolean) => Record<string, unknown>,
+    serialize: (item: T) => string = canonicalSerialize
+  ) => {
+    const existingMap = new Map<string, string>();
+    for (const ex of existingItems ?? []) {
+      existingMap.set(getDocId(ex), serialize(ex));
+    }
+    for (const item of items) {
+      const docId = getDocId(item);
+      const prevSerialized = existingMap.get(docId);
+      if (prevSerialized === undefined) {
+        ops.push({
+          kind: 'set',
+          ref: doc(db, 'users', userId, collectionName, docId),
+          data: buildDoc(item, userId, true),
+        });
+      } else if (prevSerialized !== serialize(item)) {
+        ops.push({
+          kind: 'update',
+          ref: doc(db, 'users', userId, collectionName, docId),
+          data: buildDoc(item, userId, false),
+        });
+      }
+    }
+  };
+
+  pushCollectionOps(
+    'transactions',
+    snapshot.transactions,
+    existingCloud?.transactions,
+    (tx) => sanitizeSafeId(tx.id, 'tx'),
+    buildTransactionDoc
+  );
+  pushCollectionOps(
+    'cards',
+    snapshot.cards ?? [],
+    existingCloud?.cards,
+    (card) => sanitizeSafeId(card.id, 'card'),
+    buildBankCardDoc
+  );
+  pushCollectionOps(
+    'tasks',
+    snapshot.tasks,
+    existingCloud?.tasks,
+    (task) => sanitizeSafeId(task.id, 'task'),
+    buildTaskDoc
+  );
+  pushCollectionOps(
+    'notes',
+    snapshot.notes,
+    existingCloud?.notes,
+    (note) => sanitizeSafeId(note.id, 'note'),
+    buildNoteDoc
+  );
+  pushCollectionOps(
+    'budgets',
+    snapshot.budgets,
+    existingCloud?.budgets,
+    (budget) => getBudgetDocId(budget.category),
+    buildBudgetDoc,
+    (b) => canonicalSerialize({ category: b.category, limit: b.limit })
+  );
+  pushCollectionOps(
+    'recurringBills',
+    snapshot.recurringBills,
+    existingCloud?.recurringBills,
+    (bill) => sanitizeSafeId(bill.id, 'bill'),
+    buildBillDoc
+  );
+  pushCollectionOps(
+    'habits',
+    snapshot.habits,
+    existingCloud?.habits,
+    (habit) => sanitizeSafeId(habit.id, 'habit'),
+    buildHabitDoc
+  );
+  pushCollectionOps(
+    'savingsGoals',
+    snapshot.savingsGoals,
+    existingCloud?.savingsGoals,
+    (goal) => sanitizeSafeId(goal.id, 'goal'),
+    buildSavingsGoalDoc
+  );
+  pushCollectionOps(
+    'debts',
+    snapshot.debts,
+    existingCloud?.debts,
+    (debt) => sanitizeSafeId(debt.id, 'debt'),
+    buildDebtDoc
+  );
+  pushCollectionOps(
+    'focusSessions',
+    snapshot.focusSessions,
+    existingCloud?.focusSessions,
+    (session) => sanitizeSafeId(session.id, 'focus'),
+    buildFocusSessionDoc
+  );
 
   for (let i = 0; i < ops.length; i += 400) {
     const chunk = ops.slice(i, i + 400);
     const batch = writeBatch(db);
     for (const op of chunk) {
-      batch.set(op.ref, op.data);
+      if (op.kind === 'update') {
+        batch.update(op.ref, op.data);
+      } else {
+        batch.set(op.ref, op.data);
+      }
     }
     try {
       await batch.commit();

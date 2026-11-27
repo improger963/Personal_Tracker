@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
-  Clock,
   Coffee,
   Flame,
   Minus,
@@ -117,7 +116,7 @@ function persistTimerState(next: PersistedTimerState) {
     localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(next));
     window.dispatchEvent(new CustomEvent(TIMER_SYNC_EVENT));
   } catch {
-    // ignore storage quota errors
+    // ignore
   }
 }
 
@@ -276,7 +275,6 @@ export const FocusTimerCard = memo(function FocusTimerCard({
     [soundEnabled, browserNotifications, notificationSettings, selectedLabel, onCompleteSession]
   );
 
-  // Listen to storage / cross-component timer sync events
   useEffect(() => {
     const syncFromStorage = () => {
       setTimer(loadTimerState());
@@ -289,7 +287,6 @@ export const FocusTimerCard = memo(function FocusTimerCard({
     };
   }, []);
 
-  // Countdown tick without recreating interval every second
   useEffect(() => {
     if (!timer.running || !timer.targetEndMs) return;
 
@@ -311,7 +308,6 @@ export const FocusTimerCard = memo(function FocusTimerCard({
     return () => window.clearInterval(id);
   }, [timer.running, timer.targetEndMs, finishSession]);
 
-  // Procedural Web Audio API soundscape generator while timer is actively running
   useEffect(() => {
     const stopActiveSoundscape = () => {
       if (soundscapeCleanupRef.current) {
@@ -349,7 +345,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
         oscRight.type = 'sine';
         oscSub.type = 'sine';
         oscLeft.frequency.value = 174;
-        oscRight.frequency.value = 184; // 10Hz gentle alpha beat
+        oscRight.frequency.value = 184;
         oscSub.frequency.value = 87;
         subGain.gain.value = 0.25;
 
@@ -385,7 +381,6 @@ export const FocusTimerCard = memo(function FocusTimerCard({
             data[i] = lastOut * 3.2;
           }
         } else {
-          // Pink/rain-textured broadband noise
           let b0 = 0;
           let b1 = 0;
           let b2 = 0;
@@ -520,7 +515,6 @@ export const FocusTimerCard = memo(function FocusTimerCard({
   const ringCircumference = 2 * Math.PI * ringRadius;
   const ringOffset = ringCircumference * (1 - progress);
 
-  // Weekly stats (last 7 days)
   const last7Days = useMemo(() => getLastNDaysISO(7), []);
   const weeklyStats = useMemo(() => {
     const daySet = new Set(last7Days.map((d) => d.date));
@@ -552,33 +546,37 @@ export const FocusTimerCard = memo(function FocusTimerCard({
   return (
     <section
       aria-label="Ֆոկուս ժամաչափ և շաբաթական արդյունավետություն"
-      className="surface-card p-4 sm:p-5 space-y-4"
+      className="surface-card p-5 sm:p-6 space-y-5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.22)] hover:border-[#2563EB]/35 dark:hover:border-[#3B82F6]/35 transition-all duration-300 relative overflow-hidden"
     >
+      {timer.running && (
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 animate-pulse" />
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3.5 min-w-0">
           <span
-            className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${
+            className={`w-10 h-10 rounded-2xl border flex items-center justify-center shrink-0 shadow-xs ${
               timer.mode === 'break'
-                ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                : 'border-[#E2E8F0] dark:border-[#233049] bg-[#F8FAFC] dark:bg-[#11192B] text-[#1D4ED8] dark:text-[#60A5FA]'
+                ? 'border-emerald-500/30 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400'
+                : 'border-blue-500/30 bg-blue-500/12 text-blue-600 dark:text-blue-400'
             }`}
           >
             {timer.mode === 'break' ? (
-              <Coffee className="w-4 h-4" />
+              <Coffee className="w-5 h-5" />
             ) : (
-              <Timer className="w-4 h-4" />
+              <Timer className="w-5 h-5" />
             )}
           </span>
           <div className="min-w-0">
-            <h3 className="font-display text-sm sm:text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-2">
+            <h3 className="font-display text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-2">
               <span>Ֆոկուս ժամաչափ</span>
               {timer.running && (
-                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  · Ակտիվ է
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 animate-pulse">
+                  Ակտիվ է
                 </span>
               )}
             </h3>
-            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums">
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8] truncate tabular-nums mt-0.5">
               Այսօր՝ {formatDuration(weeklyStats.todayMinutes)} · Շաբաթվա ընդ.՝{' '}
               {formatDuration(weeklyStats.totalMinutes)} ({weeklyStats.sessionsCount}{' '}
               սեսիա)
@@ -586,8 +584,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
           </div>
         </div>
 
-        {/* Presets */}
-        <div className="flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl surface-subtle self-start sm:self-auto border border-[#E2E8F0]/80 dark:border-[#1E293B]">
           {TIMER_PRESETS.map((preset) => {
             const active =
               timer.presetMin === preset.minutes && timer.mode === preset.mode;
@@ -596,9 +593,9 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 key={`${preset.mode}-${preset.minutes}`}
                 type="button"
                 onClick={() => handleSelectPreset(preset.minutes, preset.mode)}
-                className={`min-h-[30px] px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer whitespace-nowrap tabular-nums ${
+                className={`min-h-[32px] px-3 py-1 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap tabular-nums ${
                   active
-                    ? 'bg-white dark:bg-[#0D1422] text-[#1D4ED8] dark:text-[#60A5FA] font-semibold shadow-xs'
+                    ? 'bg-white dark:bg-[#0F172A] text-blue-600 dark:text-blue-400 shadow-xs ring-1 ring-blue-500/20'
                     : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                 }`}
               >
@@ -610,34 +607,23 @@ export const FocusTimerCard = memo(function FocusTimerCard({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
-        {/* Left: Ring + Time + Controls */}
-        <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center gap-5">
+          <div className="flex items-center gap-5 min-w-0">
             <div className="relative flex items-center justify-center shrink-0">
               <svg
-                width={compact ? 92 : 112}
-                height={compact ? 92 : 112}
+                width={compact ? 96 : 120}
+                height={compact ? 96 : 120}
                 viewBox={compact ? '0 0 88 88' : '0 0 104 104'}
-                className="-rotate-90"
+                className="-rotate-95 drop-shadow-md"
                 aria-hidden="true"
               >
-                <circle
-                  cx={compact ? 44 : 52}
-                  cy={compact ? 44 : 52}
-                  r={ringRadius + 5}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  strokeDasharray="2 5.5"
-                  className="text-[#CBD5E1] dark:text-[#233049]"
-                />
                 <circle
                   cx={compact ? 44 : 52}
                   cy={compact ? 44 : 52}
                   r={ringRadius}
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="5"
+                  strokeWidth="6"
                   className="text-[#E2E8F0] dark:text-[#1B2538]"
                 />
                 <circle
@@ -646,39 +632,44 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                   r={ringRadius}
                   fill="none"
                   stroke={timer.mode === 'break' ? '#10B981' : '#2563EB'}
-                  strokeWidth="5"
+                  strokeWidth="6"
                   strokeLinecap="round"
                   strokeDasharray={ringCircumference}
                   strokeDashoffset={ringOffset}
-                  className="transition-[stroke-dashoffset] duration-300"
+                  className="transition-[stroke-dashoffset] duration-300 drop-shadow-[0_0_8px_rgba(37,99,235,0.4)]"
                 />
               </svg>
-              <span className="absolute font-mono text-base sm:text-lg font-semibold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
-                {formatMMSS(timer.remainingSec)}
-              </span>
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                <span className="font-mono text-lg sm:text-xl font-bold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                  {formatMMSS(timer.remainingSec)}
+                </span>
+                <span className="text-[10px] font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider">
+                  {timer.mode === 'break' ? 'Դադար' : 'Ֆոկուս'}
+                </span>
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2 min-w-0 flex-1">
+            <div className="flex flex-col gap-3 min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleToggleRun}
-                  className={`min-h-[38px] px-4 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-all cursor-pointer active:scale-[0.98] ${
+                  className={`min-h-[40px] px-4.5 py-2 rounded-xl text-xs font-bold inline-flex items-center gap-2 transition-all cursor-pointer active:scale-[0.98] shadow-sm ${
                     timer.running
-                      ? 'border border-amber-400/60 bg-amber-500/12 text-amber-700 dark:text-amber-300'
+                      ? 'border border-amber-400/60 bg-amber-500/15 text-amber-700 dark:text-amber-300'
                       : 'btn-primary'
                   }`}
                 >
                   {timer.running ? (
                     <>
-                      <Pause className="w-3.5 h-3.5" />
+                      <Pause className="w-4 h-4" />
                       <span>Դադար</span>
                     </>
                   ) : (
                     <>
-                      <Play className="w-3.5 h-3.5" />
+                      <Play className="w-4 h-4" />
                       <span>
-                        {timer.remainingSec < totalSec ? 'Շարունակել' : 'Սկսել'}
+                        {timer.remainingSec < totalSec ? 'Շարունակել' : 'Սկսել սեսիան'}
                       </span>
                     </>
                   )}
@@ -690,9 +681,9 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                   disabled={timer.presetMin <= 5}
                   aria-label="Նվազեցնել 5 րոպեով"
                   title="-5 րոպե"
-                  className="min-h-[38px] px-2 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
+                  className="min-h-[40px] px-2.5 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
                 >
-                  <Minus className="w-3.5 h-3.5" />
+                  <Minus className="w-4 h-4" />
                 </button>
                 <button
                   type="button"
@@ -700,9 +691,9 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                   disabled={timer.presetMin >= 120}
                   aria-label="Ավելացնել 5 րոպե"
                   title="+5 րոպե"
-                  className="min-h-[38px] px-2 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
+                  className="min-h-[40px] px-2.5 flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer disabled:opacity-40"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-4 h-4" />
                 </button>
 
                 <button
@@ -710,7 +701,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                   onClick={handleReset}
                   aria-label="Վերակայել ժամաչափը"
                   title="Վերակայել"
-                  className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+                  className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] hover:bg-[#F8FAFC] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
                 >
                   <RotateCcw className="w-4 h-4" />
                 </button>
@@ -721,9 +712,9 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                     onClick={handleFinishEarly}
                     aria-label="Գրանցել ավարտված րոպեները"
                     title="Ավարտել և գրանցել հիմա"
-                    className="min-h-[38px] px-2.5 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-xs font-semibold inline-flex items-center gap-1 hover:bg-emerald-500/20 transition-colors cursor-pointer"
+                    className="min-h-[40px] px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 text-xs font-bold inline-flex items-center gap-1.5 hover:bg-emerald-500/20 transition-colors cursor-pointer"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <CheckCircle2 className="w-4 h-4" />
                     <span className="hidden sm:inline">Գրանցել</span>
                   </button>
                 )}
@@ -741,7 +732,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                     persistTimerState(next);
                   }}
                   aria-label="Կապել անելիքի կամ նպատակի հետ"
-                  className="w-full sm:max-w-[260px] min-h-[34px] px-2.5 py-1 text-xs rounded-xl input-field"
+                  className="w-full sm:max-w-[280px] min-h-[36px] px-3 py-1.5 text-xs rounded-xl input-field font-medium"
                 >
                   <option value="">
                     {focusGoal && !focusGoal.completed
@@ -761,13 +752,12 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 </select>
               )}
 
-              {/* Soundscape ambient selector */}
-              <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                <span className="inline-flex items-center gap-1 text-[11px] text-[#64748B] dark:text-[#94A3B8] mr-1">
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                <span className="inline-flex items-center gap-1 text-xs text-[#64748B] dark:text-[#94A3B8] mr-1 font-medium">
                   {soundscape === 'none' ? (
-                    <VolumeX className="w-3 h-3" />
+                    <VolumeX className="w-3.5 h-3.5" />
                   ) : (
-                    <Volume2 className="w-3 h-3 text-[#2563EB] dark:text-[#60A5FA]" />
+                    <Volume2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                   )}
                   <span>Ֆոն․</span>
                 </span>
@@ -778,9 +768,9 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                       key={opt.id}
                       type="button"
                       onClick={() => handleSelectSoundscape(opt.id)}
-                      className={`min-h-[26px] px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                      className={`min-h-[28px] px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                         active
-                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/70 text-[#2563EB] dark:text-[#60A5FA] font-semibold'
+                          ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/30'
                           : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                       }`}
                     >
@@ -793,48 +783,46 @@ export const FocusTimerCard = memo(function FocusTimerCard({
           </div>
         </div>
 
-        {/* Right: 7-Day Weekly Focus Bar Breakdown */}
-        <div className="lg:col-span-5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] p-3.5 space-y-2.5">
+        <div className="lg:col-span-5 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-gradient-to-br from-[#F8FAFC] to-[#EFF6FF]/40 dark:from-[#0B1120] dark:to-[#0F172A] p-4 space-y-3 shadow-inner">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-              <Flame className="w-3.5 h-3.5 text-amber-500" />
+            <span className="inline-flex items-center gap-1.5 font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+              <Flame className="w-4 h-4 text-amber-500" />
               <span>7-օրյա ֆոկուս ակտիվություն</span>
             </span>
-            <span className="inline-flex items-center gap-1 font-mono font-semibold text-[#2563EB] dark:text-[#60A5FA] tabular-nums">
-              <Clock className="w-3 h-3" />
+            <span className="inline-flex items-center gap-1 font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
               {formatDuration(weeklyStats.totalMinutes)}
             </span>
           </div>
 
-          <div className="grid grid-cols-7 gap-1.5 items-end h-14 pt-1">
+          <div className="grid grid-cols-7 gap-2 items-end h-16 pt-1">
             {weeklyStats.perDay.map((d) => {
               const barPct =
                 d.minutes > 0
-                  ? Math.max(18, Math.round((d.minutes / weeklyStats.maxDayMin) * 100))
-                  : 8;
+                  ? Math.max(20, Math.round((d.minutes / weeklyStats.maxDayMin) * 100))
+                  : 10;
               const isToday = d.date === todayISO;
               return (
                 <div
                   key={d.date}
-                  className="flex flex-col items-center justify-end h-full gap-1"
+                  className="flex flex-col items-center justify-end h-full gap-1.5"
                   title={`${d.weekday} (${d.dayNum}): ${d.minutes} րոպե`}
                 >
                   <div className="w-full flex-1 flex items-end justify-center">
                     <div
-                      className={`w-full max-w-[18px] rounded-t-md transition-all ${
+                      className={`w-full max-w-[20px] rounded-t-lg transition-all shadow-xs ${
                         d.minutes > 0
                           ? isToday
-                            ? 'bg-[#2563EB] dark:bg-[#3B82F6]'
-                            : 'bg-[#93C5FD] dark:bg-[#1D4ED8]'
+                            ? 'bg-blue-600 dark:bg-blue-500 shadow-blue-500/40'
+                            : 'bg-blue-400 dark:bg-blue-700'
                           : 'bg-[#E2E8F0] dark:bg-[#1E293B]'
                       }`}
                       style={{ height: `${barPct}%` }}
                     />
                   </div>
                   <span
-                    className={`text-[10px] leading-none ${
+                    className={`text-[10px] font-semibold leading-none ${
                       isToday
-                        ? 'font-bold text-[#2563EB] dark:text-[#60A5FA]'
+                        ? 'text-blue-600 dark:text-blue-400'
                         : 'text-[#64748B] dark:text-[#94A3B8]'
                     }`}
                   >
@@ -844,12 +832,13 @@ export const FocusTimerCard = memo(function FocusTimerCard({
               );
             })}
           </div>
-          <div className="pt-1 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] tabular-nums">
-              <span className="text-[#64748B] dark:text-[#94A3B8]">
+
+          <div className="pt-2 border-t border-[#E2E8F0] dark:border-[#1E293B] space-y-2">
+            <div className="flex items-center justify-between text-xs tabular-nums">
+              <span className="text-[#64748B] dark:text-[#94A3B8] font-medium">
                 Օրվա թիրախ ({DAILY_TARGET_MINUTES}ր)
               </span>
-              <span className="font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+              <span className="font-mono font-bold text-[#0F172A] dark:text-[#F8FAFC]">
                 {weeklyStats.todayMinutes}/{DAILY_TARGET_MINUTES}ր (
                 {Math.min(
                   100,
@@ -860,18 +849,18 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 %)
               </span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
+            <div className="h-2 w-full rounded-full bg-[#E2E8F0] dark:bg-[#1E293B] overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-300 ${
+                className={`h-full rounded-full transition-all duration-500 ${
                   weeklyStats.todayMinutes >= DAILY_TARGET_MINUTES
-                    ? 'bg-emerald-500'
-                    : 'bg-[#2563EB] dark:bg-[#3B82F6]'
+                    ? 'bg-emerald-500 shadow-emerald-500/50'
+                    : 'bg-blue-600 dark:bg-blue-500'
                 }`}
                 style={{
                   width: `${Math.min(
                     100,
                     Math.max(
-                      weeklyStats.todayMinutes > 0 ? 5 : 0,
+                      weeklyStats.todayMinutes > 0 ? 6 : 0,
                       Math.round(
                         (weeklyStats.todayMinutes / DAILY_TARGET_MINUTES) * 100
                       )

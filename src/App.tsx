@@ -2220,10 +2220,10 @@ export default function App() {
         transactions,
         selectedMonth,
         effectivePayday,
-        getTodayISO(),
+        todayISO,
         cardsInitialBalance
       ),
-    [transactions, selectedMonth, effectivePayday, cardsInitialBalance]
+    [transactions, selectedMonth, effectivePayday, todayISO, cardsInitialBalance]
   );
   const totalBalance = cycleFin.cycleEndBalance;
 

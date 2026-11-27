@@ -835,9 +835,13 @@ export const FinanceView = memo(function FinanceView({
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((tx) => [
         tx.date,
-        tx.type === 'income'
-          ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} եկամուտ`
-          : 'Ծախս',
+        tx.category === INTERNAL_TRANSFER_CATEGORY
+          ? 'Քարտերի փոխանցում'
+          : tx.type === 'income'
+            ? `${INCOME_KIND_LABELS[getTransactionIncomeKind(tx)]} եկամուտ`
+            : tx.isPending
+              ? 'Նախածախս (սպասվող)'
+              : 'Ծախս',
         tx.category,
         `"${tx.title.replace(/"/g, '""')}"`,
         String(tx.type === 'income' ? tx.amount : -tx.amount),
@@ -1093,6 +1097,7 @@ export const FinanceView = memo(function FinanceView({
                 onConsumePrefillSuggestion={() => setPrefillBillSuggestion(null)}
                 onConvertSuggestionToBill={handleConvertSuggestionToBill}
                 onDismissBillSuggestion={handleDismissBillSuggestion}
+                customCategories={customCategories}
               />
             )}
 

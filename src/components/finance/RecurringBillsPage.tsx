@@ -25,16 +25,17 @@ import { EmptyStatePlaceholder } from '../ui/Skeleton';
 import {
   BillFrequency,
   Currency,
+  CustomCategory,
   PrimaryIncomeConfig,
   RecurringBill,
   Transaction,
 } from '../../types';
 import {
-  EXPENSE_CATEGORIES,
   formatMoney,
   formatShortDate,
   getTodayISO,
 } from '../../data/defaults';
+import { mergeExpenseCategories } from '../../utils/customCategories';
 import { getDateInCycleForDay } from '../../utils/financialCycle';
 import {
   getBillFrequency,
@@ -83,6 +84,7 @@ interface RecurringBillsPageProps {
     }
   ) => void;
   onDismissBillSuggestion?: (key: string) => void;
+  customCategories?: CustomCategory[];
 }
 
 export function RecurringBillsPage({
@@ -108,7 +110,9 @@ export function RecurringBillsPage({
   onConsumePrefillSuggestion,
   onConvertSuggestionToBill,
   onDismissBillSuggestion,
+  customCategories = [],
 }: RecurringBillsPageProps) {
+  const expenseCategories = mergeExpenseCategories(customCategories);
   const todayISO = getTodayISO();
   const liveHHMM = currentHHMM || getCurrentHHMM();
 
@@ -493,7 +497,7 @@ export function RecurringBillsPage({
                       aria-label={`Կատեգորիա՝ ${suggestion.title}`}
                       className="min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
                     >
-                      {EXPENSE_CATEGORIES.map((c) => (
+                      {expenseCategories.map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
@@ -676,7 +680,7 @@ export function RecurringBillsPage({
               aria-label="Վճարման կատեգորիա"
               className="sm:col-span-4 min-h-[42px] px-3 py-2 text-sm rounded-xl input-field"
             >
-              {EXPENSE_CATEGORIES.map((c) => (
+              {expenseCategories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>

@@ -220,9 +220,18 @@ export function QuickAddModal({
       ? getTransactionIncomeKind(editingTx)
       : txPrefill?.incomeKind ?? 'monthly'
   );
+  const editingFxCurrency =
+    editingTx?.cardCurrency &&
+    editingTx.cardCurrency !== 'AMD' &&
+    typeof editingTx.cardAmount === 'number' &&
+    Number.isFinite(editingTx.cardAmount) &&
+    editingTx.cardAmount > 0
+      ? editingTx.cardCurrency
+      : null;
+
   const [txAmount, setTxAmount] = useState(
     editingTx
-      ? String(editingTx.amount)
+      ? String(editingFxCurrency ? editingTx.cardAmount : editingTx.amount)
       : txPrefill?.amount
         ? String(txPrefill.amount)
         : ''
@@ -360,12 +369,22 @@ export function QuickAddModal({
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
   // FX-to-AMD converter state
-  const [inputCurrency, setInputCurrency] = useState<'AMD' | SupportedFxCode>('AMD');
+  const [inputCurrency, setInputCurrency] = useState<'AMD' | SupportedFxCode>(
+    editingFxCurrency ?? 'AMD'
+  );
   const [fxRates, setFxRates] = useState<Partial<Record<SupportedFxCode, number>>>(
     () => ({ ...(initialFxRates ?? {}) })
   );
   const [fxLoading, setFxLoading] = useState(false);
-  const [customFxRate, setCustomFxRate] = useState('');
+  const [customFxRate, setCustomFxRate] = useState(() => {
+    if (editingFxCurrency && editingTx?.cardAmount) {
+      const impliedRate = Math.round((editingTx.amount / editingTx.cardAmount) * 100) / 100;
+      if (Number.isFinite(impliedRate) && impliedRate > 0) {
+        return String(impliedRate);
+      }
+    }
+    return '';
+  });
 
   // Voice dictation state
   const voiceRecorder = useVoiceRecorder();
@@ -721,10 +740,14 @@ export function QuickAddModal({
         );
         return;
       }
+      const strippedFxTitle = baseTitle
+        .replace(/\s*\(\d+(?:[.,]\d+)?\s+(?:USD|EUR|RUB|GEL)\)\s*$/i, '')
+        .trim();
+      const titleCore = strippedFxTitle || baseTitle;
       const finalTitle =
-        inputCurrency !== 'AMD' && !baseTitle.includes(inputCurrency)
-          ? `${baseTitle} (${rawAmount} ${inputCurrency})`
-          : baseTitle;
+        inputCurrency !== 'AMD' && !titleCore.includes(inputCurrency)
+          ? `${titleCore} (${rawAmount} ${inputCurrency})`
+          : titleCore;
 
       const mergedTags = normalizeTags([
         ...txTags,
