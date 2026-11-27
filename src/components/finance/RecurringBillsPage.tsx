@@ -481,7 +481,7 @@ export function RecurringBillsPage({
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2 w-full lg:w-auto shrink-0">
                     <input
                       type="number"
                       min="0"
@@ -489,13 +489,13 @@ export function RecurringBillsPage({
                       value={chosenAmount}
                       onChange={(e) => updateDraft({ amount: e.target.value })}
                       aria-label={`Գումար՝ ${suggestion.title}`}
-                      className="w-28 min-h-[36px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
+                      className="w-full sm:w-28 min-h-[38px] sm:min-h-[36px] px-2.5 py-1 text-xs font-mono tabular-nums rounded-xl input-field"
                     />
                     <select
                       value={chosenCategory}
                       onChange={(e) => updateDraft({ category: e.target.value })}
                       aria-label={`Կատեգորիա՝ ${suggestion.title}`}
-                      className="min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
+                      className="w-full sm:w-auto min-h-[38px] sm:min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
                     >
                       {expenseCategories.map((c) => (
                         <option key={c} value={c}>
@@ -511,7 +511,7 @@ export function RecurringBillsPage({
                         })
                       }
                       aria-label={`Հաճախականություն՝ ${suggestion.title}`}
-                      className="min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
+                      className="col-span-2 sm:col-auto w-full sm:w-auto min-h-[38px] sm:min-h-[36px] px-2.5 py-1 text-xs rounded-xl input-field"
                     >
                       <option value="monthly">Ամսական</option>
                       <option value="daily">Ամենօրյա</option>
@@ -548,39 +548,41 @@ export function RecurringBillsPage({
                           });
                         }
                       }}
-                      className="min-h-[36px] px-3 py-1.5 rounded-xl btn-primary text-xs inline-flex items-center gap-1.5 whitespace-nowrap"
+                      className="col-span-2 sm:col-auto min-h-[38px] sm:min-h-[36px] px-3 py-1.5 rounded-xl btn-primary text-xs inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
                     >
                       <Repeat className="w-3.5 h-3.5" />
                       <span>Դարձնել կրկնվող վճար</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loadSuggestionIntoComposer(suggestion);
-                        composerAnchorRef.current?.scrollIntoView({
-                          behavior: 'smooth',
-                          block: 'nearest',
-                        });
-                      }}
-                      title="Խմբագրել ներքևի ձևում"
-                      aria-label={`Խմբագրել ${suggestion.title} առաջարկը ձևում`}
-                      className="min-h-[36px] px-2.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
-                    >
-                      Խմբագրել ձևում
-                    </button>
-
-                    {onDismissBillSuggestion && (
+                    <div className="col-span-2 sm:col-auto flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => onDismissBillSuggestion(suggestion.key)}
-                        aria-label={`Թաքցնել ${suggestion.title} առաջարկը`}
-                        title="Թաքցնել"
-                        className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                        onClick={() => {
+                          loadSuggestionIntoComposer(suggestion);
+                          composerAnchorRef.current?.scrollIntoView({
+                            behavior: 'smooth',
+                            block: 'nearest',
+                          });
+                        }}
+                        title="Խմբագրել ներքևի ձևում"
+                        aria-label={`Խմբագրել ${suggestion.title} առաջարկը ձևում`}
+                        className="flex-1 sm:flex-none min-h-[38px] sm:min-h-[36px] px-2.5 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#334155] dark:text-[#CBD5E1] hover:border-[#2563EB] dark:hover:border-[#3B82F6] transition-colors cursor-pointer whitespace-nowrap"
                       >
-                        <X className="w-4 h-4" />
+                        Խմբագրել ձևում
                       </button>
-                    )}
+
+                      {onDismissBillSuggestion && (
+                        <button
+                          type="button"
+                          onClick={() => onDismissBillSuggestion(suggestion.key)}
+                          aria-label={`Թաքցնել ${suggestion.title} առաջարկը`}
+                          title="Թաքցնել"
+                          className="min-h-[38px] min-w-[38px] sm:min-h-[36px] sm:min-w-[36px] flex items-center justify-center rounded-xl text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -611,7 +613,7 @@ export function RecurringBillsPage({
       >
         <form onSubmit={handleBillSubmit} className="space-y-3.5">
           {/* Frequency Selector */}
-          <div className="grid grid-cols-3 gap-1 p-1 rounded-xl surface-subtle max-w-md">
+          <div className="grid grid-cols-3 gap-1 p-1 rounded-xl surface-subtle w-full max-w-md">
             {[
               {
                 id: 'monthly' as const,
@@ -636,14 +638,14 @@ export function RecurringBillsPage({
                   key={opt.id}
                   type="button"
                   onClick={() => setBillFrequency(opt.id)}
-                  className={`min-h-[36px] px-2 py-1.5 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`min-h-[38px] sm:min-h-[36px] px-1.5 sm:px-2 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium inline-flex items-center justify-center gap-1 sm:gap-1.5 transition-colors cursor-pointer whitespace-nowrap min-w-0 ${
                     active
                       ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] shadow-xs font-semibold'
                       : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
                   }`}
                 >
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span>{opt.label}</span>
+                  <Icon className="w-3.5 h-3.5 shrink-0 hidden min-[370px]:block" />
+                  <span className="truncate">{opt.label}</span>
                 </button>
               );
             })}

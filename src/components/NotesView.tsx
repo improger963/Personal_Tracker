@@ -277,7 +277,7 @@ export const NotesView = memo(function NotesView({
             return (
               <article
                 key={note.id}
-                className={`surface-card content-auto p-5 min-w-0 flex flex-col justify-between gap-4 transition-colors ${
+                className={`surface-card content-auto p-4 sm:p-5 min-w-0 flex flex-col justify-between gap-4 transition-colors ${
                   note.pinned
                     ? 'border-[#BFDBFE] dark:border-[#1E3A8A]'
                     : ''
@@ -378,7 +378,7 @@ export const NotesView = memo(function NotesView({
                             onClick={() =>
                               onToggleChecklistItem(note.id, item.id)
                             }
-                            className="w-full min-h-[30px] px-2 py-1 rounded-lg flex items-center gap-2 text-left text-xs hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors cursor-pointer"
+                            className="w-full min-h-[38px] sm:min-h-[32px] px-2 py-1.5 rounded-lg flex items-center gap-2.5 text-left text-xs hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors cursor-pointer"
                           >
                             <span
                               className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
@@ -422,14 +422,14 @@ export const NotesView = memo(function NotesView({
                         : 'Անձնական նշում'}
                   </span>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {onCreateTasksFromNoteAI &&
                       (note.content.trim().length > 10 || checklist.length > 0) && (
                         <button
                           type="button"
                           disabled={breakingNoteId === note.id}
                           onClick={() => void handleBreakdownNote(note)}
-                          className="min-h-[28px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                          className="min-h-[34px] sm:min-h-[30px] px-2.5 py-1 rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
                           title="Ստեղծել քայլերի անելիքներ AI-ով"
                         >
                           {breakingNoteId === note.id ? (
@@ -446,7 +446,7 @@ export const NotesView = memo(function NotesView({
                         onClick={() =>
                           onLogShoppingExpense(note, expensePrefillAmount)
                         }
-                        className="min-h-[28px] px-2.5 py-1 rounded-lg bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#DBEAFE] dark:hover:bg-[#172554] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
+                        className="min-h-[34px] sm:min-h-[30px] px-2.5 py-1 rounded-lg bg-[#EFF6FF] dark:bg-[#172554]/60 text-[#2563EB] dark:text-[#60A5FA] hover:bg-[#DBEAFE] dark:hover:bg-[#172554] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
                         title="Բացել ծախսի գրանցումը այս ցուցակի վերնագրով"
                       >
                         <ShoppingBag className="w-3 h-3" />

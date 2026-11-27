@@ -587,7 +587,7 @@ export function BudgetsPage({
                         <span>{pct}%</span>
                       </p>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
                       <span className="pa-sensitive text-xs sm:text-sm font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] mr-1">
                         {formatMoney(spent, currency)} /{' '}
                         {formatMoney(b.limit, currency)}
@@ -671,7 +671,7 @@ export function BudgetsPage({
                 </button>
               </div>
 
-              <div className="flex items-center gap-1.5 ml-auto">
+              <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
                 {CUSTOM_CATEGORY_COLORS.map((hex) => (
                   <button
                     key={hex}

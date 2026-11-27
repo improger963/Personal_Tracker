@@ -97,15 +97,15 @@ export function ShortcutsGuideModal({
         <div className="flex-1 overflow-y-auto scroll-container px-5 sm:px-6 py-5 space-y-5">
           {/* Keyboard Shortcuts */}
           <section className="space-y-2.5">
-            <h3 className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider flex items-center gap-1.5">
-              <Command className="w-3.5 h-3.5 text-[#2563EB] dark:text-[#60A5FA]" />
+            <h3 className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5">
+              <Command className="w-3.5 h-3.5 text-[#1D4ED8] dark:text-[#60A5FA]" />
               <span>Ստեղնաշարային դյուրանցումներ</span>
             </h3>
             <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B] rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] px-3.5">
               {SHORTCUTS.map((item) => (
                 <div
                   key={item.label}
-                  className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                  className="py-2.5 flex flex-wrap min-[380px]:flex-nowrap items-center justify-between gap-2 sm:gap-3 text-xs"
                 >
                   <span className="text-[#334155] dark:text-[#CBD5E1] font-medium">
                     {item.label}
@@ -127,7 +127,7 @@ export function ShortcutsGuideModal({
 
           {/* Smart Command Syntax */}
           <section className="space-y-2.5">
-            <h3 className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider flex items-center gap-1.5">
+            <h3 className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8] flex items-center gap-1.5">
               <Zap className="w-3.5 h-3.5 text-amber-500" />
               <span>Խելացի արագ մուտքի օրինակներ (⌘K)</span>
             </h3>
@@ -159,7 +159,7 @@ export function ShortcutsGuideModal({
           </section>
         </div>
 
-        <div className="px-5 sm:px-6 py-3.5 pb-[calc(0.9rem+env(safe-area-inset-bottom))] border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex items-center justify-end gap-2 shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 pb-[calc(0.9rem+env(safe-area-inset-bottom))] border-t border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] flex flex-col-reverse min-[380px]:flex-row items-stretch min-[380px]:items-center sm:justify-end gap-2 shrink-0">
           {onOpenCommandPalette && (
             <button
               type="button"
@@ -167,7 +167,7 @@ export function ShortcutsGuideModal({
                 onClose();
                 onOpenCommandPalette();
               }}
-              className="min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] transition-colors cursor-pointer"
+              className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] transition-colors cursor-pointer"
             >
               Բացել արագ հրամանները (⌘K)
             </button>
@@ -175,7 +175,7 @@ export function ShortcutsGuideModal({
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold cursor-pointer"
+            className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold cursor-pointer"
           >
             Փակել
           </button>

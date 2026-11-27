@@ -232,7 +232,7 @@ export function SplitExpenseSection({
             {splits.map((sp, idx) => (
               <div
                 key={sp.id}
-                className="flex items-center gap-2"
+                className="flex flex-wrap min-[380px]:flex-nowrap items-center gap-2"
               >
                 <input
                   type="text"
@@ -241,7 +241,7 @@ export function SplitExpenseSection({
                     handleUpdatePerson(sp.id, { person: e.target.value })
                   }
                   placeholder={`Ընկեր ${idx + 1} (օր. Արամ)`}
-                  className="flex-1 min-h-[36px] px-2.5 py-1.5 text-xs rounded-lg input-field"
+                  className="flex-1 min-w-[120px] min-h-[38px] sm:min-h-[36px] px-2.5 py-1.5 text-xs rounded-lg input-field"
                 />
 
                 {splitMode === 'custom' ? (
@@ -254,10 +254,10 @@ export function SplitExpenseSection({
                       handleUpdatePerson(sp.id, { amountStr: e.target.value })
                     }
                     placeholder="Բաժին (֏)"
-                    className="w-28 min-h-[36px] px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-lg input-field"
+                    className="w-24 min-[380px]:w-28 min-h-[38px] sm:min-h-[36px] px-2.5 py-1.5 text-xs font-mono tabular-nums rounded-lg input-field"
                   />
                 ) : (
-                  <span className="pa-sensitive w-24 text-right text-xs font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] shrink-0">
+                  <span className="pa-sensitive w-20 min-[380px]:w-24 text-right text-xs font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] shrink-0">
                     {equalPerPerson > 0
                       ? formatMoney(equalPerPerson, 'AMD')
                       : '—'}
@@ -269,7 +269,7 @@ export function SplitExpenseSection({
                     type="button"
                     onClick={() => handleRemovePerson(sp.id)}
                     aria-label="Հեռացնել մասնակցին"
-                    className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+                    className="min-h-[38px] min-w-[38px] sm:min-h-[34px] sm:min-w-[34px] flex items-center justify-center rounded-lg text-[#94A3B8] hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

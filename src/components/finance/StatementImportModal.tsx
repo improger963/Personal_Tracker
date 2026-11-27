@@ -268,7 +268,8 @@ export function StatementImportModal({
         }}
         className="w-full sm:max-w-3xl max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden"
       >
-        <div className="px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3 shrink-0">
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 -mb-1 sm:hidden shrink-0" aria-hidden="true" />
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
               <FileSpreadsheet className="w-4 h-4" />
@@ -630,7 +631,7 @@ export function StatementImportModal({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-2 pl-6 sm:pl-0 shrink-0">
+                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 shrink-0">
                         <select
                           value={row.category}
                           onChange={(e) =>

@@ -353,7 +353,7 @@ export function SavingsGoalsPage({
                   <button
                     type="button"
                     onClick={() => openGoalAction(goal, 'add')}
-                    className="flex-1 min-h-[36px] px-3 py-1.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    className="flex-1 min-h-[42px] sm:min-h-[36px] px-3 py-1.5 rounded-xl bg-[#2563EB] hover:bg-[#1D4ED8] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center justify-center gap-1 transition-colors cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Համալրել</span>
@@ -362,7 +362,7 @@ export function SavingsGoalsPage({
                     <button
                       type="button"
                       onClick={() => openGoalAction(goal, 'withdraw')}
-                      className="min-h-[36px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] inline-flex items-center gap-1 transition-colors cursor-pointer"
+                      className="min-h-[42px] sm:min-h-[36px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] inline-flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Minus className="w-3.5 h-3.5" />
                       <span>Հանել</span>
@@ -447,8 +447,9 @@ export function SavingsGoalsPage({
         >
           <form
             onSubmit={submitGoalAction}
-            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
+            className="w-full sm:max-w-sm max-h-[92dvh] overflow-y-auto scroll-container rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
           >
+            <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto -mt-1 sm:hidden shrink-0" aria-hidden="true" />
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
                 {goalActionModal.mode === 'add'
@@ -512,7 +513,7 @@ export function SavingsGoalsPage({
                   {goalActionError}
                 </p>
               )}
-              <div className="mt-2 grid grid-cols-4 gap-1.5">
+              <div className="mt-2 grid grid-cols-2 min-[380px]:grid-cols-4 gap-1.5">
                 {GOAL_QUICK_PRESETS.map((amt) => (
                   <button
                     key={amt}
@@ -525,7 +526,7 @@ export function SavingsGoalsPage({
                       setGoalActionAmount(String(nextAmt));
                       setGoalActionError('');
                     }}
-                    className="min-h-[30px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] cursor-pointer"
+                    className="min-h-[36px] sm:min-h-[30px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] hover:border-[#2563EB] cursor-pointer"
                   >
                     {amt.toLocaleString()}
                   </button>

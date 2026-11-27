@@ -2386,7 +2386,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F5F6F8] dark:bg-[#070B12] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
+    <div className="min-h-dvh flex flex-col lg:flex-row bg-[#F5F6F8] bg-[radial-gradient(ellipse_85%_45%_at_60%_-12%,rgba(37,99,235,0.055),transparent_70%)] dark:bg-[#070B12] dark:bg-[radial-gradient(ellipse_85%_45%_at_60%_-12%,rgba(59,130,246,0.09),transparent_70%)] text-[#0F172A] dark:text-[#F8FAFC] overflow-x-clip">
       <TopRouteProgressBar active={isRouteTransitioning} />
 
       <TopNav
@@ -2437,7 +2437,7 @@ export default function App() {
         totalBalance={totalBalance}
         currency="AMD"
       >
-        <main className="flex-1 w-full max-w-6xl mx-auto px-3.5 sm:px-6 lg:px-8 pt-4 sm:pt-7 min-w-0">
+        <main className="flex-1 w-full max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-7 min-w-0">
           <AnimatePresence mode="wait" onExitComplete={scrollToTopInstant}>
             <motion.div
               key={activeTab}
@@ -2647,7 +2647,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.16 }}
-            className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 left-3.5 right-3.5 sm:left-auto sm:right-6 sm:max-w-md z-50 border border-[#CBD5E1] dark:border-[#334155] bg-[#0F172A] dark:bg-[#F8FAFC] text-[#F8FAFC] dark:text-[#0F172A] px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between sm:justify-start gap-3 text-xs sm:text-sm"
+            className="fixed bottom-[calc(4.35rem+env(safe-area-inset-bottom))] md:bottom-6 left-3 right-3 sm:left-auto sm:right-6 sm:max-w-md z-50 border border-[#CBD5E1] dark:border-[#334155] bg-[#0F172A] dark:bg-[#F8FAFC] text-[#F8FAFC] dark:text-[#0F172A] px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between sm:justify-start gap-3 text-xs sm:text-sm"
             role="status"
           >
             <span className="font-medium">{toast.message}</span>

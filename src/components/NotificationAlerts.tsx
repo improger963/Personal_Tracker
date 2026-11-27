@@ -37,7 +37,7 @@ export function NotificationAlerts({
     <div
       aria-live="polite"
       aria-label="Ակտիվ ծախսերի և բյուջեի հիշեցումներ"
-      className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 right-3.5 left-3.5 sm:left-auto sm:right-6 sm:w-[23.5rem] z-40 flex flex-col gap-2.5 pointer-events-none"
+      className="fixed bottom-[calc(4.35rem+env(safe-area-inset-bottom))] md:bottom-6 right-3 left-3 sm:left-auto sm:right-6 sm:w-[23.5rem] z-40 flex flex-col gap-2.5 pointer-events-none"
     >
       <AnimatePresence mode="popLayout">
         {visible.map((item) => {
@@ -60,7 +60,7 @@ export function NotificationAlerts({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.96 }}
               transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-              className={`pointer-events-auto rounded-2xl border bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md shadow-2xl p-4 space-y-3 ${
+              className={`pointer-events-auto rounded-2xl border bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md shadow-2xl p-3.5 sm:p-4 space-y-2.5 sm:space-y-3 ${
                 isBudget
                   ? 'border-amber-400 dark:border-amber-500/45'
                   : isOverdue

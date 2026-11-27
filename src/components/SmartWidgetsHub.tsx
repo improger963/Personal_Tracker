@@ -105,7 +105,7 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
       subtitle="Արագ մուտք դեպի կանխատեսումներ, բաժանորդագրությունների սկաներ և AI ակնթարթային հարցումներ"
       icon={Sparkles}
       headerRight={
-        <div className="flex items-center gap-1 p-0.5 rounded-xl surface-subtle text-xs overflow-x-auto">
+        <div className="flex items-center gap-1 p-0.5 rounded-xl surface-subtle text-xs max-w-full overflow-x-auto no-scrollbar">
           {(
             [
               { id: 'prompts', label: 'AI Հարցումներ' },
@@ -118,7 +118,7 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`min-h-[30px] px-3 rounded-lg font-medium transition-all cursor-pointer whitespace-nowrap ${
+              className={`min-h-[34px] sm:min-h-[30px] px-3 rounded-lg font-medium transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === tab.id
                   ? 'bg-white dark:bg-[#0F172A] text-blue-600 dark:text-blue-400 font-bold shadow-xs'
                   : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
@@ -133,12 +133,12 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
       <div className="space-y-4">
         {activeTab === 'prompts' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-2 text-xs text-[#64748B] dark:text-[#94A3B8]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[#64748B] dark:text-[#94A3B8]">
               <span>Սեղմեք ցանկացած խելացի հարցման վրա՝ AI օգնականից ակնթարթային վերլուծություն ստանալու համար</span>
               <button
                 type="button"
                 onClick={() => onOpenAssistant()}
-                className="font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                className="font-bold text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1 cursor-pointer self-start sm:self-auto shrink-0 whitespace-nowrap"
               >
                 <Bot className="w-3.5 h-3.5" />
                 <span>Բացել ամբողջական զրույցը →</span>
@@ -153,19 +153,19 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
                     key={item.id}
                     type="button"
                     onClick={() => onOpenAssistant(item.prompt)}
-                    className="group p-4 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-gradient-to-br from-[#F8FAFC] to-white dark:from-[#0B1120] dark:to-[#0F172A] hover:border-blue-500 dark:hover:border-blue-400 hover:shadow-md transition-all text-left flex items-start gap-3.5 cursor-pointer"
+                    className="group interactive-card p-4 text-left flex items-start gap-3.5 cursor-pointer"
                   >
-                    <span className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition-colors shadow-xs mt-0.5">
+                    <span className="w-9 h-9 rounded-xl border border-[#DBEAFE] dark:border-[#1E3A8A]/60 bg-[#EFF6FF] dark:bg-[#172554]/50 text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-center shrink-0 group-hover:bg-[#1D4ED8] dark:group-hover:bg-[#3B82F6] group-hover:text-white dark:group-hover:text-[#060B16] group-hover:border-transparent transition-colors mt-0.5">
                       <Icon className="w-4.5 h-4.5" />
                     </span>
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                        <span className="text-[11px] font-semibold text-[#1D4ED8] dark:text-[#60A5FA]">
                           {item.category}
                         </span>
-                        <ArrowRight className="w-3.5 h-3.5 text-[#94A3B8] group-hover:translate-x-0.5 transition-transform" />
+                        <ArrowRight className="w-3.5 h-3.5 text-[#94A3B8] group-hover:text-[#1D4ED8] dark:group-hover:text-[#60A5FA] group-hover:translate-x-0.5 transition-all" />
                       </div>
-                      <p className="text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC] group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                      <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] group-hover:text-[#1D4ED8] dark:group-hover:text-[#60A5FA] transition-colors">
                         {item.title}
                       </p>
                       <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8] line-clamp-1">
@@ -182,14 +182,14 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
         {activeTab === 'health' && (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="p-4 rounded-2xl border border-blue-500/25 bg-blue-500/8 space-y-2">
+              <div className="p-4 rounded-xl border border-[#BFDBFE]/80 dark:border-[#1E3A8A]/50 bg-[#EFF6FF]/65 dark:bg-[#172554]/30 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                  <span className="text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA]">
                     Ֆինանսական առողջություն
                   </span>
-                  <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  <Activity className="w-4 h-4 text-[#1D4ED8] dark:text-[#60A5FA]" />
                 </div>
-                <p className="font-mono text-xl font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+                <p className="font-mono text-lg sm:text-xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
                   {savingsRate >= 20 ? 'Գերազանց (A+)' : savingsRate >= 10 ? 'Կայուն (B)' : 'Ուշադրություն (C)'}
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
@@ -197,31 +197,31 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/8 space-y-2">
+              <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.05] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                     Առօրյա ռիթմ (Սովորություններ)
                   </span>
                   <Flame className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 </div>
-                <p className="font-mono text-xl font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+                <p className="font-mono text-lg sm:text-xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
                   {habits.length > 0 ? `${habitsDoneToday}/${habits.length} կատարված` : 'Սովորություններ չկան'}
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
                   {habitsDoneToday === habits.length && habits.length > 0
-                    ? 'Բոլոր սովորություններն ավարտված են այսօր 🎉'
+                    ? 'Բոլոր սովորություններն ավարտված են այսօր'
                     : 'Շարունակեք հետևել ձեր առօրյա կանոններին'}
                 </p>
               </div>
 
-              <div className="p-4 rounded-2xl border border-purple-500/25 bg-purple-500/8 space-y-2">
+              <div className="p-4 rounded-xl border border-indigo-500/20 bg-indigo-500/[0.05] space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                  <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
                     Անելիքների ծանրաբեռնվածություն
                   </span>
-                  <CheckCircle2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 </div>
-                <p className="font-mono text-xl font-extrabold text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+                <p className="font-mono text-lg sm:text-xl font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
                   {pendingTasksCount} չկատարված
                 </p>
                 <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
@@ -243,16 +243,16 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
         )}
 
         {activeTab === 'quick' && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-4 gap-3">
             <button
               type="button"
               onClick={() => onNavigateFinance('ledger')}
-              className="p-4 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] hover:border-blue-500 text-left space-y-2 group cursor-pointer transition-all"
+              className="interactive-card p-4 text-left space-y-2 group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-[#1D4ED8] dark:text-[#60A5FA] flex items-center justify-center group-hover:scale-105 transition-transform">
                 <TrendingUp className="w-4 h-4" />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+              <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Ֆինանսական մատյան
               </p>
               <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
@@ -263,12 +263,12 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
             <button
               type="button"
               onClick={() => onNavigatePlanner('tasks')}
-              className="p-4 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] hover:border-blue-500 text-left space-y-2 group cursor-pointer transition-all"
+              className="interactive-card p-4 text-left space-y-2 group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center group-hover:scale-105 transition-transform">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+              <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Անելիքների կառավարիչ
               </p>
               <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
@@ -279,12 +279,12 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
             <button
               type="button"
               onClick={() => onNavigatePlanner('focus')}
-              className="p-4 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] hover:border-blue-500 text-left space-y-2 group cursor-pointer transition-all"
+              className="interactive-card p-4 text-left space-y-2 group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center group-hover:scale-105 transition-transform">
                 <Zap className="w-4 h-4" />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+              <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Ֆոկուս ժամաչափ
               </p>
               <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">
@@ -295,12 +295,12 @@ export const SmartWidgetsHub = memo(function SmartWidgetsHub({
             <button
               type="button"
               onClick={() => onOpenAssistant('Ինչպե՞ս կարող եմ բարելավել իմ բյուջեն և արդյունավետությունը այս ամիս։')}
-              className="p-4 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] hover:border-blue-500 text-left space-y-2 group cursor-pointer transition-all"
+              className="interactive-card p-4 text-left space-y-2 group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center group-hover:scale-110 transition-transform">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-105 transition-transform">
                 <Bot className="w-4 h-4" />
               </div>
-              <p className="text-xs sm:text-sm font-bold text-[#0F172A] dark:text-[#F8FAFC]">
+              <p className="text-xs sm:text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 AI Խորհրդատու
               </p>
               <p className="text-[11px] text-[#64748B] dark:text-[#94A3B8]">

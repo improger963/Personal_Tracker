@@ -434,7 +434,7 @@ export const TopNav = memo(function TopNav({
                 onSelectFinancePage('ledger');
               }
             }}
-            className="p-3.5 rounded-xl bg-[#F8FAFC] dark:bg-[#101829] border border-[#E2E8F0]/90 dark:border-[#1B2538] hover:border-[#2563EB]/60 dark:hover:border-[#3B82F6]/60 transition-colors duration-150 cursor-pointer space-y-1.5 group select-none"
+            className="p-3.5 rounded-xl bg-[#F8FAFC] dark:bg-[#0F1829] border border-[#E2E8F0] dark:border-[#1B2538] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-[#2563EB]/55 dark:hover:border-[#3B82F6]/55 transition-colors duration-150 cursor-pointer space-y-1.5 group select-none"
             title="Անցնել Ֆինանսական մատյան"
           >
             <div className="flex items-center justify-between text-[11px] text-[#64748B] dark:text-[#94A3B8]">
@@ -444,7 +444,7 @@ export const TopNav = memo(function TopNav({
                 <ArrowRight className="w-3 h-3" />
               </span>
             </div>
-            <p className="pa-sensitive font-mono text-lg font-semibold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
+            <p className="pa-sensitive font-mono text-lg font-bold tracking-[-0.02em] text-[#0F172A] dark:text-[#F8FAFC] tabular-nums">
               {formatMoney(totalBalance, currency)}
             </p>
           </div>
@@ -455,10 +455,10 @@ export const TopNav = memo(function TopNav({
               <button
                 type="button"
                 onClick={() => onSelectTab('overview')}
-                className={`relative w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
+                className={`relative w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer border ${
                   activeTab === 'overview'
-                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 border-[#DBEAFE] dark:border-[#1E3A8A]/60 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'border-transparent text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                 }`}
               >
                 <LayoutDashboard
@@ -485,10 +485,10 @@ export const TopNav = memo(function TopNav({
                       type="button"
                       onClick={() => onSelectFinancePage(item.id)}
                       aria-current={isActive ? 'page' : undefined}
-                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer border ${
                         isActive
-                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 border-[#DBEAFE] dark:border-[#1E3A8A]/60 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'border-transparent text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                       }`}
                     >
                       <Icon
@@ -531,10 +531,10 @@ export const TopNav = memo(function TopNav({
                           ? `${item.label} (${todayCount} այսօրվա անելիք)`
                           : item.label
                       }
-                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors duration-150 cursor-pointer ${
+                      className={`w-full min-h-[36px] px-3 py-1.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors duration-150 cursor-pointer border ${
                         isActive
-                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                          : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                          ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 border-[#DBEAFE] dark:border-[#1E3A8A]/60 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                          : 'border-transparent text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                       }`}
                     >
                       <span className="flex items-center gap-2.5 min-w-0">
@@ -560,10 +560,10 @@ export const TopNav = memo(function TopNav({
               <button
                 type="button"
                 onClick={() => onSelectTab('notes')}
-                className={`w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer ${
+                className={`w-full min-h-[38px] px-3 py-2 rounded-xl flex items-center gap-2.5 text-left transition-colors duration-150 cursor-pointer border ${
                   activeTab === 'notes'
-                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
-                    : 'text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
+                    ? 'bg-[#EFF6FF] dark:bg-[#172554]/55 border-[#DBEAFE] dark:border-[#1E3A8A]/60 text-[#1D4ED8] dark:text-[#60A5FA] font-semibold'
+                    : 'border-transparent text-[#475569] dark:text-[#94A3B8] hover:bg-[#F1F5F9]/80 dark:hover:bg-[#131D31] hover:text-[#0F172A] dark:hover:text-[#F8FAFC] font-medium'
                 }`}
               >
                 <NotebookPen
@@ -736,20 +736,21 @@ export const TopNav = memo(function TopNav({
       </aside>
 
       {/* Top Contextual Header + Main Content Column */}
-      <div className="flex-1 min-w-0 flex flex-col pb-24 md:pb-12">
-        <header className="h-15 sm:h-16 border-b border-[#E2E8F0]/85 dark:border-[#1B2538] bg-white/88 dark:bg-[#0B111E]/88 backdrop-blur-md sticky top-0 z-30">
-          <div className="max-w-6xl mx-auto h-full px-3.5 sm:px-6 lg:px-8 flex items-center justify-between gap-3">
+      <div className="flex-1 min-w-0 flex flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-12">
+        <header className="h-14 sm:h-16 border-b border-[#E2E8F0]/85 dark:border-[#1B2538] bg-white/88 dark:bg-[#0B111E]/88 backdrop-blur-md sticky top-0 z-30">
+          <div className="max-w-6xl mx-auto h-full px-3 sm:px-5 lg:px-8 flex items-center justify-between gap-2 sm:gap-3">
             {/* Left: Mobile/Tablet Brand OR Desktop Active Context */}
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 type="button"
                 onClick={() => onSelectTab('overview')}
-                className="lg:hidden flex items-center gap-2.5 min-w-0 cursor-pointer"
+                className="lg:hidden flex items-center gap-2 min-w-0 cursor-pointer"
+                aria-label="Անձնական Օգնական — Ընդհանուր"
               >
-                <span className="w-8 h-8 rounded-xl bg-[#0F172A] dark:bg-[#1D4ED8] text-white flex items-center justify-center shrink-0">
+                <span className="w-8 h-8 rounded-xl bg-[#1D4ED8] dark:bg-[#3B82F6] text-white dark:text-[#060B16] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] flex items-center justify-center shrink-0">
                   <BrandMark className="w-4 h-4" />
                 </span>
-                <span className="font-display text-base font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
+                <span className="md:hidden font-display text-[15px] min-[380px]:text-base font-bold tracking-tight text-[#0F172A] dark:text-[#F8FAFC] truncate">
                   Անձնական Օգնական
                 </span>
               </button>
@@ -767,7 +768,7 @@ export const TopNav = memo(function TopNav({
 
             {/* Tablet Horizontal Navigation (md to lg) */}
             <nav
-              className="hidden md:flex lg:hidden items-center gap-1 p-1 rounded-xl surface-subtle"
+              className="hidden md:flex lg:hidden items-center gap-0.5 p-1 rounded-xl surface-subtle min-w-0"
               aria-label="Հիմնական նավիգացիա"
             >
               {NAV_ITEMS.map((item) => {
@@ -783,7 +784,7 @@ export const TopNav = memo(function TopNav({
                         ? `${item.label} (${todayCount} այսօրվա անելիք)`
                         : item.label
                     }
-                    className={`relative min-h-[36px] px-3 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                    className={`relative min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                       isActive
                         ? 'text-[#2563EB] dark:text-[#60A5FA] font-semibold'
                         : 'text-[#64748B] dark:text-[#94A3B8] hover:text-[#0F172A] dark:hover:text-[#F8FAFC]'
@@ -813,7 +814,7 @@ export const TopNav = memo(function TopNav({
             </nav>
 
             {/* Right: Controls */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               {(activeTab === 'overview' ||
                 (activeTab === 'finance' &&
                   (financePage === 'ledger' ||
@@ -931,7 +932,7 @@ export const TopNav = memo(function TopNav({
                       transition={{ duration: 0.14 }}
                       role="dialog"
                       aria-label="Կարգավորումներ"
-                      className="absolute right-0 mt-2 w-64 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 p-3 space-y-2.5"
+                      className="fixed inset-x-3 top-[3.75rem] max-h-[calc(100dvh-5rem)] overflow-y-auto scroll-container sm:fixed sm:inset-x-auto sm:right-5 sm:top-[4.25rem] sm:w-68 md:absolute md:right-0 md:top-auto md:mt-2 md:w-64 md:max-h-none rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 p-3 space-y-2.5"
                     >
                       {user ? (
                         <div className="p-2.5 rounded-xl bg-[#F8FAFC] dark:bg-[#111A2E] space-y-1.5">
@@ -1153,7 +1154,7 @@ export const TopNav = memo(function TopNav({
                       transition={{ duration: 0.14 }}
                       role="dialog"
                       aria-label="Պրո ծանուցումների կենտրոն"
-                      className="fixed inset-x-3.5 top-[4.25rem] max-h-[calc(100dvh-5.5rem)] sm:max-h-none sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[26rem] rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 overflow-hidden flex flex-col"
+                      className="fixed inset-x-3 top-[3.75rem] max-h-[calc(100dvh-5rem)] sm:max-h-none sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-[26rem] rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl z-50 overflow-hidden flex flex-col"
                     >
                       {/* Header + Sound / Voice / Browser Notification Toggles */}
                       <div className="px-4 py-3 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-2">
@@ -2127,10 +2128,12 @@ export const TopNav = memo(function TopNav({
                   onOpenNewModal();
                 }}
                 title="Ավելացնել նոր գրառում (Alt / Option + N)"
-                className="hidden md:inline-flex min-h-[40px] px-3 sm:px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm items-center gap-1.5 whitespace-nowrap shrink-0"
+                aria-label="Ավելացնել նոր գրառում"
+                className="hidden md:inline-flex min-h-[38px] lg:min-h-[40px] px-3 lg:px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm items-center gap-1.5 whitespace-nowrap shrink-0"
               >
                 <Plus className="w-4 h-4 shrink-0" />
-                <span>Նոր գրառում</span>
+                <span className="md:hidden lg:inline">Նոր գրառում</span>
+                <span className="hidden md:inline lg:hidden">Ավելացնել</span>
               </button>
             </div>
           </div>
@@ -2141,7 +2144,7 @@ export const TopNav = memo(function TopNav({
         {/* Mobile Fixed Bottom Dock (< md) */}
         <nav
           aria-label="Բջջային նավիգացիա"
-          className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(3.85rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-xl border-t border-[#E2E8F0]/90 dark:border-[#1E293B]/90 grid grid-cols-5 items-center px-1 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.35)] select-none"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-[calc(3.45rem+env(safe-area-inset-bottom))] pb-[env(safe-area-inset-bottom)] bg-white/95 dark:bg-[#0C1220]/95 backdrop-blur-xl border-t border-[#E2E8F0]/90 dark:border-[#1E293B]/90 grid grid-cols-5 items-center px-1 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_24px_rgba(0,0,0,0.35)] select-none"
         >
           {/* Tab 1: Overview */}
           <button
@@ -2212,9 +2215,9 @@ export const TopNav = memo(function TopNav({
                 onOpenNewModal();
               }}
               aria-label="Նոր գրառում (արագ ավելացում)"
-              className="w-12 h-12 -mt-4 rounded-full bg-[#0F172A] dark:bg-[#3B82F6] text-white dark:text-[#060B16] flex items-center justify-center shadow-[0_8px_20px_-4px_rgba(15,23,42,0.35)] dark:shadow-[0_8px_20px_-4px_rgba(59,130,246,0.4)] border-[2.5px] border-white dark:border-[#0B111E] active:scale-92 transition-transform duration-150 cursor-pointer shrink-0"
+              className="w-11 h-11 -mt-3.5 rounded-full bg-[#1D4ED8] hover:bg-[#1E40AF] dark:bg-[#3B82F6] text-white dark:text-[#060B16] flex items-center justify-center shadow-[0_8px_20px_-4px_rgba(29,78,216,0.42)] dark:shadow-[0_8px_20px_-4px_rgba(59,130,246,0.42)] border-[2.5px] border-white dark:border-[#0B111E] active:scale-92 transition-transform duration-150 cursor-pointer shrink-0"
             >
-              <Plus className="w-5.5 h-5.5" strokeWidth={2.5} />
+              <Plus className="w-5 h-5" strokeWidth={2.5} />
             </button>
           </div>
 

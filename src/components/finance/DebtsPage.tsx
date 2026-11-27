@@ -184,7 +184,7 @@ export function DebtsPage({
         icon={HandCoins}
         noPadding
         headerRight={
-          <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-xl surface-subtle">
+          <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle max-w-full overflow-x-auto no-scrollbar">
             {(
               [
                 { id: 'all', label: 'Բոլորը' },
@@ -197,7 +197,7 @@ export function DebtsPage({
                 key={tab.id}
                 type="button"
                 onClick={() => setDebtFilter(tab.id)}
-                className={`min-h-[30px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[34px] sm:min-h-[30px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                   debtFilter === tab.id
                     ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
                     : 'text-[#64748B] dark:text-[#94A3B8]'
@@ -332,7 +332,7 @@ export function DebtsPage({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pl-12 sm:pl-0">
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 shrink-0">
                     <div className="text-left sm:text-right mr-1">
                       <span className="block text-[10px] text-[#64748B] dark:text-[#94A3B8]">
                         {debt.settled ? 'Ընդամենը' : 'Մնացորդ'}
@@ -460,8 +460,9 @@ export function DebtsPage({
         >
           <form
             onSubmit={submitDebtPayment}
-            className="w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
+            className="w-full sm:max-w-sm max-h-[92dvh] overflow-y-auto scroll-container rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
           >
+            <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto -mt-1 sm:hidden shrink-0" aria-hidden="true" />
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate">
                 {debtPayModal.direction === 'lent'
@@ -537,17 +538,17 @@ export function DebtsPage({
               </span>
             </label>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse min-[360px]:flex-row justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setDebtPayModal(null)}
-                className="min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] cursor-pointer"
+                className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] cursor-pointer"
               >
                 Չեղարկել
               </button>
               <button
                 type="submit"
-                className="min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold"
+                className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold"
               >
                 Հաստատել վճարումը
               </button>

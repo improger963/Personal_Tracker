@@ -1102,7 +1102,7 @@ export function QuickAddModal({
                   setMode(tab.id);
                   setError('');
                 }}
-                className={`min-h-[36px] px-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                className={`min-h-[36px] px-1 rounded-lg text-[11px] sm:text-xs font-medium transition-colors cursor-pointer whitespace-nowrap min-w-0 truncate ${
                   mode === tab.id
                     ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
                     : 'text-[#64748B] dark:text-[#94A3B8]'
@@ -1273,11 +1273,11 @@ export function QuickAddModal({
               <div>
                 <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-3">
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1">
                       <label className="block text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
                         Գումար ({inputCurrency})
                       </label>
-                      <div className="inline-flex items-center gap-1">
+                      <div className="inline-flex flex-wrap items-center gap-1">
                         {(['AMD', 'USD', 'EUR', 'RUB', 'GEL'] as const).map((code) => (
                           <button
                             key={code}
@@ -1358,13 +1358,13 @@ export function QuickAddModal({
                 )}
 
                 {inputCurrency === 'AMD' && (
-                  <div className="mt-2 grid grid-cols-4 gap-1.5">
+                  <div className="mt-2 grid grid-cols-2 min-[360px]:grid-cols-4 gap-1.5">
                     {QUICK_AMOUNTS_AMD.map((preset, idx) => (
                       <button
                         key={`${preset}-${idx}`}
                         type="button"
                         onClick={() => handleQuickPreset(preset)}
-                        className="min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] active:scale-[0.96] transition-all cursor-pointer"
+                        className="min-h-[36px] sm:min-h-[32px] rounded-lg border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#111A2E] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-[11px] font-mono tabular-nums text-[#475569] dark:text-[#CBD5E1] active:scale-[0.96] transition-all cursor-pointer"
                       >
                         +{preset.toLocaleString()}
                       </button>
@@ -2442,7 +2442,7 @@ export function QuickAddModal({
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex flex-col-reverse min-[360px]:flex-row items-stretch min-[360px]:items-center justify-end gap-2 pt-2">
             <button
               type="button"
               onClick={onClose}

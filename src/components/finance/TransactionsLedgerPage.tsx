@@ -518,7 +518,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
         <div className="p-4 sm:px-6 border-b border-[#E2E8F0] dark:border-[#1E293B] flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Type Switcher with Pre-Expenses */}
-            <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle max-w-full overflow-x-auto">
+            <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle max-w-full overflow-x-auto no-scrollbar">
               {(
                 [
                   { id: 'all', label: 'Բոլորը' },
@@ -600,12 +600,12 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
           </div>
 
           {/* Filters & Search */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2">
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
               aria-label="Զտել ըստ կատեգորիայի"
-              className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+              className="min-h-[40px] sm:min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs rounded-xl input-field w-full sm:w-auto min-w-0"
             >
               <option value="all">Բոլոր կատեգորիաները</option>
               {allCategories.map((c) => (
@@ -620,7 +620,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 value={filterTag}
                 onChange={(e) => setFilterTag(e.target.value)}
                 aria-label="Զտել ըստ թեգի"
-                className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+                className="min-h-[40px] sm:min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs rounded-xl input-field w-full sm:w-auto min-w-0"
               >
                 <option value="all">Բոլոր #թեգերը</option>
                 {availableTags.map((tag) => (
@@ -636,7 +636,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 value={filterCardId}
                 onChange={(e) => onFilterCardChange(e.target.value)}
                 aria-label="Զտել ըստ քարտի կամ դրամապանակի"
-                className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+                className="min-h-[40px] sm:min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs rounded-xl input-field w-full sm:w-auto min-w-0"
               >
                 <option value="all">Բոլոր քարտերը</option>
                 {cards.map((c) => (
@@ -652,7 +652,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
               value={txSort}
               onChange={(e) => setTxSort(e.target.value as TxSortMode)}
               aria-label="Տեսակավորել գործարքները"
-              className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+              className="min-h-[40px] sm:min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs rounded-xl input-field w-full sm:w-auto min-w-0"
             >
               <option value="date-desc">Նորից հին</option>
               <option value="date-asc">Հնից նոր</option>
@@ -666,14 +666,14 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 setFilterDateMode(e.target.value as 'all' | 'specific' | 'range')
               }
               aria-label="Զտել ըստ օրվա"
-              className="min-h-[38px] px-3 py-1.5 text-xs rounded-xl input-field flex-1 sm:flex-none"
+              className="min-h-[40px] sm:min-h-[38px] px-2.5 sm:px-3 py-1.5 text-xs rounded-xl input-field w-full sm:w-auto min-w-0"
             >
               <option value="all">Բոլոր օրերը</option>
               <option value="specific">Կոնկրետ օր</option>
               <option value="range">Ժամանակահատված</option>
             </select>
 
-            <div className="relative flex-1 min-w-[200px] sm:max-w-xs ml-auto">
+            <div className="relative col-span-2 sm:col-auto sm:flex-1 sm:min-w-[200px] sm:max-w-xs sm:ml-auto">
               <Search className="w-4 h-4 text-[#94A3B8] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
@@ -883,10 +883,10 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
 
         {/* Frequent Uncategorized Expenses -> Recurring Bills Prompt */}
         {billSuggestions.length > 0 && (
-          <div className="px-4 sm:px-6 py-2.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-amber-50/75 dark:bg-amber-950/25 flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2 text-xs text-amber-950 dark:text-amber-200 min-w-0">
-              <Repeat className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-              <span className="truncate sm:whitespace-normal tabular-nums">
+          <div className="px-4 sm:px-6 py-2.5 border-b border-[#E2E8F0] dark:border-[#1E293B] bg-amber-50/75 dark:bg-amber-950/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-start sm:items-center gap-2 text-xs text-amber-950 dark:text-amber-200 min-w-0">
+              <Repeat className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+              <span className="leading-snug tabular-nums">
                 {billSuggestions.length === 1 ? (
                   <>
                     «{billSuggestions[0].title}» չդասակարգված ծախսը կրկնվել է{' '}
@@ -904,12 +904,12 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 )}
               </span>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
               {onConvertSuggestionToBill && (
                 <button
                   type="button"
                   onClick={() => onConvertSuggestionToBill(billSuggestions[0])}
-                  className="min-h-[30px] px-3 py-1 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+                  className="min-h-[34px] sm:min-h-[30px] px-3 py-1 rounded-lg bg-[#1D4ED8] hover:bg-[#1E40AF] dark:bg-[#3B82F6] dark:hover:bg-[#60A5FA] text-white dark:text-[#060B16] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <Repeat className="w-3 h-3" />
                   <span>
@@ -923,7 +923,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                 <button
                   type="button"
                   onClick={() => onOpenSuggestionInBills(billSuggestions[0])}
-                  className="min-h-[30px] px-2.5 py-1 rounded-lg border border-amber-300/90 dark:border-amber-800/80 bg-white/80 dark:bg-[#0F172A] text-xs font-medium text-amber-900 dark:text-amber-200 hover:border-amber-500 transition-colors cursor-pointer whitespace-nowrap"
+                  className="min-h-[34px] sm:min-h-[30px] px-2.5 py-1 rounded-lg border border-amber-300/90 dark:border-amber-800/80 bg-white/80 dark:bg-[#0F172A] text-xs font-medium text-amber-900 dark:text-amber-200 hover:border-amber-500 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   {billSuggestions.length > 1
                     ? `Դիտել բոլորը (${billSuggestions.length})`
@@ -936,7 +936,7 @@ export const TransactionsLedgerPage = memo(function TransactionsLedgerPage({
                   onClick={() => onDismissBillSuggestion(billSuggestions[0].key)}
                   aria-label="Թաքցնել առաջարկը"
                   title="Թաքցնել"
-                  className="min-h-[30px] min-w-[30px] flex items-center justify-center rounded-lg text-amber-700/75 dark:text-amber-300/75 hover:bg-amber-200/50 dark:hover:bg-amber-900/40 cursor-pointer"
+                  className="min-h-[34px] min-w-[34px] sm:min-h-[30px] sm:min-w-[30px] flex items-center justify-center rounded-lg text-amber-700/75 dark:text-amber-300/75 hover:bg-amber-200/50 dark:hover:bg-amber-900/40 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>

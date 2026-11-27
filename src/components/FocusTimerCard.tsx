@@ -546,19 +546,26 @@ export const FocusTimerCard = memo(function FocusTimerCard({
   return (
     <section
       aria-label="Ֆոկուս ժամաչափ և շաբաթական արդյունավետություն"
-      className="surface-card p-5 sm:p-6 space-y-5 shadow-[0_4px_24px_rgba(15,23,42,0.04)] dark:shadow-[0_4px_24px_rgba(0,0,0,0.22)] hover:border-[#2563EB]/35 dark:hover:border-[#3B82F6]/35 transition-all duration-300 relative overflow-hidden"
+      className="surface-card p-5 sm:p-6 space-y-5 relative overflow-hidden"
     >
       {timer.running && (
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-emerald-500 animate-pulse" />
+        <div
+          className={`absolute top-0 left-0 h-[2.5px] transition-[width] duration-300 ${
+            timer.mode === 'break'
+              ? 'bg-emerald-500'
+              : 'bg-[#1D4ED8] dark:bg-[#3B82F6]'
+          }`}
+          style={{ width: `${Math.max(3, Math.round(progress * 100))}%` }}
+        />
       )}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3.5 min-w-0">
           <span
-            className={`w-10 h-10 rounded-2xl border flex items-center justify-center shrink-0 shadow-xs ${
+            className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${
               timer.mode === 'break'
-                ? 'border-emerald-500/30 bg-emerald-500/12 text-emerald-600 dark:text-emerald-400'
-                : 'border-blue-500/30 bg-blue-500/12 text-blue-600 dark:text-blue-400'
+                ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
+                : 'border-[#DBEAFE] dark:border-[#1E3A8A]/60 bg-[#EFF6FF]/85 dark:bg-[#172554]/50 text-[#1D4ED8] dark:text-[#60A5FA]'
             }`}
           >
             {timer.mode === 'break' ? (
@@ -571,8 +578,8 @@ export const FocusTimerCard = memo(function FocusTimerCard({
             <h3 className="font-display text-base font-bold text-[#0F172A] dark:text-[#F8FAFC] flex items-center gap-2">
               <span>Ֆոկուս ժամաչափ</span>
               {timer.running && (
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 animate-pulse">
-                  Ակտիվ է
+                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  · Ակտիվ սեսիա
                 </span>
               )}
             </h3>
@@ -608,7 +615,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
         <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center gap-5">
-          <div className="flex items-center gap-5 min-w-0">
+          <div className="flex flex-col min-[430px]:flex-row items-center gap-4 sm:gap-5 min-w-0 w-full">
             <div className="relative flex items-center justify-center shrink-0">
               <svg
                 width={compact ? 96 : 120}
@@ -643,14 +650,14 @@ export const FocusTimerCard = memo(function FocusTimerCard({
                 <span className="font-mono text-lg sm:text-xl font-bold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
                   {formatMMSS(timer.remainingSec)}
                 </span>
-                <span className="text-[10px] font-semibold text-[#64748B] dark:text-[#94A3B8] uppercase tracking-wider">
+                <span className="text-[11px] font-medium text-[#64748B] dark:text-[#94A3B8]">
                   {timer.mode === 'break' ? 'Դադար' : 'Ֆոկուս'}
                 </span>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-3 min-w-0 flex-1 w-full min-[430px]:w-auto">
+              <div className="flex flex-wrap items-center justify-center min-[430px]:justify-start gap-2">
                 <button
                   type="button"
                   onClick={handleToggleRun}
@@ -783,7 +790,7 @@ export const FocusTimerCard = memo(function FocusTimerCard({
           </div>
         </div>
 
-        <div className="lg:col-span-5 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-gradient-to-br from-[#F8FAFC] to-[#EFF6FF]/40 dark:from-[#0B1120] dark:to-[#0F172A] p-4 space-y-3 shadow-inner">
+        <div className="lg:col-span-5 rounded-xl border border-[#E2E8F0] dark:border-[#1B2538] bg-[#F8FAFC]/85 dark:bg-[#0B1120] p-4 space-y-3">
           <div className="flex items-center justify-between gap-2 text-xs">
             <span className="inline-flex items-center gap-1.5 font-bold text-[#0F172A] dark:text-[#F8FAFC]">
               <Flame className="w-4 h-4 text-amber-500" />

@@ -56,7 +56,7 @@ export function ConfirmExpenseModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 16 }}
         transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-        className="w-full max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-0"
+        className="w-full max-w-md max-h-[92dvh] overflow-y-auto scroll-container rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-0"
       >
         {/* iOS Native Bottom Sheet Grabber */}
         <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 sm:hidden shrink-0" aria-hidden="true" />
@@ -117,17 +117,17 @@ export function ConfirmExpenseModal({
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#F1F5F9] dark:border-[#1E293B]">
+          <div className="flex flex-col-reverse min-[360px]:flex-row items-stretch min-[360px]:items-center justify-end gap-2.5 pt-2 border-t border-[#F1F5F9] dark:border-[#1E293B]">
             <button
               type="button"
               onClick={onClose}
-              className="min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#334155] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
+              className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl border border-[#CBD5E1] dark:border-[#334155] text-xs font-medium text-[#475569] dark:text-[#CBD5E1] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] transition-colors cursor-pointer"
             >
               Չեղարկել
             </button>
             <button
               type="submit"
-              className="min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs font-semibold inline-flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Check className="w-4 h-4" strokeWidth={2.5} />
               <span>Հաստատել և գրանցել</span>

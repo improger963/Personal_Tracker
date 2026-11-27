@@ -36,8 +36,9 @@ export function PWAInstallModal({ onClose }: PWAInstallModalProps) {
           duration: prefersReducedMotion ? 0.04 : 0.18,
           ease: [0.22, 1, 0.36, 1],
         }}
-        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
+        className="w-full sm:max-w-md max-h-[92dvh] overflow-y-auto scroll-container rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:p-6 shadow-2xl space-y-4"
       >
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto -mt-1 sm:hidden shrink-0" aria-hidden="true" />
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-[#2563EB]/10 dark:bg-[#3B82F6]/15 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
@@ -101,7 +102,7 @@ export function PWAInstallModal({ onClose }: PWAInstallModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm"
+            className="w-full sm:w-auto min-h-[42px] sm:min-h-[40px] px-4 py-2 rounded-xl btn-primary text-xs sm:text-sm"
           >
             Հասկանալի է
           </button>

@@ -646,19 +646,45 @@ export const OverviewView = memo(function OverviewView({
                       <stop offset="0%" stopColor="#2563EB" stopOpacity="0.22" />
                       <stop offset="100%" stopColor="#2563EB" stopOpacity="0" />
                     </linearGradient>
+                    <linearGradient id="cobaltStroke" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#3B82F6" />
+                      <stop offset="100%" stopColor="#1D4ED8" />
+                    </linearGradient>
                   </defs>
-                  <line x1="0" y1="18" x2="320" y2="18" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 4" />
-                  <line x1="0" y1="46" x2="320" y2="46" stroke="currentColor" strokeOpacity="0.08" strokeDasharray="3 4" />
+                  <line x1="0" y1="18" x2="320" y2="18" stroke="currentColor" strokeOpacity="0.07" strokeDasharray="3 4" />
+                  <line x1="0" y1="46" x2="320" y2="46" stroke="currentColor" strokeOpacity="0.07" strokeDasharray="3 4" />
                   <line x1="0" y1="74" x2="320" y2="74" stroke="currentColor" strokeOpacity="0.08" />
                   <polygon points={sparkArea} fill="url(#cobaltFlow)" />
                   <polyline
                     points={sparkPoints}
                     fill="none"
-                    stroke="#2563EB"
-                    strokeWidth="2.1"
+                    stroke="url(#cobaltStroke)"
+                    strokeWidth="2.2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />
+                  {!activeSparkNode && sparkNodes.length > 0 && (() => {
+                    const last = sparkNodes[sparkNodes.length - 1];
+                    return (
+                      <g>
+                        <circle
+                          cx={last.x}
+                          cy={last.y}
+                          r="6.5"
+                          fill="#2563EB"
+                          fillOpacity="0.18"
+                        />
+                        <circle
+                          cx={last.x}
+                          cy={last.y}
+                          r="3.2"
+                          fill="#2563EB"
+                          stroke="#FFFFFF"
+                          strokeWidth="1.5"
+                        />
+                      </g>
+                    );
+                  })()}
                   {activeSparkNode && (
                     <>
                       <line
@@ -673,7 +699,14 @@ export const OverviewView = memo(function OverviewView({
                       <circle
                         cx={activeSparkNode.x}
                         cy={activeSparkNode.y}
-                        r="4.2"
+                        r="7.5"
+                        fill="#2563EB"
+                        fillOpacity="0.16"
+                      />
+                      <circle
+                        cx={activeSparkNode.x}
+                        cy={activeSparkNode.y}
+                        r="4"
                         fill="#2563EB"
                         stroke="#FFFFFF"
                         strokeWidth="1.75"
@@ -764,11 +797,11 @@ export const OverviewView = memo(function OverviewView({
                   Պատմությունից
                 </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 min-[360px]:grid-cols-2 sm:grid-cols-4 gap-2">
                 {frequentExpensePresets.map((preset, idx) => (
                   <div
                     key={`${preset.title}-${preset.category}-${idx}`}
-                    className="flex items-center justify-between gap-1 rounded-xl border border-[#E2E8F0]/90 dark:border-[#1B2538] bg-[#F8FAFC]/80 dark:bg-[#0A101D] hover:border-[#2563EB]/45 dark:hover:border-[#3B82F6]/45 transition-colors px-2.5 py-2 min-w-0"
+                    className="flex items-center justify-between gap-1 rounded-xl border border-[#E2E8F0]/90 dark:border-[#1B2538] bg-[#F8FAFC]/80 dark:bg-[#0A101D] hover:border-[#2563EB]/45 dark:hover:border-[#3B82F6]/45 transition-colors px-2.5 py-2 min-h-[44px] min-w-0"
                   >
                     <button
                       type="button"
@@ -1179,11 +1212,11 @@ export const OverviewView = memo(function OverviewView({
                 <div
                   onMouseEnter={() => setHoveredFlowSlice('income')}
                   onMouseLeave={() => setHoveredFlowSlice(null)}
-                  className="p-3.5 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] space-y-1 transition-colors hover:border-emerald-500/50"
+                  className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.045] space-y-1 transition-colors hover:border-emerald-500/45"
                 >
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                       <span>Ընդհանուր եկամուտ</span>
                     </span>
                     <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-300 tabular-nums">
@@ -1192,7 +1225,7 @@ export const OverviewView = memo(function OverviewView({
                         : '0%'}
                     </span>
                   </div>
-                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
                     +{formatMoney(totalIncome, currency)}
                   </p>
                 </div>
@@ -1200,11 +1233,11 @@ export const OverviewView = memo(function OverviewView({
                 <div
                   onMouseEnter={() => setHoveredFlowSlice('expense')}
                   onMouseLeave={() => setHoveredFlowSlice(null)}
-                  className="p-3.5 rounded-xl border border-rose-500/25 bg-rose-500/[0.06] space-y-1 transition-colors hover:border-rose-500/50"
+                  className="p-3.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.045] space-y-1 transition-colors hover:border-rose-500/45"
                 >
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="inline-flex items-center gap-1.5 font-semibold text-rose-700 dark:text-rose-300">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
                       <span>Ընդհանուր ծախս</span>
                     </span>
                     <span className="font-mono font-semibold text-rose-700 dark:text-rose-300 tabular-nums">
@@ -1213,7 +1246,7 @@ export const OverviewView = memo(function OverviewView({
                         : '0%'}
                     </span>
                   </div>
-                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
+                  <p className="pa-sensitive font-mono text-base sm:text-lg font-bold tracking-tight tabular-nums text-[#0F172A] dark:text-[#F8FAFC]">
                     -{formatMoney(totalExpense, currency)}
                   </p>
                 </div>
@@ -1299,9 +1332,9 @@ export const OverviewView = memo(function OverviewView({
                 return (
                   <div
                     key={tx.id}
-                    className="px-5 py-3 flex items-center justify-between gap-3"
+                    className="px-4 sm:px-5 py-3 flex items-center justify-between gap-2.5 sm:gap-3"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                       <span
                         className={`w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${
                           tx.isPending
@@ -1343,7 +1376,7 @@ export const OverviewView = memo(function OverviewView({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-col items-end min-[420px]:flex-row min-[420px]:items-center gap-1.5 sm:gap-2 shrink-0">
                       <div className="text-right">
                         <span
                           className={`pa-sensitive block text-xs sm:text-sm font-semibold font-mono tabular-nums whitespace-nowrap ${
@@ -1370,7 +1403,7 @@ export const OverviewView = memo(function OverviewView({
                         <button
                           type="button"
                           onClick={() => onConfirmPreExpense(tx.id)}
-                          className="px-2 py-1 text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 cursor-pointer"
+                          className="min-h-[30px] px-2.5 py-1 text-[11px] sm:text-xs font-semibold rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 cursor-pointer whitespace-nowrap"
                           title="Հաստատել և հանել բալանսից"
                         >
                           Հաստատել

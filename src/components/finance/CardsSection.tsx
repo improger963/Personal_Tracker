@@ -188,7 +188,7 @@ export function CardsSection({
                 >
                   {/* Visual Card Face */}
                   <div
-                    className={`relative overflow-hidden bg-gradient-to-br ${style.gradient} p-5 flex flex-col justify-between gap-4 ring-1 ring-inset ring-white/15`}
+                    className={`relative overflow-hidden bg-gradient-to-br ${style.gradient} p-4 sm:p-5 flex flex-col justify-between gap-4 ring-1 ring-inset ring-white/15`}
                   >
                     <div
                       aria-hidden="true"
@@ -234,7 +234,7 @@ export function CardsSection({
                             onClick={() => onSetDefaultCard(card.id)}
                             title="Դարձնել հիմնական քարտ"
                             aria-label={`Դարձնել ${card.name} հիմնական`}
-                            className="min-h-[30px] min-w-[30px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                            className="min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
                           >
                             <Star className="w-3.5 h-3.5" />
                           </button>
@@ -244,7 +244,7 @@ export function CardsSection({
                           onClick={() => onEditCard(card)}
                           title="Խմբագրել քարտը"
                           aria-label={`Խմբագրել ${card.name}`}
-                          className="min-h-[30px] min-w-[30px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
+                          className="min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-white/15 transition-colors cursor-pointer"
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
@@ -253,7 +253,7 @@ export function CardsSection({
                           onClick={() => onDeleteCard(card.id)}
                           title="Ջնջել քարտը"
                           aria-label={`Ջնջել ${card.name}`}
-                          className="min-h-[30px] min-w-[30px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-rose-500/40 transition-colors cursor-pointer"
+                          className="min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] rounded-lg flex items-center justify-center text-white/75 hover:text-white hover:bg-rose-500/40 transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

@@ -499,10 +499,11 @@ export function SmartAssistantModal({
           duration: prefersReducedMotion ? 0.04 : 0.18,
           ease: [0.22, 1, 0.36, 1],
         }}
-        className="w-full sm:max-w-2xl h-[88dvh] sm:h-[640px] max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden"
+        className="w-full sm:max-w-2xl h-[90dvh] sm:h-[640px] max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden"
       >
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 -mb-1 sm:hidden shrink-0" aria-hidden="true" />
         {/* Header */}
-        <div className="px-4 sm:px-6 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3 shrink-0">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/70 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
               <Bot className="w-4.5 h-4.5" />
@@ -596,7 +597,7 @@ export function SmartAssistantModal({
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed space-y-2.5 ${
+                    className={`max-w-[92%] sm:max-w-[85%] rounded-2xl px-3.5 sm:px-4 py-3 text-sm leading-relaxed space-y-2.5 ${
                       msg.role === 'user'
                         ? 'bg-[#2563EB] text-white'
                         : 'bg-[#F8FAFC] dark:bg-[#0B1120] border border-[#E2E8F0] dark:border-[#1E293B] text-[#0F172A] dark:text-[#F8FAFC]'

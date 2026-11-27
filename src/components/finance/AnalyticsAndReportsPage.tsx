@@ -637,7 +637,7 @@ export function AnalyticsAndReportsPage({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-[#E2E8F0] dark:border-[#1E293B] text-xs tabular-nums">
               <div>
                 <span className="block text-[11px] text-[#64748B] dark:text-[#94A3B8]">
                   Իրացվելի միջոցներ
@@ -1603,7 +1603,7 @@ export function AnalyticsAndReportsPage({
                 />
               ) : (
                 <div className="space-y-2.5">
-                  <div className="grid grid-cols-3 gap-2 text-[11px] pb-1 tabular-nums">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2.5 sm:gap-2 text-[11px] pb-1 tabular-nums">
                     <div>
                       <span className="block text-[#94A3B8]">Ամսական</span>
                       <span className="pa-sensitive font-mono font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
@@ -1676,15 +1676,15 @@ export function AnalyticsAndReportsPage({
           }
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-semibold text-[#94A3B8]">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-[10px] sm:text-[11px] font-semibold text-[#94A3B8]">
               {['Երկ', 'Երք', 'Չոր', 'Հինգ', 'Ուրբ', 'Շաբ', 'Կիր'].map((wd) => (
-                <div key={wd} className="py-1">
+                <div key={wd} className="py-1 truncate">
                   {wd}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
               {Array.from({ length: cycleCalendarData.leadingEmpty }).map((_, i) => (
                 <div key={`empty-${i}`} className="h-10 sm:h-11" aria-hidden="true" />
               ))}

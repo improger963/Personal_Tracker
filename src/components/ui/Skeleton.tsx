@@ -178,7 +178,7 @@ export function ScrollToTopButton() {
       onClick={scrollToTopSmooth}
       aria-label="Վերադառնալ էջի վերև"
       title="Վերադառնալ վերև"
-      className="fixed bottom-[calc(4.85rem+env(safe-area-inset-bottom))] md:bottom-6 left-3.5 sm:left-5 lg:left-[17.5rem] z-30 w-10 h-10 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] hover:text-[#2563EB] dark:hover:text-[#60A5FA] shadow-lg flex items-center justify-center transition-[transform,opacity,color,border-color] duration-150 cursor-pointer"
+      className="fixed bottom-[calc(4.35rem+env(safe-area-inset-bottom))] md:bottom-6 left-3 sm:left-5 lg:left-[17.5rem] z-30 w-10 h-10 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md text-[#0F172A] dark:text-[#F8FAFC] hover:border-[#2563EB] dark:hover:border-[#3B82F6] hover:text-[#2563EB] dark:hover:text-[#60A5FA] shadow-lg flex items-center justify-center transition-[transform,opacity,color,border-color] duration-150 cursor-pointer"
     >
       <ArrowUp className="w-4 h-4" />
     </button>

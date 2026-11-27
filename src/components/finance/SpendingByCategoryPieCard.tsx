@@ -226,8 +226,8 @@ export const SpendingByCategoryPieCard = memo(function SpendingByCategoryPieCard
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
-            <div className="sm:col-span-5 relative h-[200px] w-full">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+            <div className="md:col-span-5 relative h-[200px] w-full">
               <ResponsiveContainer width="100%" height={200} minWidth={0}>
                 <PieChart>
                   <Pie
@@ -295,7 +295,7 @@ export const SpendingByCategoryPieCard = memo(function SpendingByCategoryPieCard
               )}
             </div>
 
-            <div className="sm:col-span-7 max-h-[212px] overflow-y-auto scroll-container pr-1 divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+            <div className="md:col-span-7 max-h-[212px] overflow-y-auto scroll-container pr-1 divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
               {segments.map((seg) => {
                 const isSelected = activeCategoryFilter === seg.category;
                 const isDimmed =
@@ -313,7 +313,7 @@ export const SpendingByCategoryPieCard = memo(function SpendingByCategoryPieCard
                     onClick={() => onSelectCategory?.(seg.category)}
                     onMouseEnter={() => setHoveredCategory(seg.category)}
                     onMouseLeave={() => setHoveredCategory(null)}
-                    className={`w-full py-2 px-2 rounded-lg text-left transition-all cursor-pointer space-y-1 ${
+                    className={`w-full min-h-[42px] sm:min-h-0 py-2 px-2 rounded-lg text-left transition-all cursor-pointer space-y-1 ${
                       isSelected
                         ? 'bg-[#EFF6FF] dark:bg-[#172554]/50'
                         : 'hover:bg-[#F8FAFC] dark:hover:bg-[#162033]'

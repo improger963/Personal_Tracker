@@ -25,12 +25,13 @@ export function CloudMergeModal({
       aria-modal="true"
       aria-labelledby="cloud-merge-title"
     >
-      <div className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center gap-3">
+      <div className="w-full sm:max-w-lg max-h-[92dvh] overflow-y-auto scroll-container rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl">
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 sm:hidden shrink-0" aria-hidden="true" />
+        <div className="px-4 sm:px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center gap-3">
           <span className="w-9 h-9 rounded-xl bg-amber-500/12 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
             <ShieldAlert className="w-5 h-5" />
           </span>
-          <div>
+          <div className="min-w-0">
             <h2
               id="cloud-merge-title"
               className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
@@ -43,10 +44,10 @@ export function CloudMergeModal({
           </div>
         </div>
 
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 space-y-4">
+          <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-3">
             <div className="p-3.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] space-y-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#64748B] dark:text-[#94A3B8]">
+              <p className="text-xs font-semibold text-[#64748B] dark:text-[#94A3B8]">
                 Այս սարքում (Տեղային)
               </p>
               <div className="text-xs text-[#0F172A] dark:text-[#F8FAFC] space-y-0.5 tabular-nums">
@@ -58,7 +59,7 @@ export function CloudMergeModal({
             </div>
 
             <div className="p-3.5 rounded-xl border border-[#E2E8F0] dark:border-[#1E293B] bg-[#F8FAFC] dark:bg-[#0B1120] space-y-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#2563EB] dark:text-[#60A5FA]">
+              <p className="text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA]">
                 Ամպային հաշիվ
               </p>
               <div className="text-xs text-[#0F172A] dark:text-[#F8FAFC] space-y-0.5 tabular-nums">

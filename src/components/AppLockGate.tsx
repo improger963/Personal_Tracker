@@ -104,18 +104,18 @@ export function AppLockGate({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F5F6F8] dark:bg-[#070B12] px-4 py-8"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[#F5F6F8] dark:bg-[#070B12] px-4 py-4 sm:py-8 overflow-y-auto"
       role="dialog"
       aria-modal="true"
       aria-label="Հավելվածի կողպում"
     >
-      <div className="w-full max-w-xs space-y-6 text-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-[#1D4ED8]/10 dark:bg-[#3B82F6]/15 flex items-center justify-center text-[#1D4ED8] dark:text-[#60A5FA]">
-            <BrandMark className="w-8 h-8" />
+      <div className="w-full max-w-xs space-y-4 sm:space-y-6 text-center my-auto">
+        <div className="flex flex-col items-center gap-2.5 sm:gap-3">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-[#1D4ED8]/10 dark:bg-[#3B82F6]/15 flex items-center justify-center text-[#1D4ED8] dark:text-[#60A5FA]">
+            <BrandMark className="w-7 h-7 sm:w-8 sm:h-8" />
           </div>
           <div>
-            <h1 className="font-display text-lg font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
+            <h1 className="font-display text-base sm:text-lg font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
               Հավելվածը պաշտպանված է
             </h1>
             <p className="text-xs text-[#64748B] dark:text-[#94A3B8] mt-1">
@@ -150,14 +150,14 @@ export function AppLockGate({
         )}
 
         {/* Keypad */}
-        <div className="grid grid-cols-3 gap-3 max-w-[260px] mx-auto">
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-3 max-w-[250px] sm:max-w-[260px] mx-auto">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((d) => (
             <button
               key={d}
               type="button"
               disabled={checking || isLockedOut}
               onClick={() => handleDigit(d)}
-              className="h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-xl font-semibold font-mono text-[#0F172A] dark:text-[#F8FAFC] active:scale-95 transition-all cursor-pointer disabled:opacity-45"
+              className="h-12 min-[380px]:h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-lg sm:text-xl font-semibold font-mono text-[#0F172A] dark:text-[#F8FAFC] active:scale-95 transition-all cursor-pointer disabled:opacity-45"
             >
               {d}
             </button>
@@ -168,7 +168,7 @@ export function AppLockGate({
               type="button"
               onClick={() => void handleBiometricClick()}
               aria-label="Ապակողպել կենսաչափական տվյալով"
-              className="h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+              className="h-12 min-[380px]:h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center active:scale-95 transition-all cursor-pointer"
             >
               <Fingerprint className="w-6 h-6" />
             </button>
@@ -180,7 +180,7 @@ export function AppLockGate({
             type="button"
             disabled={checking || isLockedOut}
             onClick={() => handleDigit('0')}
-            className="h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-xl font-semibold font-mono text-[#0F172A] dark:text-[#F8FAFC] active:scale-95 transition-all cursor-pointer disabled:opacity-45"
+            className="h-12 min-[380px]:h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-[#2563EB] dark:hover:border-[#3B82F6] text-lg sm:text-xl font-semibold font-mono text-[#0F172A] dark:text-[#F8FAFC] active:scale-95 transition-all cursor-pointer disabled:opacity-45"
           >
             0
           </button>
@@ -189,7 +189,7 @@ export function AppLockGate({
             type="button"
             onClick={handleBackspace}
             aria-label="Ջնջել վերջին թիվը"
-            className="h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-rose-500 text-[#64748B] dark:text-[#94A3B8] flex items-center justify-center active:scale-95 transition-all cursor-pointer"
+            className="h-12 min-[380px]:h-14 rounded-2xl border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] hover:border-rose-500 text-[#64748B] dark:text-[#94A3B8] flex items-center justify-center active:scale-95 transition-all cursor-pointer"
           >
             <Delete className="w-5 h-5" />
           </button>
@@ -329,16 +329,17 @@ export function AppLockSettingsModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/70 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center">
+      <div className="w-full sm:max-w-md max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl border-t sm:border border-[#E2E8F0] dark:border-[#1E293B] bg-white dark:bg-[#0F172A] shadow-2xl overflow-hidden">
+        <div className="w-10 h-1 rounded-full bg-[#CBD5E1] dark:bg-[#334155] mx-auto mt-2.5 sm:hidden shrink-0" aria-hidden="true" />
+        <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-[#E2E8F0] dark:border-[#1E293B] flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-9 h-9 rounded-xl bg-[#EFF6FF] dark:bg-[#172554]/70 text-[#2563EB] dark:text-[#60A5FA] flex items-center justify-center shrink-0">
               <ShieldCheck className="w-4.5 h-4.5" />
             </span>
-            <div>
+            <div className="min-w-0">
               <h2
                 id="applock-settings-title"
-                className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]"
+                className="font-display text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC] truncate"
               >
                 Անվտանգություն և PIN կողպեք
               </h2>
@@ -351,13 +352,13 @@ export function AppLockSettingsModal({
             type="button"
             onClick={onClose}
             aria-label="Փակել"
-            className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-[#64748B] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] cursor-pointer"
+            className="min-h-[38px] min-w-[38px] flex items-center justify-center rounded-xl text-[#64748B] hover:bg-[#F1F5F9] dark:hover:bg-[#1E293B] cursor-pointer shrink-0"
           >
             <X className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto scroll-container p-4 sm:p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5 space-y-4">
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/8 px-3 py-2 text-xs text-rose-600 dark:text-rose-300">
               {error}

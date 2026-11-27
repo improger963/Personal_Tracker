@@ -646,7 +646,7 @@ export const PlannerView = memo(function PlannerView({
                         className="w-full min-h-[38px] px-3 py-1.5 text-sm rounded-xl input-field"
                       />
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
                       <select
                         value={quickTaskPriority}
                         onChange={(e) =>
@@ -679,7 +679,7 @@ export const PlannerView = memo(function PlannerView({
                         disabled={!quickTaskTitle.trim() || aiBreakdownLoading}
                         onClick={() => void handleGenerateAISubtasks()}
                         title="Տրոհել մեծ նպատակը 3-6 կոնկրետ քայլերի AI-ով"
-                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+                        className="min-h-[38px] px-3 py-1.5 rounded-xl border border-[#CBD5E1] dark:border-[#26334D] bg-white dark:bg-[#0F172A] text-xs font-semibold text-[#1D4ED8] dark:text-[#60A5FA] hover:border-[#2563EB] dark:hover:border-[#3B82F6] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer"
                       >
                         {aiBreakdownLoading ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -761,8 +761,8 @@ export const PlannerView = memo(function PlannerView({
 
                 <div className="px-4 sm:px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] space-y-3">
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
+                    <div className="flex flex-wrap items-center gap-2 max-w-full">
+                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle max-w-full overflow-x-auto no-scrollbar">
                         {(
                           [
                             { id: 'all', label: 'Բոլորը' },
@@ -774,7 +774,7 @@ export const PlannerView = memo(function PlannerView({
                             key={tab.id}
                             type="button"
                             onClick={() => setFilter(tab.id)}
-                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            className={`min-h-[34px] px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                               filter === tab.id
                                 ? 'bg-white dark:bg-[#0F172A] text-[#2563EB] dark:text-[#60A5FA] font-semibold shadow-xs'
                                 : 'text-[#64748B] dark:text-[#94A3B8]'
@@ -785,7 +785,7 @@ export const PlannerView = memo(function PlannerView({
                         ))}
                       </div>
 
-                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle">
+                      <div className="inline-flex items-center gap-1 p-1 rounded-xl surface-subtle max-w-full overflow-x-auto no-scrollbar">
                         {(
                           [
                             { id: 'all', label: 'Ամբողջը' },
@@ -798,7 +798,7 @@ export const PlannerView = memo(function PlannerView({
                             key={item.id}
                             type="button"
                             onClick={() => setScope(item.id)}
-                            className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap ${
+                            className={`min-h-[34px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                               scope === item.id
                                 ? 'bg-white dark:bg-[#0F172A] text-[#0F172A] dark:text-[#F8FAFC] font-semibold shadow-xs'
                                 : item.id === 'overdue' && overdueCount > 0
@@ -1066,7 +1066,7 @@ export const PlannerView = memo(function PlannerView({
                             </div>
                           </button>
 
-                          <div className="pl-8 sm:pl-0 flex items-center justify-between sm:justify-end gap-1.5 shrink-0">
+                          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 shrink-0">
                             {linkedTx?.isPending && onConfirmPreExpense && (
                               <button
                                 type="button"
@@ -1182,8 +1182,8 @@ export const PlannerView = memo(function PlannerView({
                   </div>
                 ) : (
                   <>
-                    {/* Mobile Card Layout */}
-                    <div className="sm:hidden divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
+                    {/* Mobile & Narrow Tablet Card Layout */}
+                    <div className="md:hidden divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
                       {habits.map((habit) => {
                         const streak = calculateStreak(
                           habit.completedDates,
@@ -1194,7 +1194,7 @@ export const PlannerView = memo(function PlannerView({
                         ).length;
 
                         return (
-                          <div key={habit.id} className="p-4 space-y-3">
+                          <div key={habit.id} className="p-3 sm:p-4 space-y-3">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold text-[#0F172A] dark:text-[#F8FAFC] break-words">
@@ -1254,7 +1254,7 @@ export const PlannerView = memo(function PlannerView({
                                       }
                                       aria-label={`${habit.title} - ${d.date}`}
                                       aria-pressed={done}
-                                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
+                                      className={`w-8 h-8 min-[360px]:w-9 min-[360px]:h-9 rounded-xl border flex items-center justify-center transition-colors cursor-pointer ${
                                         done
                                           ? 'bg-emerald-600 border-emerald-600 text-white dark:bg-emerald-500 dark:border-emerald-500'
                                           : d.date === todayISO
@@ -1276,9 +1276,9 @@ export const PlannerView = memo(function PlannerView({
                     </div>
 
                     {/* Tablet & Desktop Table Layout */}
-                    <div className="hidden sm:block">
+                    <div className="hidden md:block">
                       <div className="px-6 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] grid grid-cols-12 items-center gap-2 text-xs font-medium text-[#64748B] dark:text-[#94A3B8]">
-                        <div className="col-span-5">Սովորություն</div>
+                        <div className="col-span-4">Սովորություն</div>
                         <div className="col-span-6 grid grid-cols-7 gap-1 text-center">
                           {last7Days.map((d) => (
                             <div
@@ -1296,7 +1296,7 @@ export const PlannerView = memo(function PlannerView({
                             </div>
                           ))}
                         </div>
-                        <div className="col-span-1 text-right">Գործող.</div>
+                        <div className="col-span-2 text-right">Գործող.</div>
                       </div>
 
                       <div className="divide-y divide-[#F1F5F9] dark:divide-[#1E293B]">
@@ -1314,7 +1314,7 @@ export const PlannerView = memo(function PlannerView({
                               key={habit.id}
                               className="px-6 py-3.5 grid grid-cols-12 items-center gap-2 hover:bg-[#F8FAFC] dark:hover:bg-[#162033] transition-colors"
                             >
-                              <div className="col-span-5 min-w-0 pr-2">
+                              <div className="col-span-4 min-w-0 pr-2">
                                 <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC] truncate">
                                   {habit.title}
                                 </p>
@@ -1356,7 +1356,7 @@ export const PlannerView = memo(function PlannerView({
                                 })}
                               </div>
 
-                              <div className="col-span-1 flex justify-end gap-0.5">
+                              <div className="col-span-2 flex justify-end gap-0.5">
                                 <button
                                   type="button"
                                   onClick={() => onEditHabit(habit)}

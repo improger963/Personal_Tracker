@@ -854,7 +854,7 @@ export function CommandPaletteModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-[#080C14]/70 backdrop-blur-xs p-3 sm:p-6 pt-[8vh] sm:pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-[#080C14]/70 backdrop-blur-xs p-2.5 sm:p-6 pt-[4vh] sm:pt-[12vh]"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -862,9 +862,9 @@ export function CommandPaletteModal({
       aria-modal="true"
       aria-label="Արագ որոնում և հրամանների վահանակ"
     >
-      <div className="w-full max-w-xl bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#1E293B] rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-xl max-h-[86dvh] sm:max-h-[78dvh] flex flex-col bg-white dark:bg-[#0F172A] border border-[#E2E8F0] dark:border-[#1E293B] rounded-2xl shadow-2xl overflow-hidden">
         {/* Search & Smart Command Input */}
-        <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B]">
+        <div className="flex items-center gap-2 sm:gap-2.5 px-3 sm:px-4 py-3 sm:py-3.5 border-b border-[#E2E8F0] dark:border-[#1E293B] shrink-0">
           <Search className="w-4.5 h-4.5 text-[#2563EB] dark:text-[#60A5FA] shrink-0" />
           <input
             ref={inputRef}
@@ -977,7 +977,7 @@ export function CommandPaletteModal({
         )}
 
         {/* Results */}
-        <div className="max-h-[54vh] overflow-y-auto scroll-container p-2 space-y-1">
+        <div className="flex-1 min-h-0 overflow-y-auto scroll-container p-2 space-y-1">
           {results.length === 0 ? (
             <div className="py-10 text-center text-xs text-[#64748B] dark:text-[#94A3B8]">
               Որոնման արդյունքներ չգտնվեցին
